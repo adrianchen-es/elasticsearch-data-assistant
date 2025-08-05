@@ -24,6 +24,7 @@ services:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - AZURE_AI_API_KEY=${AZURE_AI_API_KEY}
       - AZURE_AI_ENDPOINT=${AZURE_AI_ENDPOINT}
+      - AZURE_AI_DEPLOYMENT=${AZURE_AI_DEPLOYMENT}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - OTEL_SERVICE_NAME=elasticsearch-ai-backend
     ports:
