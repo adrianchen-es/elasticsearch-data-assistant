@@ -1,9 +1,18 @@
-import { WebTracerProvider, ConsoleSpanExporter, BatchSpanProcessor } from '@opentelemetry/sdk-trace-web';
+import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { ZoneContextManager } from '@opentelemetry/context-zone';
+import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
+import { DocumentLoadInstrumentation } from '@opentelemetry/instrumentation-document-load';
 import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
+import { UserInteractionInstrumentation } from '@opentelemetry/instrumentation-user-interaction';
 import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
+import { B3Propagator } from '@opentelemetry/propagator-b3';
 import { trace } from '@opentelemetry/api';
+
 
 export const setupTelemetry = () => {
   try {
@@ -21,11 +30,22 @@ export const setupTelemetry = () => {
       provider.addSpanProcessor(new BatchSpanProcessor(new ConsoleSpanExporter()));
     }
     
-    provider.register();
+    provider.register({
+        contextManager: new ZoneContextManager(),
+        propagator: new B3Propagator(),
+    });
     
     // Register instrumentations
     registerInstrumentations({
       instrumentations: [
+        getWebAutoInstrumentations({
+          // load custom configuration for xml-http-request instrumentation
+          '@opentelemetry/instrumentation-xml-http-request': {
+            clearTimingResources: true,
+          },
+        }),
+        new DocumentLoadInstrumentation(),
+        new UserInteractionInstrumentation(),
         new FetchInstrumentation({
           propagateTraceHeaderCorsUrls: [
             /localhost/,

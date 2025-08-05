@@ -1,12 +1,10 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List
-from opentelemetry import trace
 import logging
 import uuid
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 router = APIRouter()
 
 # Shared models
@@ -38,7 +36,6 @@ class QueryValidationResponse(BaseModel):
     message: str = ""
 
 @router.post("/query/execute", response_model=QueryResponse)
-@tracer.start_as_current_span("execute_query")
 async def execute_query(request: QueryRequest, app_request: Request):
     """Execute a custom Elasticsearch query"""
     try:
@@ -60,7 +57,6 @@ async def execute_query(request: QueryRequest, app_request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/query/validate", response_model=QueryValidationResponse)
-@tracer.start_as_current_span("validate_query")
 async def validate_query(request: QueryValidationRequest, app_request: Request):
     """Validate an Elasticsearch query without executing it"""
     try:
@@ -81,7 +77,6 @@ async def validate_query(request: QueryValidationRequest, app_request: Request):
         )
 
 @router.get("/indices", response_model=List[str])
-##@tracer.start_as_current_span("get_indices")
 async def get_indices(app_request: Request):
     """Get list of available Elasticsearch indices"""
     try:

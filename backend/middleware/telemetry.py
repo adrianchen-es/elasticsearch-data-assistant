@@ -2,6 +2,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -10,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def setup_telemetry(app):
+def setup_telemetry():
     """Setup OpenTelemetry instrumentation"""
     try:
         # Set up tracer provider
@@ -27,11 +28,11 @@ def setup_telemetry(app):
         span_processor = BatchSpanProcessor(otlp_exporter)
         tracer.add_span_processor(span_processor)
         
-        # Instrument FastAPI
-        FastAPIInstrumentor.instrument_app(app)
-        
         # Instrument Elasticsearch
         ElasticsearchInstrumentor().instrument()
+
+        # Instrument OpenAI
+        OpenAIInstrumentor().instrument()
         
         # Instrument HTTPX
         HTTPXClientInstrumentor().instrument()
@@ -40,4 +41,17 @@ def setup_telemetry(app):
         
     except Exception as e:
         logger.error(f"Failed to setup telemetry: {e}")
+        # Don't fail the app if telemetry setup fails
+
+def setup_telemetry_fastapi(app):
+    """Setup OpenTelemetry FastAPI instrumentation"""
+    try:
+        
+        # Instrument FastAPI
+        FastAPIInstrumentor.instrument_app(app)
+        
+        logger.info("OpenTelemetry FastAPI instrumentation setup complete")
+        
+    except Exception as e:
+        logger.error(f"Failed to setup FastAPI telemetry: {e}")
         # Don't fail the app if telemetry setup fails

@@ -13,6 +13,9 @@ from routers import chat, query, health
 
 load_dotenv()
 
+# Setup telemetry
+setup_telemetry()
+
 # Initialize services
 es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
 ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
@@ -33,8 +36,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Setup telemetry
-setup_telemetry(app)
+# Setup FastAPI telemetry
+setup_telemetry_fastapi(app)
 
 # CORS middleware
 app.add_middleware(
