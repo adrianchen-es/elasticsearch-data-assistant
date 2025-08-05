@@ -53,6 +53,8 @@ services:
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    environment:
+      - OTEL_COLLECTOR_EXPORTER_OTLP=${OTEL_COLLECTOR_EXPORTER_OTLP:-http://localhost:8200}
     ports:
       - "4317:4317"   # OTLP gRPC receiver
       - "4318:4318"   # OTLP HTTP receiver
