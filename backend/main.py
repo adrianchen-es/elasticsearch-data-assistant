@@ -15,7 +15,7 @@ load_dotenv()
 
 # Initialize services
 es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
-ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint)
+ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
 mapping_cache_service = MappingCacheService(es_service)
 
 @asynccontextmanager
