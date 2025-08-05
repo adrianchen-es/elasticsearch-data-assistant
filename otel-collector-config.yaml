@@ -23,7 +23,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [batch]
       exporters: [otlp]
     metrics:
       receivers: [otlp]
@@ -31,5 +31,5 @@ service:
       exporters: [otlp, prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [batch]
       exporters: [otlp]
