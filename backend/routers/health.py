@@ -24,6 +24,7 @@ class HealthResponse(BaseModel):
     timestamp: float
 
 @router.get("/health", response_model=HealthResponse)
+@tracer.start_as_current_span("get_health_endpoint")
 async def health_check(app_request: Request):
     """Health check endpoint with caching for improved performance"""
     with tracer.start_as_current_span(
