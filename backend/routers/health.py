@@ -28,6 +28,7 @@ async def health_check(app_request: Request):
         mapping_service = app_request.app.state.mapping_cache_service
         indices = await mapping_service.get_available_indices()
         services["mapping_cache"] = f"healthy ({len(indices)} indices cached)"
+        services["res"] = f"response ({indices})"
     except Exception as e:
         services["mapping_cache"] = f"unhealthy: {str(e)}"
     
