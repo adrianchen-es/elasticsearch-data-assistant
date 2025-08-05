@@ -45,6 +45,7 @@ class MappingCacheService:
                     try:
                         mapping = await self.es_service.get_index_mapping(index)
                         new_cache[index] = mapping
+                        logger.info(f"Caching mappings for {index} indices")
                     except Exception as e:
                         logger.warning(f"Failed to cache mapping for index {index}: {e}")
                 
