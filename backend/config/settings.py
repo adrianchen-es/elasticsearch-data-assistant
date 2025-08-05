@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     
     azure_ai_api_key: str = os.getenv("AZURE_AI_API_KEY", "")
     azure_ai_endpoint: str = os.getenv("AZURE_AI_ENDPOINT", "")
+    azure_ai_deployment: str = os.getenv("AZURE_AI_DEPLOYMENT", "")
     azure_ai_model: str = os.getenv("AZURE_AI_MODEL", "gpt-4")
     
     # Alternative AI providers

@@ -8,16 +8,24 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class AIService:
-    def __init__(self, azure_api_key: str, azure_endpoint: str, openai_api_key: Optional[str] = None):
+    def __init__(self, azure_api_key: str, azure_endpoint: str, azure_deployment: str, azure_version: Optional[str] = None, openai_api_key: Optional[str] = None):
         self.azure_api_key = azure_api_key
         self.azure_endpoint = azure_endpoint
+        self.azure_deployment = azure_deployment
+        self.azure_version = azure_version
         self.openai_api_key = openai_api_key
         
         if azure_api_key and azure_endpoint:
             self.azure_client = AsyncAzureOpenAI(
                 api_key=azure_api_key,
                 azure_endpoint=azure_endpoint,
-                api_version="2024-02-01"
+                api_version="2024-12-01-preview"
+            )
+        elif azure_api_key and azure_endpoint and azure_version:
+            self.azure_client = AsyncAzureOpenAI(
+                api_key=azure_api_key,
+                azure_endpoint=azure_endpoint,
+                api_version=azure_version
             )
         else:
             self.azure_client = None
@@ -46,7 +54,7 @@ class AIService:
         try:
             if provider == "azure" and self.azure_client:
                 response = await self.azure_client.chat.completions.create(
-                    model="gpt-4",
+                    model=azure_deployment,
                     messages=messages,
                     temperature=0.1
                 )
@@ -97,7 +105,7 @@ class AIService:
         try:
             if provider == "azure" and self.azure_client:
                 response = await self.azure_client.chat.completions.create(
-                    model="gpt-4",
+                    model=azure_deployment,
                     messages=messages,
                     temperature=0.3
                 )
