@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Dict
+from opentelemetry import trace
 import logging
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 router = APIRouter()
 
 class HealthResponse(BaseModel):

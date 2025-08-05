@@ -88,7 +88,7 @@ async def get_indices(app_request: Request):
         mapping_service = app_request.app.state.mapping_cache_service
         indices = await mapping_service.get_available_indices()
         logger.info(f"Indices: {indices}")
-        logger.info(f"Response type: {type(indices)})")
+        print(f"Response type: {type(indices)})")
         return indices
         
     except Exception as e:
