@@ -16,7 +16,7 @@ import { context, trace } from '@opentelemetry/api';
 
 export const setupTelemetry = () => {
   try {
-    const resource = new Resource(attributes={
+    const resource = new Resource({
         SERVICE_NAME: "elasticsearch-ai-frontend"
     });
 
