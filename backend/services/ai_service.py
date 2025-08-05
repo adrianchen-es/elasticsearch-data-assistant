@@ -12,8 +12,7 @@ class AIService:
         self.azure_api_key = azure_api_key
         self.azure_endpoint = azure_endpoint
         self.azure_deployment = azure_deployment
-        self.azure_version = azure_version
-        self.openai_api_key = openai_api_key
+        self.azure_version = azure_version        self.openai_api_key = openai_api_key
         
         if azure_api_key and azure_endpoint:
             self.azure_client = AsyncAzureOpenAI(
