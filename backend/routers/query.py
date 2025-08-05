@@ -84,9 +84,6 @@ async def get_indices(app_request: Request):
     try:
         mapping_service = app_request.app.state.mapping_cache_service
         indices = await mapping_service.get_available_indices()
-        current_span = trace.get_current_span()
-
-        current_span.set_attribute("operation.type", {type(indices)})
         return indices
         
     except Exception as e:

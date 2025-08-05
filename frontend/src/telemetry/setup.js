@@ -17,10 +17,10 @@ import { context, trace } from '@opentelemetry/api';
 export const setupTelemetry = () => {
   try {
     const resource = new Resource({
-        SERVICE_NAME: "elasticsearch-ai-frontend"
+        [SemanticResourceAttributes.SERVICE_NAME]: "elasticsearch-ai-frontend"
     });
 
-    const provider = new WebTracerProvider({ resource });
+    const provider = new WebTracerProvider({ resource: resource });
     
     // Configure OTLP exporter
     const otlpExporter = new OTLPTraceExporter({
@@ -63,6 +63,7 @@ export const setupTelemetry = () => {
           ]
         })
       ],
+      tracerProvider: provider,
     });
     
     console.log('OpenTelemetry initialized for frontend');
