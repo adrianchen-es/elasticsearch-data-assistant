@@ -21,7 +21,7 @@ class ChatResponse(BaseModel):
     query_id: str
 
 @router.post("/chat", response_model=ChatResponse)
-@tracer.start_as_current_span("chat_endpoint")
+#@tracer.start_as_current_span("chat_endpoint")
 async def chat(request: ChatRequest, app_request: Request):
     """Main chat endpoint for AI-powered Elasticsearch queries"""
     try:
