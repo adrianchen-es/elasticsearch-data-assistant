@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List
+from opentelemetry import trace
 import logging
 import uuid
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 router = APIRouter()
 
 # Shared models
