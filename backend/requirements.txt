@@ -12,6 +12,6 @@ opentelemetry-exporter-otlp==1.21.0
 opentelemetry-instrumentation-fastapi==0.57b0
 opentelemetry-instrumentation-elasticsearch==0.57b0
 opentelemetry-instrumentation-httpx==0.57b0
-pip install opentelemetry-instrumentation-openai-v2==2.1b0
+opentelemetry-instrumentation-openai-v2==2.1b0
 APScheduler==3.10.4
 pydantic_settings==2.10.1
