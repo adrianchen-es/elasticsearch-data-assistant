@@ -5,10 +5,10 @@ import os
 from dotenv import load_dotenv
 
 from config.settings import settings
+from middleware.telemetry import setup_telemetry, setup_telemetry_fastapi
 from services.elasticsearch_service import ElasticsearchService
 from services.ai_service import AIService
 from services.mapping_cache_service import MappingCacheService
-from middleware.telemetry import setup_telemetry, setup_telemetry_fastapi
 from routers import chat, query, health
 
 load_dotenv()

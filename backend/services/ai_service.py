@@ -130,7 +130,7 @@ class AIService:
         Generate valid Elasticsearch queries based on user requests.
         
         Available index mappings:
-        {json.dumps(mapping_info.to_dict(), indent=2)}
+        {mapping_info}
         
         Guidelines:
         - Return only valid JSON query syntax
