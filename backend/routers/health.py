@@ -17,6 +17,12 @@ class HealthResponse(BaseModel):
     cached: bool = False
     timestamp: float
 
+class HealthResponse(BaseModel):
+    status: str
+    services: Dict[str, str]
+    cached: bool = False
+    timestamp: float
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(app_request: Request):
     """Health check endpoint with caching for improved performance"""
