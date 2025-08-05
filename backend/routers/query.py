@@ -81,7 +81,7 @@ async def validate_query(request: QueryValidationRequest, app_request: Request):
         )
 
 @router.get("/indices", response_model=List[str])
-@tracer.start_as_current_span("get_indices")
+##@tracer.start_as_current_span("get_indices")
 async def get_indices(app_request: Request):
     """Get list of available Elasticsearch indices"""
     try:
