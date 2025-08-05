@@ -1,0 +1,20 @@
+# .env.example (for full stack)
+ELASTICSEARCH_URL=http://elasticsearch:9200
+AZURE_AI_API_KEY=your_azure_ai_api_key
+AZURE_AI_ENDPOINT=https://your-endpoint.openai.azure.com/
+AZURE_AI_MODEL=gpt-4
+OPENAI_API_KEY=your_openai_api_key_optional
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_SERVICE_NAME=elasticsearch-ai-backend
+MAPPING_CACHE_INTERVAL_MINUTES=30
+
+# .env.external-es.example (for external Elasticsearch)
+ELASTICSEARCH_URL=https://your-elasticsearch-cluster.com:9200
+ELASTICSEARCH_API_KEY=your_elasticsearch_api_key
+AZURE_AI_API_KEY=your_azure_ai_api_key
+AZURE_AI_ENDPOINT=https://your-endpoint.openai.azure.com/
+AZURE_AI_MODEL=gpt-4
+OPENAI_API_KEY=your_openai_api_key_optional
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_SERVICE_NAME=elasticsearch-ai-backend
+MAPPING_CACHE_INTERVAL_MINUTES=30
