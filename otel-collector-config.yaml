@@ -27,7 +27,7 @@ service:
       exporters: [otlp]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [batch]
       exporters: [otlp, prometheus]
     logs:
       receivers: [otlp]
