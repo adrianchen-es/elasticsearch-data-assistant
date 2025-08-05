@@ -102,9 +102,9 @@ elasticsearch-ai-assistant/
 │       ├── App.js                     # Main application component
 │       │
 │       ├── components/                # React components
-│       │   ├── chat_interface.js       # AI chat interface component
-│       │   ├── query_editor.js         # Manual query editor component
-│       │   └── selectors.js           # Index and provider selector components
+│       │   ├── ChatInterface.js       # AI chat interface component
+│       │   ├── QueryEditor.js         # Manual query editor component
+│       │   └── Selectors.js           # Index and provider selector components
 │       │
 │       └── telemetry/                 # Frontend telemetry
 │           └── setup.js               # OpenTelemetry browser instrumentation
@@ -196,19 +196,19 @@ MAPPING_CACHE_INTERVAL_MINUTES=30      # How often to refresh mappings
 - Service initialization (telemetry)
 - State management for global settings
 
-#### `frontend/src/components/chat_interface.js`
+#### `frontend/src/components/ChatInterface.js`
 - Real-time chat interface
 - Message history management
 - Query and result visualization
 - Copy/export functionality
 
-#### `frontend/src/components/query_editor.js`
+#### `frontend/src/components/QueryEditor.js`
 - Manual Elasticsearch query editor
 - JSON syntax highlighting and validation
 - Real-time query execution
 - Result formatting and display
 
-#### `frontend/src/components/selectors.js`
+#### `frontend/src/components/Selectors.js`
 - Index selection dropdown
 - AI provider selection
 - Dynamic option loading
