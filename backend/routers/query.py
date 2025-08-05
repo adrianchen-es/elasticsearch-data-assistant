@@ -87,7 +87,7 @@ async def get_indices(app_request: Request):
     try:
         mapping_service = app_request.app.state.mapping_cache_service
         indices = await mapping_service.get_available_indices()
-        return indices
+        return list(indices)
         
     except Exception as e:
         logger.error(f"Get indices error: {e}")

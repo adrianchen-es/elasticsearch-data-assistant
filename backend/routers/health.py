@@ -10,6 +10,10 @@ class HealthResponse(BaseModel):
     status: str
     services: Dict[str, str]
 
+class HealthResponse(BaseModel):
+    status: str
+    services: Dict[str, str]
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(app_request: Request):
     """Health check endpoint"""
@@ -28,7 +32,6 @@ async def health_check(app_request: Request):
         mapping_service = app_request.app.state.mapping_cache_service
         indices = await mapping_service.get_available_indices()
         services["mapping_cache"] = f"healthy ({len(indices)} indices cached)"
-        services["res"] = f"response ({indices})"
     except Exception as e:
         services["mapping_cache"] = f"unhealthy: {str(e)}"
     
