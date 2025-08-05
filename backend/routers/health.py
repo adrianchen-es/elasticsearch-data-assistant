@@ -12,10 +12,6 @@ class HealthResponse(BaseModel):
     status: str
     services: Dict[str, str]
 
-class HealthResponse(BaseModel):
-    status: str
-    services: Dict[str, str]
-
 @router.get("/health", response_model=HealthResponse)
 @tracer.start_as_current_span("get_health_endpoint")
 async def health_check(app_request: Request):
