@@ -12,4 +12,4 @@ opentelemetry-instrumentation-fastapi==0.42b0
 opentelemetry-instrumentation-elasticsearch==0.42b0
 opentelemetry-instrumentation-httpx==0.42b0
 APScheduler==3.10.4
-pydantic_settings=2.10.1
+pydantic_settings==2.10.1
