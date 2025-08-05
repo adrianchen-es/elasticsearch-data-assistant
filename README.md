@@ -33,8 +33,8 @@ A production-ready application that provides an AI-powered chatbot interface for
 
 ```bash
 # Clone and setup
-git clone https://github.com/adrianchen-es/elasticsearch-data-assistant.git
-cd elasticsearch-data-assistant
+git clone <repository>
+cd elasticsearch-ai-assistant
 
 # Setup environment
 cp .env.example .env
@@ -55,6 +55,61 @@ cp .env.external-es.example .env
 make setup-external
 ```
 
+## Complete Project Structure
+
+```
+elasticsearch-ai-assistant/
+├── README.md                           # This file
+├── Makefile                           # Build automation commands
+├── setup.sh                          # Full stack setup script
+├── setup-external-es.sh               # External ES setup script
+├── .env.example                       # Environment template (local ES)
+├── .env.external-es.example           # Environment template (external ES)
+├── docker-compose.yml                 # Full stack with local Elasticsearch
+├── docker-compose.external-es.yml     # External Elasticsearch stack
+├── otel-collector-config.yaml         # OpenTelemetry collector configuration
+│
+├── backend/                           # FastAPI Backend
+│   ├── Dockerfile                     # Backend container configuration
+│   ├── requirements.txt               # Python dependencies
+│   ├── main.py                        # FastAPI application entry point
+│   │
+│   ├── config/                        # Configuration management
+│   │   └── settings.py                # Application settings and env vars
+│   │
+│   ├── services/                      # Business logic services
+│   │   ├── elasticsearch_service.py   # Elasticsearch client and operations
+│   │   ├── ai_service.py              # AI provider integrations (Azure/OpenAI)
+│   │   └── mapping_cache_service.py   # Background mapping cache service
+│   │
+│   ├── routers/                       # API route handlers
+│   │   ├── chat.py                    # AI chat interface endpoints
+│   │   ├── query.py                   # Query execution and validation
+│   │   └── health.py                  # Health check endpoints
+│   │
+│   └── middleware/                    # Application middleware
+│       └── telemetry.py               # OpenTelemetry setup and configuration
+│
+├── frontend/                          # React Frontend
+│   ├── Dockerfile                     # Frontend container configuration
+│   ├── nginx.conf                     # Nginx configuration for production
+│   ├── package.json                   # Node.js dependencies and scripts
+│   ├── tailwind.config.js             # Tailwind CSS configuration
+│   │
+│   └── src/                           # React source code
+│       ├── index.js                   # React application entry point
+│       ├── index.css                  # Global styles with Tailwind
+│       ├── App.js                     # Main application component
+│       │
+│       ├── components/                # React components
+│       │   ├── chat_interface.js       # AI chat interface component
+│       │   ├── query_editor.js         # Manual query editor component
+│       │   └── selectors.js           # Index and provider selector components
+│       │
+│       └── telemetry/                 # Frontend telemetry
+│           └── setup.js               # OpenTelemetry browser instrumentation
+```
+
 ## Configuration
 
 ### Required Environment Variables
@@ -63,49 +118,145 @@ make setup-external
 # AI Provider (choose one or both)
 AZURE_AI_API_KEY=your_azure_ai_api_key
 AZURE_AI_ENDPOINT=https://your-endpoint.openai.azure.com/
-OPENAI_API_KEY=your_openai_api_key
+AZURE_AI_MODEL=gpt-4                   # Optional, defaults to gpt-4
+OPENAI_API_KEY=your_openai_api_key     # Optional alternative
 
-# Elasticsearch
-ELASTICSEARCH_URL=http://elasticsearch:9200
-ELASTICSEARCH_API_KEY=your_api_key  # For external ES
+# Elasticsearch Configuration
+ELASTICSEARCH_URL=http://elasticsearch:9200      # For local setup
+ELASTICSEARCH_URL=https://your-es-cluster.com    # For external setup
+ELASTICSEARCH_API_KEY=your_api_key               # For external ES only
 
-# OpenTelemetry
+# OpenTelemetry Configuration
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_SERVICE_NAME=elasticsearch-ai-backend
+
+# Optional Settings
+MAPPING_CACHE_INTERVAL_MINUTES=30      # How often to refresh mappings
 ```
 
-## Project Structure
+## Detailed File Descriptions
 
-```
-├── backend/                 # FastAPI backend
-│   ├── main.py             # Application entry point
-│   ├── config/             # Configuration
-│   ├── services/           # Business logic
-│   ├── routers/            # API endpoints
-│   ├── middleware/         # Telemetry setup
-│   └── Dockerfile
-├── frontend/               # React frontend
-│   ├── src/
-│   │   ├── components/     # React components
-│   │   ├── telemetry/      # Frontend telemetry
-│   │   └── App.js
-│   └── Dockerfile
-├── docker-compose.yml      # Full stack
-├── docker-compose.external-es.yml  # External ES
-├── otel-collector-config.yaml
-└── Makefile               # Build automation
-```
+### Backend Files
+
+#### `backend/main.py`
+- FastAPI application factory
+- Service initialization and dependency injection
+- CORS middleware configuration
+- Router inclusion and lifespan management
+
+#### `backend/config/settings.py`
+- Pydantic settings management
+- Environment variable loading
+- Configuration validation
+
+#### `backend/services/elasticsearch_service.py`
+- Async Elasticsearch client wrapper
+- Query execution and validation
+- Index mapping retrieval
+- Connection management with authentication
+
+#### `backend/services/ai_service.py`
+- Azure AI and OpenAI client management
+- Query generation from natural language
+- Result summarization
+- Provider switching logic
+
+#### `backend/services/mapping_cache_service.py`
+- Background scheduler for mapping updates
+- Thread-safe cache management
+- Automatic index discovery
+- Cache invalidation strategies
+
+#### `backend/routers/chat.py`
+- Natural language chat endpoint
+- AI-powered query generation pipeline
+- Result processing and summarization
+
+#### `backend/routers/query.py`
+- Custom query execution
+- Query validation without execution
+- Index and mapping information endpoints
+- Query regeneration for tweaking
+
+#### `backend/routers/health.py`
+- Service health monitoring
+- Elasticsearch connectivity checks
+- AI service availability verification
+
+#### `backend/middleware/telemetry.py`
+- OpenTelemetry instrumentation setup
+- Trace and span configuration
+- Auto-instrumentation for FastAPI, Elasticsearch, HTTP
+
+### Frontend Files
+
+#### `frontend/src/App.js`
+- Main React application component
+- Navigation and layout management
+- Service initialization (telemetry)
+- State management for global settings
+
+#### `frontend/src/components/chat_interface.js`
+- Real-time chat interface
+- Message history management
+- Query and result visualization
+- Copy/export functionality
+
+#### `frontend/src/components/query_editor.js`
+- Manual Elasticsearch query editor
+- JSON syntax highlighting and validation
+- Real-time query execution
+- Result formatting and display
+
+#### `frontend/src/components/selectors.js`
+- Index selection dropdown
+- AI provider selection
+- Dynamic option loading
+- Form state management
+
+#### `frontend/src/telemetry/setup.js`
+- Browser OpenTelemetry configuration
+- Fetch and XHR instrumentation
+- Trace correlation with backend
+
+### Infrastructure Files
+
+#### `docker-compose.yml`
+- Full stack with local Elasticsearch
+- Service networking and dependencies
+- Volume management for data persistence
+- Environment variable injection
+
+#### `docker-compose.external-es.yml`
+- External Elasticsearch configuration
+- Reduced service footprint
+- External service connectivity
+
+#### `otel-collector-config.yaml`
+- OpenTelemetry collector pipeline
+- Receiver and exporter configuration
+- Metrics and trace processing
+
+#### `Makefile`
+- Build automation commands
+- Development workflow shortcuts
+- Service management utilities
+- Health check and debugging tools
 
 ## API Endpoints
 
 ### Chat Interface
 - `POST /api/chat` - AI-powered natural language queries
-- `GET /api/health` - Service health check
+- `POST /api/query/regenerate` - Modify and re-execute queries
 
 ### Query Management
 - `POST /api/query/execute` - Execute custom queries
-- `POST /api/query/validate` - Validate queries
+- `POST /api/query/validate` - Validate queries without execution
 - `GET /api/indices` - List available indices
-- `GET /api/mapping/{index}` - Get index mapping
+- `GET /api/mapping/{index_name}` - Get index mapping
+
+### System
+- `GET /api/health` - Service health check
 
 ## Usage Examples
 
@@ -115,15 +266,16 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 "Show me the top 10 users by login count"
 "Find all errors in the last 24 hours"
 "What are the most common HTTP status codes?"
+"Group sales by region for this month"
 ```
 
 ### Custom Query Editor
 
 The query editor supports full Elasticsearch DSL with:
-- Syntax validation
-- Real-time results
-- Query export/import
-- Result visualization
+- Syntax validation and error highlighting
+- Real-time results with pagination
+- Query export/import functionality
+- Result visualization with JSON tree view
 
 ## Development
 
@@ -131,8 +283,10 @@ The query editor supports full Elasticsearch DSL with:
 
 ```bash
 cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend Development
@@ -140,85 +294,200 @@ uvicorn main:app --reload
 ```bash
 cd frontend
 npm install
-npm start
+npm start  # Runs on http://localhost:3000
 ```
 
-### Running Tests
+### Development Commands
 
 ```bash
-make test-backend
+make dev-backend     # Run backend in development mode
+make dev-frontend    # Run frontend in development mode
+make test-backend    # Run backend tests
+make logs           # View all service logs
+make health         # Check service health
 ```
 
-## Monitoring
+## Monitoring and Observability
 
-- **Health Checks**: `/api/health`
-- **Metrics**: Available at `http://localhost:8889`
-- **Traces**: Sent to OpenTelemetry collector
-- **Logs**: `make logs` or `docker-compose logs -f`
+### Health Checks
+- **Backend**: `GET /api/health` - Returns service status and dependencies
+- **Frontend**: Automatic service discovery and health indicators
+- **Elasticsearch**: Connection and cluster health monitoring
+
+### Metrics and Tracing
+- **OpenTelemetry Collector**: `http://localhost:8889/metrics`
+- **Traces**: Exported to configured OTLP endpoint
+- **Logs**: Structured logging with correlation IDs
+
+### Performance Monitoring
+- Query execution time tracking
+- AI response time monitoring
+- Cache hit/miss ratios
+- Error rate tracking
 
 ## Production Deployment
 
-### Behind Nginx
-
-The application is designed to run behind nginx for SSL termination:
+### Behind Nginx (Recommended)
 
 ```nginx
+upstream backend {
+    server localhost:8000;
+}
+
+upstream frontend {
+    server localhost:3000;
+}
+
 server {
     listen 443 ssl;
     server_name your-domain.com;
     
+    # SSL configuration
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    # Frontend
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
     
+    # Backend API
     location /api {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
 ### Scaling Considerations
 
-- Backend: Stateless, can be horizontally scaled
-- Frontend: Static files, use CDN
-- Elasticsearch: Use managed service or cluster
-- OpenTelemetry: Configure appropriate backend (Jaeger, etc.)
+- **Backend**: Stateless design allows horizontal scaling
+- **Frontend**: Serve static files from CDN
+- **Elasticsearch**: Use managed service or cluster for production
+- **AI Services**: Consider rate limiting and cost management
+- **OpenTelemetry**: Configure appropriate backend (Jaeger, DataDog, etc.)
+
+### Environment-Specific Configurations
+
+```bash
+# Production
+ELASTICSEARCH_URL=https://prod-cluster.elastic-cloud.com:9200
+OTEL_EXPORTER_OTLP_ENDPOINT=https://api.datadog.com/api/v1/otlp
+
+# Staging
+ELASTICSEARCH_URL=https://staging-cluster.company.com:9200
+OTEL_EXPORTER_OTLP_ENDPOINT=https://staging-jaeger.company.com
+
+# Development
+ELASTICSEARCH_URL=http://localhost:9200
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
 
 ## Security
 
-- API keys via environment variables only
+### API Security
+- Environment-based API key management
 - No hardcoded credentials
-- CORS properly configured
 - Input validation on all endpoints
-- Rate limiting recommended for production
+- CORS properly configured for frontend domains
+
+### Production Recommendations
+- Use HTTPS/TLS termination at load balancer
+- Implement rate limiting (nginx limit_req)
+- Add authentication middleware if needed
+- Monitor for unusual query patterns
+- Use Elasticsearch security features (API keys, roles)
+
+### Data Privacy
+- Query logs contain no sensitive data by default
+- AI provider requests can be logged for debugging
+- Consider data residency requirements for AI services
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Services not starting**: Check `docker-compose logs`
-2. **AI queries failing**: Verify API keys and endpoints
-3. **Elasticsearch connection**: Check URL and credentials
-4. **Frontend not loading**: Verify nginx configuration
+1. **Services not starting**
+   ```bash
+   make logs  # Check all service logs
+   docker-compose ps  # Check service status
+   ```
+
+2. **AI queries failing**
+   - Verify API keys in .env file
+   - Check AI service endpoints
+   - Review backend logs: `make logs-backend`
+
+3. **Elasticsearch connection issues**
+   - Verify ELASTICSEARCH_URL
+   - Check API key permissions
+   - Test connection: `curl $ELASTICSEARCH_URL/_cluster/health`
+
+4. **Frontend not loading**
+   - Check nginx configuration
+   - Verify proxy settings
+   - Check browser console for errors
 
 ### Debug Commands
 
 ```bash
-make health          # Check service status
-make logs           # View all logs
-make logs-backend   # Backend logs only
-curl localhost:8000/api/health  # Direct health check
+# Service health
+make health
+
+# Individual service logs
+make logs-backend
+make logs-frontend
+docker-compose logs elasticsearch
+
+# Direct API testing
+curl localhost:8000/api/health
+curl localhost:8000/api/indices
+
+# Container inspection
+docker-compose exec backend bash
+docker-compose exec frontend sh
 ```
+
+### Performance Issues
+
+1. **Slow queries**: Check Elasticsearch query performance
+2. **AI timeouts**: Verify AI service connectivity and rate limits
+3. **Memory usage**: Monitor container resource usage
+4. **Cache issues**: Check mapping cache refresh intervals
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure telemetry coverage
-5. Update documentation
-6. Submit pull request
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Follow code style guidelines
+4. Add tests for new functionality
+5. Ensure OpenTelemetry coverage for new endpoints
+6. Update documentation
+7. Submit pull request
+
+### Development Guidelines
+- Use type hints in Python code
+- Follow React functional component patterns
+- Add proper error handling and logging
+- Include OpenTelemetry spans for new operations
+- Write unit tests for business logic
+- Update API documentation for new endpoints
 
 ## License
 
 MIT License - see LICENSE file for details.
+
+---
+
+## Support
+
+For issues and questions:
+- Check the troubleshooting section above
+- Review service logs with `make logs`
+- Test individual components with debug commands
+- Verify environment configuration
