@@ -6,9 +6,6 @@ from dotenv import load_dotenv
 
 from config.settings import settings
 from middleware.telemetry import setup_telemetry, setup_telemetry_fastapi
-from services.elasticsearch_service import ElasticsearchService
-from services.ai_service import AIService
-from services.mapping_cache_service import MappingCacheService
 from routers import chat, query, health
 
 load_dotenv()
@@ -16,14 +13,22 @@ load_dotenv()
 # Setup telemetry
 setup_telemetry()
 
-# Initialize services
-es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
-ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
-mapping_cache_service = MappingCacheService(es_service)
+# Lazy initialization of services
+es_service = None
+ai_service = None
+mapping_cache_service = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global es_service, ai_service, mapping_cache_service
     # Startup
+    from services.elasticsearch_service import ElasticsearchService
+    from services.ai_service import AIService
+    from services.mapping_cache_service import MappingCacheService
+
+    es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
+    ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
+    mapping_cache_service = MappingCacheService(es_service)
     await mapping_cache_service.start_scheduler()
     yield
     # Shutdown
@@ -42,16 +47,18 @@ setup_telemetry_fastapi(app)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://https://obs-dev.dragacy.com", "http://localhost:3000", "http://frontend:3000"],
+    allow_origins=["https://obs-dev.dragacy.com", "http://localhost:3000", "http://frontend:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Dependency injection
-app.state.es_service = es_service
-app.state.ai_service = ai_service
-app.state.mapping_cache_service = mapping_cache_service
+@app.on_event("startup")
+async def inject_services():
+    app.state.es_service = es_service
+    app.state.ai_service = ai_service
+    app.state.mapping_cache_service = mapping_cache_service
 
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])
