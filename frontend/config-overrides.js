@@ -52,22 +52,22 @@ module.exports = function override(config, env) {
         },
     };
 
-    // if (env === 'production') {
-    //     config.plugins.push(new CompressionPlugin());
-    //     config.optimization = {
-    //         minimize: true,
-    //         minimizer: [
-    //             new TerserPlugin({
-    //                 parallel: true,
-    //                 terserOptions: {
-    //                     compress: {
-    //                         drop_console: false,
-    //                     },
-    //                 },
-    //             }),
-    //         ],
-    //     };
-    // }
+    if (env === 'production') {
+        config.plugins.push(new CompressionPlugin());
+        config.optimization = {
+            minimize: true,
+            minimizer: [
+                new TerserPlugin({
+                    parallel: true,
+                    terserOptions: {
+                        compress: {
+                            drop_console: false,
+                        },
+                    },
+                }),
+            ],
+        };
+    }
 
     return config;
 }

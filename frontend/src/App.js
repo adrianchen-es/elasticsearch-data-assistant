@@ -274,7 +274,3 @@ function App() {
 }
 
 export default App;
-
-process.on('SIGINT', function () {
-  process.exit();
-});
