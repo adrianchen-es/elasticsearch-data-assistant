@@ -11,12 +11,8 @@ import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
 import { UserInteractionInstrumentation } from '@opentelemetry/instrumentation-user-interaction';
 import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
 import { B3Propagator } from '@opentelemetry/propagator-b3';
-import { context, trace } from '@opentelemetry/api';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 // Configure OTLP exporter
 const otlpExporter = new OTLPTraceExporter({
@@ -33,18 +29,7 @@ const exporter = new OTLPTraceExporter({
 
 const metricExporter = new OTLPMetricExporter(collectorOptions);
 
-const setupTelemetryNode = new NodeSDK({
-  resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'elasticsearch-ai-node',
-  }),
-  metricReader: metricExporter,
-  traceExporter: exporter,
-  instrumentations: [getNodeAutoInstrumentations()],
-});
-
-setupTelemetryNode.start();
-
-
+// Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
   try {
     const resource = new Resource({

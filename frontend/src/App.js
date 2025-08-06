@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { setupTelemetryNode } from './telemetry/setup_node';
 import { MessageSquare, Settings, Database, Search } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 import { IndexSelector, ProviderSelector } from './components/Selectors';
-import { setupTelemetryNode, setupTelemetryWeb } from './telemetry/setup';
+import { setupTelemetryWeb } from './telemetry/setup';
 
 function App() {
   const [selectedIndex, setSelectedIndex] = useState('');
@@ -14,8 +15,6 @@ function App() {
   useEffect(() => {
     // Setup telemetry
     setupTelemetryWeb();
-
-    setupTelemetryNode.start();
     
     // Fetch available indices
     fetchIndices();
