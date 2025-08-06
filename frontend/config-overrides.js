@@ -28,9 +28,9 @@ module.exports = function override(config, env) {
     //     buffer: require.resolve('buffer'),
     //     stream: require.resolve('stream-browserify'),
     // };
-    config.plugins.push(
-        new CompressionPlugin()
-    );
+    // config.plugins.push(
+    //     new CompressionPlugin()
+    // );
 
     // Add cache configuration
     config.cache = {
@@ -40,22 +40,22 @@ module.exports = function override(config, env) {
         },
     };
 
-    // if (env === 'production') {
-    //     config.plugins.push(new CompressionPlugin());
-    //     config.optimization = {
-    //         minimize: true,
-    //         minimizer: [
-    //             new TerserPlugin({
-    //                 parallel: true,
-    //                 terserOptions: {
-    //                     compress: {
-    //                         drop_console: false,
-    //                     },
-    //                 },
-    //             }),
-    //         ],
-    //     };
-    // }
+    if (env === 'production') {
+        config.plugins.push(new CompressionPlugin());
+        config.optimization = {
+            minimize: true,
+            minimizer: [
+                new TerserPlugin({
+                    parallel: true,
+                    terserOptions: {
+                        compress: {
+                            drop_console: false,
+                        },
+                    },
+                }),
+            ],
+        };
+    }
 
     return config;
 }
