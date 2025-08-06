@@ -21,7 +21,7 @@ class ElasticsearchService:
         else:
             self.client = AsyncElasticsearch(url, verify_certs=False)
 
-    #@tracer.start_as_current_span("elasticsearch_get_mapping")
+    @tracer.start_as_current_span("elasticsearch_get_mapping")
     async def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         """Get mapping for a specific index"""
         try:
@@ -31,7 +31,7 @@ class ElasticsearchService:
             logger.error(f"Error getting mapping for index {index_name}: {e}")
             raise
 
-    #@tracer.start_as_current_span("elasticsearch_list_indices")
+    @tracer.start_as_current_span("elasticsearch_list_indices")
     async def list_indices(self) -> List[str]:
         """List all indices"""
         try:
@@ -41,7 +41,7 @@ class ElasticsearchService:
             logger.error(f"Error listing indices: {e}")
             raise
 
-    #@tracer.start_as_current_span("elasticsearch_execute_query")
+    @tracer.start_as_current_span("elasticsearch_execute_query")
     async def execute_query(self, index_name: str, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a search query"""
         try:
@@ -55,7 +55,7 @@ class ElasticsearchService:
             logger.error(f"Query: {json.dumps(query, indent=2)}")
             raise
 
-    #@tracer.start_as_current_span("elasticsearch_validate_query")
+    @tracer.start_as_current_span("elasticsearch_validate_query")
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
         """Validate a query without executing it"""
         try:

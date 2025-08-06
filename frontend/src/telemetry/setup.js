@@ -12,7 +12,8 @@ import { UserInteractionInstrumentation } from '@opentelemetry/instrumentation-u
 import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
 import { B3Propagator } from '@opentelemetry/propagator-b3';
 import { context, trace } from '@opentelemetry/api';
-
+import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 
 export const setupTelemetry = () => {
   try {
@@ -24,7 +25,22 @@ export const setupTelemetry = () => {
     
     // Configure OTLP exporter
     const otlpExporter = new OTLPTraceExporter({
-      url: process.env.REACT_APP_OTEL_ENDPOINT || 'http://localhost:4318/v1/traces',
+      url: process.env.REACT_APP_OTEL_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+    });
+
+    const collectorOptions = {
+      url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
+    };
+    const metricExporter = new OTLPMetricExporter(collectorOptions);
+
+    const meterProvider = new MeterProvider({
+      resource: resource,
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: metricExporter,
+          exportIntervalMillis: 1000,
+        }),
+      ],
     });
     
     provider.addSpanProcessor(new BatchSpanProcessor(otlpExporter));
