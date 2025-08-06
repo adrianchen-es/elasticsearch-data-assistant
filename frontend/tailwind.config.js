@@ -11,7 +11,7 @@ module.exports = {
     fallback: {
       "util": require.resolve("util/"),
       "path": require.resolve("path-browserify"),
-      "http": require.resolve("stream-http",
+      "http": require.resolve("stream-http"),
     }
   },
 }
