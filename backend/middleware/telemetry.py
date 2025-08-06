@@ -16,7 +16,6 @@ from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExp
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.instrumentation.azure import AzureInstrumentor
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
 from opentelemetry.semconv.resource import ResourceAttributes
 from config.settings import settings
