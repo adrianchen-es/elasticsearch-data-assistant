@@ -60,24 +60,21 @@ export const setupTelemetry = () => {
       instrumentations: [
         getWebAutoInstrumentations({
           // load custom configuration for xml-http-request instrumentation
+          '@opentelemetry/instrumentation-fetch': {
+            propagateTraceHeaderCorsUrls: /.*/,
+            clearTimingResources: true
+            },
           '@opentelemetry/instrumentation-xml-http-request': {
+            propagateTraceHeaderCorsUrls: /.*/,
+            clearTimingResources: true,
+          },
+          '@opentelemetry/instrumentation-document-load': {
+            clearTimingResources: true,
+          },
+          '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
           },
         }),
-        new DocumentLoadInstrumentation(),
-        new UserInteractionInstrumentation(),
-        new FetchInstrumentation({
-          propagateTraceHeaderCorsUrls: [
-            /localhost/,
-            /backend/
-          ]
-        }),
-        new XMLHttpRequestInstrumentation({
-          propagateTraceHeaderCorsUrls: [
-            /localhost/,
-            /backend/
-          ]
-        })
       ],
       tracerProvider: provider,
     });
