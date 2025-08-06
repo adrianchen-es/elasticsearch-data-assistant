@@ -6,7 +6,8 @@ import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
-import { B3Propagator } from '@opentelemetry/propagator-b3';
+import { B3Propagator, B3InjectEncoding } from '@opentelemetry/propagator-b3';
+import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
@@ -107,7 +108,6 @@ export const setupTelemetryWeb = () => {
     registerInstrumentations({
       instrumentations: [
         getWebAutoInstrumentations({
-          // load custom configuration for xml-http-request instrumentation
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
@@ -116,6 +116,7 @@ export const setupTelemetryWeb = () => {
               span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
               span.setAttribute('frontend.environment', process.env.NODE_ENV);
             },
+          },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
