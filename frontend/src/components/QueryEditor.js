@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Check, X, Copy } from 'lucide-react';
-import ReactJson from 'react-json-view-lite';
-import 'react-json-view-lite/dist/index.css';
+import ReactJson from 'react-json-view';
 
 const QueryEditor = ({ selectedIndex }) => {
   const [query, setQuery] = useState({

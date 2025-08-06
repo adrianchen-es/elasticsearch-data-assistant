@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Copy, Eye, EyeOff } from 'lucide-react';
-import ReactJson from 'react-json-view-lite';
-import 'react-json-view-lite/dist/index.css';
+import ReactJson from 'react-json-view';
 
 const ChatInterface = ({ selectedIndex, selectedProvider }) => {
   const [messages, setMessages] = useState([]);
