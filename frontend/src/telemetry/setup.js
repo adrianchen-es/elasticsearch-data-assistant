@@ -10,7 +10,11 @@ import { B3Propagator, B3InjectEncoding } from '@opentelemetry/propagator-b3';
 import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
+
+// Enable debug logging
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
