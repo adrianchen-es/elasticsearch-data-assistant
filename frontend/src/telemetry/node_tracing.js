@@ -1,8 +1,6 @@
 const { NodeSDK } = require('@opentelemetry/sdk-node');
-const { Resource } = require('@opentelemetry/resources');
+const { resourceFromAttributes } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
-const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
-const { ConsoleSpanExporter } = require('@opentelemetry/sdk-trace-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { dockerCGroupV1Detector, hostDetector } = require('@opentelemetry/resource-detector-docker');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
@@ -11,11 +9,11 @@ const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opent
 const { HostMetrics } = require('@opentelemetry/host-metrics');
 
 // Configure service name from environment variable
-const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'elasticsearch-ai-frontend';
+const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'elasticsearch-ai-node';
 const OTEL_COLLECTOR_URL = process.env.OTEL_COLLECTOR_URL || 'http://otel-collector:4318';
 
 // Create a custom resource with service name and additional attributes
-const resource = new Resource({
+const resource = resourceFromAttributes({
   [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   [SemanticResourceAttributes.SERVICE_VERSION]: process.env.npm_package_version,
   [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
