@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
+import json
 from opentelemetry import trace
 import logging
 import uuid
@@ -56,7 +57,7 @@ async def chat(request: ChatRequest, app_request: Request):
         return ChatResponse(
             response=summary,
             query=query,
-            raw_results=results,
+            raw_results=json.dumps(results),
             query_id=query_id
         )
         

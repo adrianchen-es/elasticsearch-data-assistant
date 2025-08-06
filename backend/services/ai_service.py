@@ -68,6 +68,10 @@ class AIService:
                 raise ValueError(f"AI provider {provider} not available")
             
             query_text = response.choices[0].message.content
+            
+            if not query_text:
+                raise ValueError("query_text is empty")
+
             return json.loads(query_text)
             
         except Exception as e:
