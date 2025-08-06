@@ -10,6 +10,15 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 router = APIRouter()
 
+def is_mapping_request(message: str) -> bool:
+    """Check if the user is asking about the mapping/structure"""
+    mapping_keywords = [
+        "mapping", "structure", "fields", "schema", "what fields", 
+        "what data", "what information", "show me the fields",
+        "what's available", "what is available"
+    ]
+    return any(keyword in message.lower() for keyword in mapping_keywords)
+
 class ChatRequest(BaseModel):
     message: str
     index_name: str
@@ -26,7 +35,7 @@ class ChatResponse(BaseModel):
     raw_results: dict
     query_id: str
     error: Optional[ChatErrorDetail] = None
-    status: str = "success"
+    status: str = "success"  # Now includes: "success", "success_mapping", "success_no_results", "error"
 
 @router.post("/chat", response_model=ChatResponse)
 @tracer.start_as_current_span("chat_endpoint")
@@ -54,6 +63,44 @@ async def chat(request: ChatRequest, app_request: Request):
                 ),
                 status="error"
             )
+
+        # Check if user is asking about the mapping
+        if is_mapping_request(request.message):
+            try:
+                # Format mapping information in a user-friendly way
+                properties = mapping_info.get(request.index_name, {}).get('mappings', {}).get('properties', {})
+                field_info = []
+                for field, details in properties.items():
+                    field_type = details.get('type', 'unknown')
+                    field_info.append(f"- {field} ({field_type})")
+                
+                response = (
+                    f"Here are the available fields in the index '{request.index_name}':\n\n"
+                    f"{chr(10).join(field_info)}\n\n"
+                    f"You can search using any of these fields. What would you like to search for?"
+                )
+                
+                return ChatResponse(
+                    response=response,
+                    query={},
+                    raw_results=mapping_info,
+                    query_id=str(uuid.uuid4()),
+                    status="success_mapping"
+                )
+            except Exception as e:
+                logger.error(f"Error formatting mapping info: {e}")
+                return ChatResponse(
+                    response="I had trouble reading the index structure. Please try again or contact support.",
+                    query={},
+                    raw_results={},
+                    query_id=str(uuid.uuid4()),
+                    error=ChatErrorDetail(
+                        error_type="MAPPING_FORMAT_ERROR",
+                        message=str(e),
+                        details={"index": request.index_name}
+                    ),
+                    status="error"
+                )
 
         # Generate query using AI
         try:
