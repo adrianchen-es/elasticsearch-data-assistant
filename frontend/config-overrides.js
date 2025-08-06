@@ -13,6 +13,7 @@ module.exports = function override(config, env) {
         http2: false,
         os: false,
         zlib: false,
+        events: false,
         timers: require.resolve('timers-browserify'),
         console: require.resolve('console-browserify'),
         domain: false,
