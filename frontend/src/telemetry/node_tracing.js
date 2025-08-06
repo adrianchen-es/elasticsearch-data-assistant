@@ -2,7 +2,8 @@ const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { resourceFromAttributes } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-const { dockerCGroupV1Detector, hostDetector } = require('@opentelemetry/resource-detector-docker');
+const { containerDetector } = require('@opentelemetry/resource-detector-container');
+
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
 const { PeriodicExportingMetricReader, ConsoleMetricExporter } = require('@opentelemetry/sdk-metrics');
@@ -64,8 +65,7 @@ const sdk = new NodeSDK({
     }),
   ],
   resourceDetectors: [
-    dockerCGroupV1Detector,
-    hostDetector,
+    containerDetector,
   ],
 });
 
