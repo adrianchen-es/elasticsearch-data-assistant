@@ -9,7 +9,6 @@ from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.instrumentation.azure import AzureInstrumentor
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
 from opentelemetry.semconv.resource import ResourceAttributes
 from config.settings import settings
@@ -57,12 +56,6 @@ def setup_telemetry():
         # Add span processor
         span_processor = BatchSpanProcessor(otlp_trace_exporter)
         provider.add_span_processor(span_processor)
-        
-        # Instrument Azure AI with metrics
-        AzureInstrumentor().instrument(
-            enable_metrics=True,
-            meter_provider=meter_provider
-        )
         
         # Instrument other services
         ElasticsearchInstrumentor().instrument()
