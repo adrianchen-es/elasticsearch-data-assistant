@@ -6,6 +6,8 @@ import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 
+require('dotenv').config()
+
 function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
