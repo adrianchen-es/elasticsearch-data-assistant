@@ -1,4 +1,7 @@
 const webpack = require('webpack');
+const CompressionPlugin = require('compression-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+
 module.exports = function override(config, env) {
     config.resolve.fallback = {
         fs: false,
@@ -28,6 +31,31 @@ module.exports = function override(config, env) {
             Buffer: ['buffer', 'Buffer'],
         }),
     );
+
+    // Add cache configuration
+    config.cache = {
+        type: 'filesystem',
+        buildDependencies: {
+            config: [__filename],
+        },
+    };
+
+    if (env === 'production') {
+        config.plugins.push(new CompressionPlugin());
+        config.optimization = {
+            minimize: true,
+            minimizer: [
+                new TerserPlugin({
+                    parallel: true,
+                    terserOptions: {
+                        compress: {
+                            drop_console: true,
+                        },
+                    },
+                }),
+            ],
+        };
+    }
 
     return config;
 }
