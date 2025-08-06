@@ -67,8 +67,11 @@ async def chat(request: ChatRequest, app_request: Request):
         # Check if user is asking about the mapping
         if is_mapping_request(request.message):
             try:
+                # Convert mapping_info to a plain dictionary
+                mapping_info_dict = dict(mapping_info)
+
                 # Format mapping information in a user-friendly way
-                properties = mapping_info.get(request.index_name, {}).get('mappings', {}).get('properties', {})
+                properties = mapping_info_dict.get(request.index_name, {}).get('mappings', {}).get('properties', {})
                 field_info = []
                 for field, details in properties.items():
                     field_type = details.get('type', 'unknown')
@@ -83,7 +86,7 @@ async def chat(request: ChatRequest, app_request: Request):
                 return ChatResponse(
                     response=response,
                     query={},
-                    raw_results=mapping_info,
+                    raw_results=mapping_info_dict,  # Use the plain dictionary here
                     query_id=str(uuid.uuid4()),
                     status="success_mapping"
                 )
@@ -92,7 +95,7 @@ async def chat(request: ChatRequest, app_request: Request):
                 return ChatResponse(
                     response="I had trouble reading the index structure. Please try again or contact support.",
                     query={},
-                    raw_results={},
+                    raw_results={},  # Return an empty dictionary in case of an error
                     query_id=str(uuid.uuid4()),
                     error=ChatErrorDetail(
                         error_type="MAPPING_FORMAT_ERROR",
