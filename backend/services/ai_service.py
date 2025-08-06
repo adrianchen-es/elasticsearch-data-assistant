@@ -1,6 +1,8 @@
 from typing import Dict, Any, Optional
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
+from opentelemetry.trace.status import Status, StatusCode
+from opentelemetry.trace import SpanKind
 import json
 import logging
 
@@ -35,7 +37,7 @@ class AIService:
         else:
             self.openai_client = None
 
-    @tracer.start_as_current_span("ai_generate_query")
+    @tracer.start_as_current_span("ai_generate_query", kind=SpanKind.CLIENT)
     async def generate_elasticsearch_query(
         self, 
         user_prompt: str, 
@@ -43,6 +45,13 @@ class AIService:
         provider: str = "azure"
     ) -> Dict[str, Any]:
         """Generate Elasticsearch query from user prompt"""
+        current_span = trace.get_current_span()
+        current_span.set_attributes({
+            "ai.provider": provider,
+            "ai.model": self.azure_deployment if provider == "azure" else "gpt-4",
+            "ai.prompt.length": len(user_prompt),
+            "ai.mapping.indices": str(list(mapping_info.keys()))
+        })
         
         system_prompt = self._build_system_prompt(mapping_info)
         
@@ -72,9 +81,12 @@ class AIService:
             if not query_text:
                 raise ValueError("query_text is empty")
 
+            current_span.set_attribute("ai.response.length", len(query_text))
             return json.loads(query_text)
             
         except Exception as e:
+            current_span.set_status(Status(StatusCode.ERROR))
+            current_span.record_exception(e)
             logger.error(f"Error generating query: {e}")
             raise
 

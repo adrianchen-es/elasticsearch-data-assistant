@@ -1,4 +1,5 @@
 import os
+import socket
 from typing import Optional
 from pydantic_settings import BaseSettings
 
@@ -16,8 +17,13 @@ class Settings(BaseSettings):
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4")
     
     # OpenTelemetry settings
-    otel_exporter_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    otel_exporter_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elasticsearch-ai-backend")
+    otel_exporter_otlp_headers: dict = {"Authorization": "Bearer mysecret"}
+    environment: str = "development"
+    version: str = "1.0.0"
+    host_name: str = socket.gethostname()
+    container_name: str = os.environ.get("CONTAINER_NAME", "unknown")
     
     # Cache settings
     mapping_cache_interval_minutes: int = int(os.getenv("MAPPING_CACHE_INTERVAL_MINUTES", "30"))

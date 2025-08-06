@@ -1,6 +1,8 @@
 from typing import Dict, Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from opentelemetry import trace
+from opentelemetry import trace, metrics
+from opentelemetry.trace import SpanKind
+from opentelemetry.trace.status import Status, StatusCode
 import logging
 import asyncio
 
@@ -13,6 +15,15 @@ class MappingCacheService:
         self.cache: Dict[str, Dict[str, Any]] = {}
         self.scheduler = AsyncIOScheduler()
         self._lock = asyncio.Lock()
+        self.meter = metrics.get_meter(__name__)
+        self.cache_hits = self.meter.create_counter(
+            "mapping_cache_hits",
+            description="Number of cache hits"
+        )
+        self.cache_misses = self.meter.create_counter(
+            "mapping_cache_misses",
+            description="Number of cache misses"
+        )
 
     async def start_scheduler(self):
         """Start the background scheduler for cache updates"""
@@ -55,18 +66,27 @@ class MappingCacheService:
             except Exception as e:
                 logger.error(f"Error refreshing mapping cache: {e}")
 
+    @tracer.start_as_current_span("get_mapping", kind=SpanKind.CLIENT)
     async def get_mapping(self, index_name: str) -> Dict[str, Any]:
-        """Get mapping for a specific index"""
+        current_span = trace.get_current_span()
+        current_span.set_attribute("index.name", index_name)
+        
         if index_name in self.cache:
+            self.cache_hits.add(1)
+            current_span.set_attribute("cache.hit", True)
             return self.cache[index_name]
         
-        # If not in cache, fetch directly
+        self.cache_misses.add(1)
+        current_span.set_attribute("cache.hit", False)
+        
         try:
             mapping = await self.es_service.get_index_mapping(index_name)
             async with self._lock:
                 self.cache[index_name] = mapping
             return mapping
         except Exception as e:
+            current_span.set_status(Status(StatusCode.ERROR))
+            current_span.record_exception(e)
             logger.error(f"Error getting mapping for {index_name}: {e}")
             raise
 
