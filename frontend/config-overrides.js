@@ -3,6 +3,8 @@ module.exports = function override(config, env) {
     config.resolve.fallback = {
         "fs": false,
         "path": false,
+        "net": false,
+        "tls": false,
         url: require.resolve('url/'),
         assert: require.resolve('assert'),
         crypto: require.resolve('crypto-browserify'),
