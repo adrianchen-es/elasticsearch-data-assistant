@@ -54,7 +54,7 @@ class AIService:
         try:
             if provider == "azure" and self.azure_client:
                 response = await self.azure_client.chat.completions.create(
-                    model=azure_deployment,
+                    model=self.azure_deployment,
                     messages=messages,
                     temperature=0.1
                 )
@@ -105,7 +105,7 @@ class AIService:
         try:
             if provider == "azure" and self.azure_client:
                 response = await self.azure_client.chat.completions.create(
-                    model=azure_deployment,
+                    model=self.azure_deployment,
                     messages=messages,
                     temperature=0.3
                 )
