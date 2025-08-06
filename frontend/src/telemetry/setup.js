@@ -56,9 +56,9 @@ export const setupTelemetryWeb = () => {
     // Setup trace provider with enhanced configuration
     const provider = new WebTracerProvider({
       resource: resource,
-      sampler: process.env.NODE_ENV === 'production' ? new ParentBasedSampler({
-        root: new TraceIdRatioBasedSampler(0.5) // Sample 50% of traces in production
-      }) : new AlwaysOnSampler(),
+      // sampler: process.env.NODE_ENV === 'production' ? new ParentBasedSampler({
+      //   root: new TraceIdRatioBasedSampler(0.5) // Sample 50% of traces in production
+      // }) : new AlwaysOnSampler(),
     });
 
     // Configure metric collection
