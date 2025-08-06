@@ -9,7 +9,8 @@ module.exports = {
   plugins: [],
   resolve: {
     fallback: {
-      "util": require.resolve("util/")
+      "util": require.resolve("util/"),
+      "path": require.resolve("path-browserify"),
     }
   },
 }
