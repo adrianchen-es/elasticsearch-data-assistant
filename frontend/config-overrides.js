@@ -6,6 +6,7 @@ module.exports = function override(config, env) {
         net: false,
         tls: false,
         async_hooks: false,
+        diagnostics_channel: false,
         querystring: require.resolve("querystring-es3"),
         url: require.resolve('url/'),
         assert: require.resolve('assert'),
