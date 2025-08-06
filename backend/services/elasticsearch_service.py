@@ -3,6 +3,7 @@ from elasticsearch import AsyncElasticsearch
 from opentelemetry import trace
 import json
 import logging
+import os  # Import os to read environment variables
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -12,14 +13,17 @@ class ElasticsearchService:
         self.url = url
         self.api_key = api_key
         
+        # Read verify_certs from environment variable, default to True
+        verify_certs = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "true").lower() == "true"
+        
         if api_key:
             self.client = AsyncElasticsearch(
                 url,
                 api_key=api_key,
-                verify_certs=False
+                verify_certs=verify_certs
             )
         else:
-            self.client = AsyncElasticsearch(url, verify_certs=False)
+            self.client = AsyncElasticsearch(url, verify_certs=verify_certs)
 
     async def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         with tracer.start_as_current_span("elasticsearch.get_mapping", attributes={"db.operation": "get_mapping", "db.elasticsearch.index": index_name}):
