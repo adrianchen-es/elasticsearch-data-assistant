@@ -11,6 +11,7 @@ module.exports = function override(config, env) {
         tls: false,
         dns: false,
         http2: false,
+        os: false,
         zlib: require.resolve('browserify-zlib'),
         timers: require.resolve('timers-browserify'),
         console: require.resolve('console-browserify'),
