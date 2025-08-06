@@ -11,21 +11,6 @@ import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/c
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 
-// Configure OTLP exporter
-const otlpExporter = new OTLPTraceExporter({
-  url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-});
-
-const collectorOptions = {
-  url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
-};
-
-const exporter = new OTLPTraceExporter({
-  url: 'http://localhost:4318/v1/traces', // Or your OTLP collector endpoint
-});
-
-const metricExporter = new OTLPMetricExporter(collectorOptions);
-
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
   try {
@@ -34,8 +19,6 @@ export const setupTelemetryWeb = () => {
       [SemanticResourceAttributes.SERVICE_NAME]: "elasticsearch-ai-frontend",
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
       [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
-      [SemanticResourceAttributes.BROWSER_BRANDS]: navigator.userAgent,
-      [SemanticResourceAttributes.BROWSER_LANGUAGE]: navigator.language,
     });
 
     // Configure OTLP exporters with headers for backend correlation
