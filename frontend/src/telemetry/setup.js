@@ -15,23 +15,44 @@ import { context, trace } from '@opentelemetry/api';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 
-export const setupTelemetry = () => {
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+
+// Configure OTLP exporter
+const otlpExporter = new OTLPTraceExporter({
+  url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+});
+
+const collectorOptions = {
+  url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
+};
+
+const exporter = new OTLPTraceExporter({
+  url: 'http://localhost:4318/v1/traces', // Or your OTLP collector endpoint
+});
+
+const metricExporter = new OTLPMetricExporter(collectorOptions);
+
+const setupTelemetryNode = new NodeSDK({
+  resource: new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: 'elasticsearch-ai-node',
+  }),
+  metricReader: metricExporter,
+  traceExporter: exporter,
+  instrumentations: [getNodeAutoInstrumentations()],
+});
+
+setupTelemetryNode.start();
+
+
+export const setupTelemetryWeb = () => {
   try {
     const resource = new Resource({
         [SemanticResourceAttributes.SERVICE_NAME]: "elasticsearch-ai-frontend"
     });
 
     const provider = new WebTracerProvider({ resource: resource });
-    
-    // Configure OTLP exporter
-    const otlpExporter = new OTLPTraceExporter({
-      url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-    });
-
-    const collectorOptions = {
-      url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
-    };
-    const metricExporter = new OTLPMetricExporter(collectorOptions);
 
     const meterProvider = new MeterProvider({
       resource: resource,
