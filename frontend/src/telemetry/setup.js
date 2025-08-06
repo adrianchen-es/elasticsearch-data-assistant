@@ -25,11 +25,11 @@ export const setupTelemetry = () => {
     
     // Configure OTLP exporter
     const otlpExporter = new OTLPTraceExporter({
-      url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+      url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://localhost:4318/v1/traces',
     });
 
     const collectorOptions = {
-      url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
+      url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://localhost:4318/v1/metrics',
     };
     const metricExporter = new OTLPMetricExporter(collectorOptions);
 
