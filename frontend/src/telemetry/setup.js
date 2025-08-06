@@ -17,6 +17,9 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
 
+// Enable debug logging
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
+
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
   try {
