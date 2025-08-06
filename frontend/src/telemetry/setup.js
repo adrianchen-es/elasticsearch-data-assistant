@@ -1,6 +1,10 @@
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+<<<<<<< HEAD
 import { ATTR_SERVICE_NAME, SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+=======
+import { ATTR_SERVICE_NAME,ATTR_SERVICE_VERSION,ATTR_DEPLOYMENT_ENVIRONMENT } from '@opentelemetry/semantic-conventions';
+>>>>>>> b0b889d (update tracing)
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
@@ -21,11 +25,17 @@ export const setupTelemetryWeb = () => {
   try {
     // Define resource attributes for better observability
     const resource = resourceFromAttributes({
+<<<<<<< HEAD
       [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
       [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
       [SemanticResourceAttributes.BROWSER_BRANDS]: navigator.userAgent,
       [SemanticResourceAttributes.BROWSER_LANGUAGE]: navigator.language,
+=======
+        [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
+        [ATTR_SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
+        [ATTR_DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+>>>>>>> b0b889d (update tracing)
     });
 
     // Configure OTLP trace exporter
