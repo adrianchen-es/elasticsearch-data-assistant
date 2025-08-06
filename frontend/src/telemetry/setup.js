@@ -6,8 +6,7 @@ import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
-import { B3Propagator, B3InjectEncoding } from '@opentelemetry/propagator-b3';
-import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
+import { B3Propagator } from '@opentelemetry/propagator-b3';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
@@ -15,6 +14,21 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
 // Enable debug logging
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
+
+// Configure OTLP exporter
+const otlpExporter = new OTLPTraceExporter({
+  url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+});
+
+const collectorOptions = {
+  url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
+};
+
+const exporter = new OTLPTraceExporter({
+  url: 'http://localhost:4318/v1/traces', // Or your OTLP collector endpoint
+});
+
+const metricExporter = new OTLPMetricExporter(collectorOptions);
 
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
@@ -93,6 +107,7 @@ export const setupTelemetryWeb = () => {
     registerInstrumentations({
       instrumentations: [
         getWebAutoInstrumentations({
+          // load custom configuration for xml-http-request instrumentation
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
@@ -101,7 +116,6 @@ export const setupTelemetryWeb = () => {
               span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
               span.setAttribute('frontend.environment', process.env.NODE_ENV);
             },
-          },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
