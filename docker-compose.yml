@@ -41,7 +41,8 @@ services:
     container_name: frontend
     environment:
       - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_OTEL_ENDPOINT=${REACT_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      - REACT_APP_OTEL_METRIC_ENDPOINT=${REACT_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}/v1/metrics
+      - REACT_APP_OTEL_TRACE_ENDPOINT=${REACT_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}/v1/traces
     ports:
       - "3000:3000"
     networks:

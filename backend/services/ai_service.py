@@ -92,7 +92,7 @@ class AIService:
         Original question: {original_prompt}
         
         Query results:
-        {json.dumps(query_results, indent=2)}
+        {query_results}
         
         Please summarize these results in a helpful way.
         """
