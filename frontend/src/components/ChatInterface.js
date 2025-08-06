@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Copy, Eye, EyeOff } from 'lucide-react';
 import ReactJson from 'react-json-view';
+import { trace, context, propagation } from '@opentelemetry/api';
 
 const ChatInterface = ({ selectedIndex, selectedProvider }) => {
   const [messages, setMessages] = useState([]);
@@ -25,18 +26,28 @@ const ChatInterface = ({ selectedIndex, selectedProvider }) => {
     setLoading(true);
 
     try {
+      const tracer = trace.getTracer('chat-interface');
+      const span = tracer.startSpan('chat_request');
+      const currentContext = trace.setSpan(context.active(), span);
+
+      // Inject trace context into headers
+      const headers = {};
+      propagation.inject(currentContext, headers);
+
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers, // Include trace context headers
+        },
         body: JSON.stringify({
           message: input,
           index_name: selectedIndex,
-          provider: selectedProvider
-        })
+          provider: selectedProvider,
+        }),
       });
 
       const data = await response.json();
-      
       if (response.ok) {
         const botMessage = {
           type: 'bot',
@@ -44,17 +55,19 @@ const ChatInterface = ({ selectedIndex, selectedProvider }) => {
           query: data.query,
           rawResults: data.raw_results,
           queryId: data.query_id,
-          timestamp: new Date()
+          timestamp: new Date(),
         };
         setMessages(prev => [...prev, botMessage]);
       } else {
         throw new Error(data.detail || 'Failed to get response');
       }
+
+      span.end();
     } catch (error) {
       const errorMessage = {
         type: 'error',
         content: `Error: ${error.message}`,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
