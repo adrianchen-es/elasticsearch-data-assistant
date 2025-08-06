@@ -18,7 +18,7 @@ export const setupTelemetryWeb = () => {
     const resource = resourceFromAttributes({
       [SemanticResourceAttributes.SERVICE_NAME]: "elasticsearch-ai-frontend",
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
-      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
+      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
     });
 
     // Configure OTLP exporters with headers for backend correlation
@@ -37,7 +37,7 @@ export const setupTelemetryWeb = () => {
     });
 
     // Setup trace provider with enhanced configuration
-    const provider = new WebTracerProvider({
+    const provider = WebTracerProvider({
       resource: resource,
       // sampler: process.env.NODE_ENV === 'production' ? new ParentBasedSampler({
       //   root: new TraceIdRatioBasedSampler(0.5) // Sample 50% of traces in production
@@ -45,7 +45,7 @@ export const setupTelemetryWeb = () => {
     });
 
     // Configure metric collection
-    const meterProvider = new MeterProvider({
+    const meterProvider = MeterProvider({
       resource: resource,
       readers: [
         new PeriodicExportingMetricReader({
