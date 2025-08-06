@@ -1,4 +1,4 @@
-require('./telemetry/node_tracing.js');
+//require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
