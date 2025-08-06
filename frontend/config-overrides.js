@@ -29,10 +29,7 @@ module.exports = function override(config, env) {
     //     stream: require.resolve('stream-browserify'),
     // };
     config.plugins.push(
-        new webpack.ProvidePlugin({
-            process: 'process/browser',
-            Buffer: ['buffer', 'Buffer'],
-        }),
+        new CompressionPlugin()
     );
 
     // Add cache configuration
@@ -52,7 +49,7 @@ module.exports = function override(config, env) {
                     parallel: true,
                     terserOptions: {
                         compress: {
-                            drop_console: true,
+                            drop_console: false,
                         },
                     },
                 }),
