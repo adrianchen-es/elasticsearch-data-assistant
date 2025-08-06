@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
 import { setupTelemetryNode } from './telemetry/setup_node';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
