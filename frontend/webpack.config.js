@@ -11,6 +11,8 @@ module.exports = {
       "assert": require.resolve("assert/"),
       "util": require.resolve("util/"),
       "process": require.resolve("process/browser"),
+      "path": require.resolve("path-browserify"),
+      "http": require.resolve("stream-http"),
     }
   },
   plugins: [
