@@ -49,6 +49,11 @@ class ChatRequest(BaseModel):
     debug: bool = False
     include_context: bool = True  # New field to toggle context inclusion
 
+class ChatErrorDetail(BaseModel):
+    error_type: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
