@@ -37,15 +37,10 @@ export const setupTelemetryWeb = () => {
     });
 
     // Setup trace provider with enhanced configuration
-    const provider = WebTracerProvider({
-      resource: resource,
-      // sampler: process.env.NODE_ENV === 'production' ? new ParentBasedSampler({
-      //   root: new TraceIdRatioBasedSampler(0.5) // Sample 50% of traces in production
-      // }) : new AlwaysOnSampler(),
-    });
+    const provider = new WebTracerProvider({ resource: resource });
 
     // Configure metric collection
-    const meterProvider = MeterProvider({
+    const meterProvider = new MeterProvider({
       resource: resource,
       readers: [
         new PeriodicExportingMetricReader({
