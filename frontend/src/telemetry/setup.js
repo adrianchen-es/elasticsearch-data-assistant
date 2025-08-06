@@ -38,30 +38,30 @@ export const setupTelemetryWeb = () => {
     // Setup trace provider with enhanced configuration
     const provider = new WebTracerProvider({ resource: resource });
 
-    // Configure metric collection
-    const meterProvider = new MeterProvider({
-      resource: resource,
-      readers: [
-        new PeriodicExportingMetricReader({
-          exporter: otlpMetricExporter,
-          exportIntervalMillis: 10000, // Export every 10 seconds
-        }),
-      ],
-    });
+    // // Configure metric collection
+    // const meterProvider = new MeterProvider({
+    //   resource: resource,
+    //   readers: [
+    //     new PeriodicExportingMetricReader({
+    //       exporter: otlpMetricExporter,
+    //       exportIntervalMillis: 10000, // Export every 10 seconds
+    //     }),
+    //   ],
+    // });
 
-    // Create custom metrics
-    const meter = meterProvider.getMeter('frontend-metrics');
+    // // Create custom metrics
+    // const meter = meterProvider.getMeter('frontend-metrics');
     
-    // Page load performance metrics
-    const pageLoadHistogram = meter.createHistogram('page_load_time');
-    window.addEventListener('load', () => {
-      const pageLoadTime = performance.now();
-      pageLoadHistogram.record(pageLoadTime);
-    });
+    // // Page load performance metrics
+    // const pageLoadHistogram = meter.createHistogram('page_load_time');
+    // window.addEventListener('load', () => {
+    //   const pageLoadTime = performance.now();
+    //   pageLoadHistogram.record(pageLoadTime);
+    // });
 
-    // User interaction counter
-    const interactionCounter = meter.createCounter('user_interactions_total');
-    document.addEventListener('click', () => interactionCounter.add(1));
+    // // User interaction counter
+    // const interactionCounter = meter.createCounter('user_interactions_total');
+    // document.addEventListener('click', () => interactionCounter.add(1));
 
     // Setup processors
     provider.addSpanProcessor(new BatchSpanProcessor(otlpTraceExporter));
@@ -118,7 +118,7 @@ export const setupTelemetryWeb = () => {
         }),
       ],
       tracerProvider: provider,
-      meterProvider: meterProvider,
+      // meterProvider: meterProvider,
     });
 
     console.log('Enhanced OpenTelemetry initialized for frontend');
