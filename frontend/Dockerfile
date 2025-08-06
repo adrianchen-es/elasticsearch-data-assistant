@@ -12,7 +12,6 @@ RUN npm install -D compression-webpack-plugin
 COPY . .
 
 # Build the app
-RUN npm install -D compression-webpack-plugin terser-webpack-plugin
 RUN npm run build
 
 # Production stage
