@@ -5,6 +5,7 @@ module.exports = function override(config, env) {
         path: false,
         net: false,
         tls: false,
+        dns: false,
         http2: false,
         zlib: require.resolve('browserify-zlib'),
         timers: require.resolve('timers-browserify'),
