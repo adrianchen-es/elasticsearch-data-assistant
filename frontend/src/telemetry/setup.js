@@ -35,7 +35,6 @@ export const setupTelemetryWeb = () => {
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
       [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
       [SemanticResourceAttributes.BROWSER_BRANDS]: navigator.userAgent,
-      [SemanticResourceAttributes.BROWSER_PLATFORM]: navigator.platform,
       [SemanticResourceAttributes.BROWSER_LANGUAGE]: navigator.language,
     });
 
