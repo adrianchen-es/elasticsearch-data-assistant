@@ -1,6 +1,7 @@
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { Resource } from '@opentelemetry/resources';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
@@ -32,8 +33,8 @@ const metricExporter = new OTLPMetricExporter(collectorOptions);
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
   try {
-    const resource = new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: "elasticsearch-ai-frontend"
+    const resource = resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
     });
 
     const provider = new WebTracerProvider({ resource: resource });
