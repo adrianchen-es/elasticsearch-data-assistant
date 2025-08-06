@@ -1,4 +1,4 @@
-import { setupTelemetryNode } from './telemetry/setup_node';
+require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
@@ -110,3 +110,7 @@ function App() {
 }
 
 export default App;
+
+process.on('SIGINT', function () {
+  process.exit();
+});

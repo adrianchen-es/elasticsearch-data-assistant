@@ -27,12 +27,9 @@
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
     "axios": "^1.6.0",
-    "react-json-view": "^1.21.3",
     "@opentelemetry/api": "^1.7.0",
     "@opentelemetry/resources": "^2.0.0",
-    "@opentelemetry/resource-detector-docker": "^2.0.0",
-    "@opentelemetry/resource-detector-process": "^2.0.0",
-    "@opentelemetry/resource-detector-env": "^2.0.0",
+    "@opentelemetry/resource-detector-docker": "^0.1.2",
     "@opentelemetry/sdk-logs": "^2.0.0",
     "@opentelemetry/sdk-trace-node": "^2.0.0",
     "@opentelemetry/sdk-trace-web": "^2.0.0",
@@ -54,13 +51,8 @@
     "lucide-react": "^0.263.1",
     "tailwindcss": "^3.3.0",
     "autoprefixer": "^10.4.14",
+    "react-json-view-lite": "^2.4.2",
     "postcss": "^8.4.24"
-  },
-  "overrides": {
-    "react-json-view": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    }
   },
   "scripts": {
     "start": "react-app-rewired start",
