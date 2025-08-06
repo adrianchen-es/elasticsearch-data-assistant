@@ -7,4 +7,9 @@ module.exports = {
     extend: {},
   },
   plugins: [],
+  resolve: {
+    fallback: {
+      "util": require.resolve("util/")
+    }
+  },
 }
