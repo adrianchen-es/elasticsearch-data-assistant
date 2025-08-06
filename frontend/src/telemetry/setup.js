@@ -16,20 +16,6 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 // Enable debug logging
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
-// Configure OTLP exporter
-const otlpExporter = new OTLPTraceExporter({
-  url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-});
-
-const collectorOptions = {
-  url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
-};
-
-const exporter = new OTLPTraceExporter({
-  url: 'http://localhost:4318/v1/traces', // Or your OTLP collector endpoint
-});
-
-const metricExporter = new OTLPMetricExporter(collectorOptions);
 
 // Setup OpenTelemetry for web
 export const setupTelemetryWeb = () => {
