@@ -36,13 +36,13 @@ def setup_telemetry():
         otlp_trace_exporter = OTLPSpanExporter(
             endpoint=settings.otel_exporter_otlp_endpoint,
             insecure=True,
-            headers=settings.otel_exporter_otlp_headers
+            #headers=settings.otel_exporter_otlp_headers
         )
         
         otlp_metric_exporter = OTLPMetricExporter(
             endpoint=settings.otel_exporter_otlp_endpoint,
             insecure=True,
-            headers=settings.otel_exporter_otlp_headers
+            #headers=settings.otel_exporter_otlp_headers
         )
         
         # Set up metrics
