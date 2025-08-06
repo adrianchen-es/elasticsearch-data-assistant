@@ -61,7 +61,7 @@ module.exports = function override(config, env) {
                     parallel: true,
                     terserOptions: {
                         compress: {
-                            drop_console: true,
+                            drop_console: false,
                         },
                     },
                 }),
