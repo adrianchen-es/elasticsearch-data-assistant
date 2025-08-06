@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-RUN npm install -D compression-webpack-plugin terser-webpack-plugin
+RUN npm install -D compression-webpack-plugin
 
 # Copy source code
 COPY . .
