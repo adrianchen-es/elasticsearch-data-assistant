@@ -5,8 +5,6 @@ import QueryEditor from './components/QueryEditor';
 import { IndexSelector, ProviderSelector } from './components/Selectors';
 import { setupTelemetry } from './telemetry/setup';
 
-require('dotenv').config()
-
 function App() {
   const [selectedIndex, setSelectedIndex] = useState('');
   const [selectedProvider, setSelectedProvider] = useState('azure');
