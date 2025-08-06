@@ -18,7 +18,7 @@ export const setupTelemetryWeb = () => {
     const resource = resourceFromAttributes({
         [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
         [ATTR_SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
-        [ATTR_DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+        [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.NODE_ENV || 'development',
     });
 
     // Configure OTLP exporters with headers for backend correlation
