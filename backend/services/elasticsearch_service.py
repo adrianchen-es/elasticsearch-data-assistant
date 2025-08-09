@@ -17,10 +17,15 @@ class ElasticsearchService:
         # Use environment variable to determine if we should verify SSL certificates
         # Default to True if not set
         verify_certs = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "true").lower() == "true"
-        if api_key:
-            self.client = AsyncElasticsearch(url, api_key=api_key, verify_certs=verify_certs)
-        else:
-            self.client = AsyncElasticsearch(url, verify_certs=verify_certs)
+        try:
+            if api_key:
+                self.client = AsyncElasticsearch(url, api_key=api_key, verify_certs=verify_certs)
+            else:
+                self.client = AsyncElasticsearch(url, verify_certs=verify_certs)
+        except Exception as e:
+            logger.error(f"Error initializing Elasticsearch client: {e}")
+            raise
+        
 
     async def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         """Get mapping for a specific index"""
