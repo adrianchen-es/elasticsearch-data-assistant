@@ -4,7 +4,7 @@ COPY package*.json ./
 
 COPY src ./src
 
-RUN npm install --production && \
+RUN npm install --omit=dev && \
     npm cache clean --force && \
     rm -rf /root/.npm /root/.node-gyp /root/.config
 
