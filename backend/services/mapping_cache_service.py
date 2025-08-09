@@ -407,6 +407,18 @@ class MappingCacheService:
         """Public method to trigger cache refresh (alias for refresh_all)"""
         return await self.refresh_all()
 
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring/app.state"""
+        return {
+            **self._stats,
+            "refresh_in_progress": self._refresh_in_progress,
+            "cache_size_mb": len(str(self._mappings)) / 1024 / 1024,
+        }
+
+    async def refresh_cache(self):
+        """Public method to trigger cache refresh (alias for refresh_all)"""
+        return await self.refresh_all()
+
     async def refresh_all(self):
         """Refresh all index mappings with comprehensive error handling and performance optimizations"""
         with tracer.start_as_current_span(
