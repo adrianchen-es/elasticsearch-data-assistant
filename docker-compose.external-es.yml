@@ -22,7 +22,7 @@ services:
   
   gateway:
     build: ./gateway
-    container_name: esda-gateway
+    container_name: gateway
     environment:
       - NODE_ENV=production
       - PORT=3100

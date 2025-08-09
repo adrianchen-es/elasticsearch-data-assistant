@@ -49,10 +49,9 @@ class ChatRequest(BaseModel):
     debug: bool = False
     include_context: bool = True  # New field to toggle context inclusion
 
-class ChatErrorDetail(BaseModel):
-    error_type: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
+    es = app_request.app.state.es_service
+    ai = app_request.app.state.ai_service
+    cache = app_request.app.state.mapping_cache_service
 
 class ChatResponse(BaseModel):
     response: str
