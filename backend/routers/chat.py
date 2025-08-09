@@ -22,6 +22,14 @@ def is_mapping_request(message: str) -> bool:
     ]
     return any(keyword in message.lower() for keyword in mapping_keywords)
 
+
+class ChatRequest(BaseModel):
+    message: str
+    index_name: str
+    mode: Optional[str] = 'elastic'  # 'elastic' | 'free'
+    provider: Optional[str] = None   # 'openai' | 'azure' (None uses env default)
+    debug: Optional[bool] = False
+
 @router.post('/chat')
 async def chat(req: ChatRequest, app_request: Request):
 
