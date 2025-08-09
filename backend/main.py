@@ -1,10 +1,10 @@
 # backend/main.py
 import asyncio
 import os
-# init OTel early
 from dotenv import load_dotenv
 load_dotenv()
-import middleware.telemetry  # noqa: F401
+# init OTel early
+from middleware.telemetry import setup_telemetry
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
