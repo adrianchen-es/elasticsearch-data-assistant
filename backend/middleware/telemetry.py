@@ -37,13 +37,11 @@ def setup_telemetry():
             # Use gRPC protocol
             trace_exporter = OTLPGrpcSpanExporter(
                 endpoint=settings.otel_exporter_grpc_traces_endpoint,
-                insecure=True,
             )
         else:
             # Default to HTTP/OTLP protocol
             trace_exporter = OTLPHttpSpanExporter(
                 endpoint=settings.otel_exporter_otlp_traces_endpoint,
-                insecure=True,
                 #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
@@ -58,14 +56,12 @@ def setup_telemetry():
             # Use gRPC protocol
             metric_exporter = OTLPGrpcMetricExporter(
                 endpoint=settings.otel_exporter_grpc_metrics_endpoint,
-                insecure=True,
                 #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
         else:
             # Default to HTTP/OTLP protocol
             metric_exporter = OTLPHttpMetricExporter(
                 endpoint=settings.otel_exporter_otlp_metrics_endpoint,
-                insecure=True,
                 #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
