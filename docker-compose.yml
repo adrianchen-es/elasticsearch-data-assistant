@@ -35,7 +35,9 @@ services:
       - app-network
 
   gateway:
-    build: ./gateway
+    build: 
+      context: ./gateway
+      dockerfile: Dockerfile
     container_name: gateway
     environment:
       - NODE_ENV=production
