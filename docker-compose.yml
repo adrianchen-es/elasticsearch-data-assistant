@@ -34,6 +34,21 @@ services:
     networks:
       - app-network
 
+  gateway:
+    build: ./gateway
+    container_name: esda-gateway
+    environment:
+      - NODE_ENV=production
+      - PORT=3100
+      - BACKEND_BASE_URL=http://backend:3000
+      - OTEL_SERVICE_NAME=es-data-assistant-gateway
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+    ports:
+      - "3100:3100" # optional public; nginx uses service name internally
+    depends_on:
+      - backend
+      - otel-collector
+
   frontend:
     build:
       context: ./frontend
