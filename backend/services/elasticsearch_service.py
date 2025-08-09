@@ -29,7 +29,8 @@ class ElasticsearchService:
             attributes={"db.operation": "get_mapping", "db.elasticsearch.index": index_name},
         ):
             try:
-                return await self.client.indices.get_mapping(index=index_name)
+                response = await self.client.indices.get_mapping(index=index_name)
+                return response
             except Exception as e:
                 logger.error(f"Error getting mapping for index {index_name}: {e}")
                 raise
@@ -48,7 +49,8 @@ class ElasticsearchService:
         """Execute a search query"""
         with tracer.start_as_current_span("elasticsearch.execute_query", attributes={"db.operation": "search", "db.elasticsearch.index": index_name}):
             try:
-                return await self.client.search(index=index_name, body=query)
+                response = await self.client.search(index=index_name, body=query)
+                return response
             except Exception as e:
                 logger.error(f"Error executing query on index {index_name}: {e}")
                 logger.error(f"Query: {json.dumps(query, indent=2)}")
