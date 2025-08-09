@@ -32,16 +32,19 @@ def setup_telemetry():
         })
         
         # --- Tracing ---
+        # Default to HTTP/OTLP protocol unless explicitly set to gRPC
         if settings.otel_exporter_grpc_protocol:
-            trace_exporter = OTLPHttpSpanExporter(
-                endpoint=settings.otel_exporter_otlp_traces_endpoint,
-                insecure=True,
-                headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
-            )
-        else:
+            # Use gRPC protocol
             trace_exporter = OTLPGrpcSpanExporter(
                 endpoint=settings.otel_exporter_grpc_traces_endpoint,
                 insecure=True,
+            )
+        else:
+            # Default to HTTP/OTLP protocol
+            trace_exporter = OTLPHttpSpanExporter(
+                endpoint=settings.otel_exporter_otlp_traces_endpoint,
+                insecure=True,
+                #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
         # Set up tracer provider with resource
@@ -50,20 +53,23 @@ def setup_telemetry():
         trace.set_tracer_provider(trace_provider)
 
         # --- Metrics ---
+        # Default to HTTP/OTLP protocol unless explicitly set to gRPC
         if settings.otel_exporter_grpc_protocol:
-            metric_exporter = OTLPHttpMetricExporter(
-                endpoint=settings.otel_exporter_otlp_metrics_endpoint
-            )
-        else:
+            # Use gRPC protocol
             metric_exporter = OTLPGrpcMetricExporter(
                 endpoint=settings.otel_exporter_grpc_metrics_endpoint,
                 insecure=True,
-                headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
+                #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
+            )
+        else:
+            # Default to HTTP/OTLP protocol
+            metric_exporter = OTLPHttpMetricExporter(
+                endpoint=settings.otel_exporter_otlp_metrics_endpoint,
+                insecure=True,
+                #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
-        metric_reader = PeriodicExportingMetricReader(metric_exporter)
-        
-        # Set up metrics
+        # Set up metrics with periodic export (every 10 seconds)
         metric_reader = PeriodicExportingMetricReader(
             metric_exporter,
             export_interval_millis=10000  # Export metrics every 10 seconds
@@ -71,16 +77,12 @@ def setup_telemetry():
         metrics_provider = MeterProvider(resource=_resource, metric_readers=[metric_reader])
         metrics.set_meter_provider(metrics_provider)
         
-        # Add span processor
-        span_processor = BatchSpanProcessor(trace_exporter)
-        trace_provider.add_span_processor(span_processor)
-        
         # Instrument other services
         ElasticsearchInstrumentor().instrument()
         OpenAIInstrumentor().instrument(enable_metrics=True)
         HTTPXClientInstrumentor().instrument()
         
-        logger.info("OpenTelemetry instrumentation setup complete")
+        logger.info(f"OpenTelemetry instrumentation setup complete - using {'gRPC' if settings.otel_exporter_grpc_protocol else 'HTTP/OTLP'} protocol")
         
     except Exception as e:
         logger.error(f"Failed to setup telemetry: {e}", exc_info=True)
