@@ -10,6 +10,8 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from contextlib import asynccontextmanager
 import logging
 
+setup_telemetry()  # Initialize OpenTelemetry
+
 logger = logging.getLogger(__name__)
 
 from services.elasticsearch_service import ElasticsearchService
