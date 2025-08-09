@@ -1,5 +1,5 @@
 # backend/routers/chat.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import os, time, json, hashlib
 from opentelemetry import trace
 from pydantic import BaseModel
