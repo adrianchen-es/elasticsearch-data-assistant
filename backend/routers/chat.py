@@ -3,6 +3,7 @@ from fastapi import APIRouter
 import os, time, json, hashlib
 from opentelemetry import trace
 from opentelemetry.trace import Span
+from typing import Dict, Any, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
