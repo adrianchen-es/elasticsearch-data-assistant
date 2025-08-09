@@ -1,8 +1,9 @@
 # backend/services/ai_service.py
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
+    # Add/adjust return_debug in your methods
 import json, logging, os
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,10 @@ class AIService:
             current_span.set_status(Status(StatusCode.ERROR))
             current_span.record_exception(e)
             logger.exception("Error generating query")
-            raise
+            query_json = json.loads(query_text) if query_text else None
+            dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
+            return query_json, dbg
+            #raise
 
     @tracer.start_as_current_span("ai_summarize_results")
     async def summarize_results(self, query_results: Dict[str, Any], original_prompt: str, provider: str = "azure") -> str:
@@ -92,7 +96,9 @@ class AIService:
             return response.choices[0].message.content
         except Exception:
             logger.exception("Error summarizing results")
-            raise
+            dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
+            return dbg
+            #raise
 
     def _build_system_prompt(self, mapping_info: Dict[str, Any]) -> str:
         return (
@@ -108,3 +114,13 @@ class AIService:
             "- Use appropriate query types (match, term, range, etc.)\n\n"
             "Return only the JSON query, no additional text or formatting."
         )
+
+    async def free_chat(self, user_prompt: str, provider: str = "azure", return_debug: bool = False) -> Tuple[str, dict]:
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": user_prompt}
+        ]
+        # ... call provider as before ...
+        text = response.choices[0].message.content
+        dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
+        return text, dbg
