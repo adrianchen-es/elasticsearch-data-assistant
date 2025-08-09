@@ -103,6 +103,55 @@ async def get_mapping(index_name: str, app_request: Request):
         logger.error(f"Get mapping error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/cache/stats")
+async def get_cache_stats(app_request: Request):
+    """Get cache statistics for monitoring and performance insights"""
+    try:
+        mapping_service = app_request.app.state.mapping_cache_service
+        stats = mapping_service.get_cache_stats()
+        
+        # Add health cache stats if available
+        health_cache = getattr(app_request.app.state, 'health_cache', {})
+        if health_cache:
+            stats['health_cache'] = {
+                'last_check': health_cache.get('last_check'),
+                'cache_ttl': health_cache.get('cache_ttl'),
+                'has_cached_response': 'cached_response' in health_cache
+            }
+        
+        return {
+            "cache_stats": stats,
+            "performance_tips": [
+                "Cache hit rate should be > 80% for optimal performance",
+                "Refresh errors should be minimal",
+                "Cache size should be reasonable for your memory limits"
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Get cache stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/cache/refresh")
+async def refresh_cache(app_request: Request):
+    """Manually trigger cache refresh"""
+    try:
+        mapping_service = app_request.app.state.mapping_cache_service
+        await mapping_service.refresh_cache()
+        
+        return {
+            "message": "Cache refresh initiated successfully",
+            "stats": mapping_service.get_cache_stats()
+        }
+        
+    except Exception as e:
+        logger.error(f"Cache refresh error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.error(f"Get mapping error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/query/regenerate", response_model=ChatResponse)
 @tracer.start_as_current_span("regenerate_query")
 async def regenerate_query(request: ChatRequest, app_request: Request):

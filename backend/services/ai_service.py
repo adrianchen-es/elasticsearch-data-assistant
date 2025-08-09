@@ -16,7 +16,8 @@ class AIService:
                  azure_deployment: Optional[str] = None,
                  azure_version: Optional[str] = None,
                  openai_api_key: Optional[str] = None,
-                 openai_model: Optional[str] = None):
+                 openai_model: Optional[str] = None
+    ):
         self.azure_api_key = azure_api_key or os.getenv('AZURE_OPENAI_API_KEY')
         self.azure_endpoint = azure_endpoint or os.getenv('AZURE_OPENAI_ENDPOINT')
         self.azure_deployment = azure_deployment or os.getenv('AZURE_OPENAI_DEPLOYMENT')

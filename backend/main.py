@@ -48,33 +48,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
-es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
-ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
-mapping_cache_service = MappingCacheService(es_service)
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    await mapping_cache_service.start_scheduler()
+    # Startup - Initialize services and warm up caches
+    logger.info("Starting up Elasticsearch Data Assistant...")
+    
+    # Initialize services with optimized connection settings
+    es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
+    ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
+    mapping_cache_service = MappingCacheService(es_service)
+    
+    # Store services in app state for efficient access
+    app.state.es_service = es_service
+    app.state.ai_service = ai_service
+    app.state.mapping_cache_service = mapping_cache_service
+    
+    # Initialize health check cache
+    app.state.health_cache = {
+        "last_check": None,
+        "status": "unknown",
+        "cache_ttl": 30  # 30 seconds TTL for health checks
+    }
+    
+    # Start mapping cache scheduler and warm up cache
+    try:
+        await mapping_cache_service.start_scheduler()
+        logger.info("Mapping cache scheduler started successfully")
+        
+        # Warm up cache with available indices (non-blocking)
+        asyncio.create_task(_warm_up_cache(mapping_cache_service))
+        
+    except Exception as e:
+        logger.error(f"Failed to start mapping cache scheduler: {e}")
+        raise
+    
+    logger.info("Startup complete")
     yield
-    # Shutdown
-    await mapping_cache_service.stop_scheduler()
+    
+    # Shutdown - Clean up resources
+    logger.info("Shutting down Elasticsearch Data Assistant...")
+    try:
+        await mapping_cache_service.stop_scheduler()
+        await es_service.close()
+        logger.info("Shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
-# Register lifespan event handlers
-@app.on_event('startup')
-async def startup():
-    # warm cache & start scheduler
-    await mapping_cache_service.start_scheduler()
+async def _warm_up_cache(mapping_cache_service):
+    """Warm up the mapping cache in the background"""
+    try:
+        logger.info("Starting cache warm-up...")
+        await asyncio.sleep(1)  # Small delay to let startup complete
+        await mapping_cache_service.refresh_cache()
+        logger.info("Cache warm-up completed")
+    except Exception as e:
+        logger.warning(f"Cache warm-up failed (will retry): {e}")
 
-@app.on_event('shutdown')
-async def shutdown():
-    await mapping_cache_service.stop_scheduler()
-    await es_service.close()
-# Dependency injection
-app.state.es_service = es_service
-app.state.ai_service = ai_service
-app.state.mapping_cache_service = mapping_cache_service
+# Use the lifespan context manager
+app.router.lifespan_context = lifespan
 
 # Register routers
 # Router deps can access cache & es via module-level singletons
