@@ -1,5 +1,4 @@
 import './tracing.js';
-import { sdk } from './tracing.js';
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -27,8 +26,6 @@ app.use('/api', createProxyMiddleware({
 }));
 
 const port = process.env.PORT || 3100;
-sdk.start().then(() => {
-  app.listen(port, () => console.log(`Gateway listening on ${port}, proxy -> ${backendBase}`));
-});
+app.listen(port, () => console.log(`Gateway listening on ${port}, proxy -> ${backendBase}`));
 
 process.on('SIGTERM', async () => { await sdk.shutdown(); process.exit(0); });

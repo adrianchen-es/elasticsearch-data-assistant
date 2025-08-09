@@ -24,3 +24,16 @@ export const sdk = new NodeSDK({
   traceExporter: useGrpc ? grpcExporter : httpExporter,
   instrumentations: [getNodeAutoInstrumentations()]
 });
+
+// Start the SDK
+sdk.start()
+  .then(() => console.log('Tracing and metrics initialized'))
+  .catch((error) => console.error('Error initializing tracing and metrics:', error));
+
+// // Graceful shutdown
+// process.on('SIGTERM', () => {
+//   sdk.shutdown()
+//     .then(() => console.log('SDK shut down successfully'))
+//     .catch((error) => console.error('Error shutting down SDK:', error))
+//     .finally(() => process.exit(0));
+// });
