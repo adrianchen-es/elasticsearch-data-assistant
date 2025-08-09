@@ -17,6 +17,7 @@ from opentelemetry.context import set_value, get_current
 
 setup_telemetry()  # Initialize OpenTelemetry
 
+
 setup_telemetry()  # Initialize OpenTelemetry
 
 logger = logging.getLogger(__name__)
