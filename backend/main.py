@@ -12,7 +12,6 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from contextlib import asynccontextmanager
 import logging
 
-
 setup_telemetry()  # Initialize OpenTelemetry
 
 logger = logging.getLogger(__name__)
