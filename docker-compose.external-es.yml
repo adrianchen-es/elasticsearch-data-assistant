@@ -36,6 +36,8 @@ services:
     depends_on:
       - backend
       - otel-collector
+    networks:
+      - app-network
 
   gateway:
     build: 
