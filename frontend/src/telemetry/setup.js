@@ -41,10 +41,10 @@ export const setupTelemetryWeb = () => {
     // Setup WebTracerProvider
     const tracerProvider = new WebTracerProvider({
       resource: resource,
+      spanProcessors: [new BatchSpanProcessor(otlpTraceExporter)],
     });
-
-    // Add span processors
-    tracerProvider.addSpanProcessor(new BatchSpanProcessor(otlpTraceExporter));
+  
+    // Add ConsoleSpanExporter for development
     if (process.env.NODE_ENV === 'development') {
       tracerProvider.addSpanProcessor(new BatchSpanProcessor(new ConsoleSpanExporter()));
     }
