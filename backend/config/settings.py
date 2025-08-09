@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4")
     
     # OpenTelemetry settings
-    otel_exporter_otlp_protocol: bool = (os.getenv('OTEL_EXPORTER_OTLP_PROTOCOL', '') or '').lower() == 'otlp'
+    otel_exporter_otlp_protocol: bool = (os.getenv('OTEL_EXPORTER_OTLP_PROTOCOL', '')).lower() == 'otlp'
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elasticsearch-ai-backend")
     otel_exporter_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
     otel_exporter_otlp_traces_endpoint: Optional[str] = os.getenv("OTEL_EXPORTER_GRPC_TRACES_ENDPOINT", "http://otel-collector:4318/v1/traces")
