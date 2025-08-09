@@ -2,6 +2,8 @@
 import asyncio
 import os
 # init OTel early
+from dotenv import load_dotenv
+load_dotenv()
 import middleware.telemetry  # noqa: F401
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from contextlib import asynccontextmanager
 import logging
+
 
 setup_telemetry()  # Initialize OpenTelemetry
 
