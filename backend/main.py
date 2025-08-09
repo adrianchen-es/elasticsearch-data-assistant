@@ -7,12 +7,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from contextlib import asynccontextmanager
 import logging
 
 logger = logging.getLogger(__name__)
 
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
+from services.ai_service import AIService
+from settings import settings
 from routers import chat, query, health
 
 app = FastAPI(
