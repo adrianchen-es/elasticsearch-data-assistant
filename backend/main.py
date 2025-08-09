@@ -1,20 +1,45 @@
+# backend/main.py
+import asyncio
+import os
+# init OTel early
+import middleware.telemetry  # noqa: F401
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import os
-from dotenv import load_dotenv
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+import logging
 
-from config.settings import settings
-from middleware.telemetry import setup_telemetry, setup_telemetry_fastapi
+logger = logging.getLogger(__name__)
+
 from services.elasticsearch_service import ElasticsearchService
-from services.ai_service import AIService
 from services.mapping_cache_service import MappingCacheService
 from routers import chat, query, health
 
-load_dotenv()
+app = FastAPI(
+    title='Elasticsearch Data Assistant',
+    description="AI-powered Elasticsearch query interface",
+    version="1.0.0",
+)
 
-# Setup telemetry
-setup_telemetry()
+# Instrument FastAPI
+try:        
+    FastAPIInstrumentor.instrument_app(app)
+    logger.info("OpenTelemetry FastAPI instrumentation setup complete")
+    
+except Exception as e:
+    logger.error(f"Failed to setup FastAPI telemetry: {e}")
+    # Don't fail the app if telemetry setup fails
+# Instrument Requests
+RequestsInstrumentor().instrument()
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.getenv('CORS_ALLOW_ORIGINS', '*')],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize services
 es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
@@ -29,31 +54,23 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await mapping_cache_service.stop_scheduler()
 
-app = FastAPI(
-    title="Elasticsearch AI Query Assistant",
-    description="AI-powered Elasticsearch query interface",
-    version="1.0.0",
-    lifespan=lifespan
-)
+# Register lifespan event handlers
+@app.on_event('startup')
+async def startup():
+    # warm cache & start scheduler
+    await mapping_cache_service.start_scheduler()
 
-# Setup FastAPI telemetry
-setup_telemetry_fastapi(app)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://obs-dev.dragacy.com", "http://localhost:3000", "http://frontend:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+@app.on_event('shutdown')
+async def shutdown():
+    await mapping_cache_service.stop_scheduler()
+    await es_service.close()
 # Dependency injection
 app.state.es_service = es_service
 app.state.ai_service = ai_service
 app.state.mapping_cache_service = mapping_cache_service
 
-# Include routers
+# Register routers
+# Router deps can access cache & es via module-level singletons
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(query.router, prefix="/api", tags=["query"])
