@@ -3,6 +3,11 @@ WORKDIR /srv
 COPY package*.json ./
 
 COPY src ./src
+
+RUN npm install --production && \
+    npm cache clean --force && \
+    rm -rf /root/.npm /root/.node-gyp /root/.config
+
 ENV NODE_ENV=production \
     PORT=3100 \
     OTEL_SERVICE_NAME=es-data-assistant-gateway \
