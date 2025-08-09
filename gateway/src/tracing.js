@@ -27,7 +27,6 @@ export const sdk = new NodeSDK({
 
 // Start the SDK
 sdk.start()
-  .catch((error) => console.error('Error initializing tracing and metrics:', error));
 
 // // Graceful shutdown
 // process.on('SIGTERM', () => {
