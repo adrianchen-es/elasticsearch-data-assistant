@@ -330,71 +330,203 @@ class AIService:
                 
                 return error_response, debug_info
 
-    def generate_chat(
-        self,
-        messages: List[Dict],
-        *,
-        model: Optional[str] = None,
-        temperature: float = 0.2,
-        stream: bool = False,
-    ):
-        """
-        Returns either a dict {text, usage} when stream=False, or a generator of NDJSON-ready dicts when stream=True.
-        """
-        # Token guard
-        prompt_tokens, reserved_for_output, _limit = ensure_token_budget(messages, model)
-
-        # Prefer using underlying client's streaming if available, otherwise simulate.
-        if stream:
-            # Try native streaming on the underlying client if it exists in your original implementation.
+    async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None, 
+                          temperature: float = 0.2, stream: bool = False, 
+                          conversation_id: Optional[str] = None):
+        """Generate chat response with optional streaming support"""
+        with tracer.start_as_current_span("ai_generate_chat") as current_span:
+            provider = "azure" if self.azure_client else "openai"
+            current_span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.stream": stream,
+                "ai.conversation_id": conversation_id or "unknown",
+                "ai.message_count": len(messages)
+            })
+            
             try:
-                # stream_resp = self.client.chat.completions.create(
-                #     model=model,
-                #     messages=messages,
-                #     temperature=temperature,
-                #     stream=True,
-                # )
-                # for event in stream_resp:
-                #     delta = event.choices[0].delta.content or ""
-                #     if delta:
-                #         yield {"type": "message", "delta": delta}
-                # usage after stream end is often provided separately, fall back to None if unknown
-                # yield {"type": "final", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": None, "total_tokens": None}}
-                raise NotImplementedError  # remove if you wire native streaming
-            except NotImplementedError:
-                # Fallback: get full response and chunk it
-                # resp = self.client.chat.completions.create(
-                #     model=model,
-                #     messages=messages,
-                #     temperature=temperature,
-                # )
-                # full_text = resp.choices[0].message.content or ""
-                full_text = ""  # replace with actual text from your existing code
-                completion_tokens = count_prompt_tokens([{"role": "assistant", "content": full_text}], model)
-                for delta in _chunk_text(full_text):
-                    yield {"type": "message", "delta": delta}
-                yield {
-                    "type": "final",
-                    "usage": {
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens,
-                        "total_tokens": prompt_tokens + completion_tokens,
-                    },
-                }
-        else:
-            # resp = self.client.chat.completions.create(
-            #     model=model,
-            #     messages=messages,
-            #     temperature=temperature,
-            # )
-            # text = resp.choices[0].message.content or ""
-            text = ""  # replace with actual text from your existing code
-            completion_tokens = count_prompt_tokens([{"role": "assistant", "content": text}], model)
-            return {
-                "text": text,
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens,
-                },
+                if stream:
+                    return self._stream_chat_response(messages, model, temperature, provider)
+                else:
+                    return await self._get_chat_response(messages, model, temperature, provider)
+                    
+            except Exception as e:
+                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.record_exception(e)
+                logger.error(f"Error in generate_chat: {e}")
+                raise
+
+    async def _stream_chat_response(self, messages: List[Dict], model: Optional[str], 
+                                  temperature: float, provider: str):
+        """Stream chat response"""
+        try:
+            if provider == "azure" and self.azure_client:
+                response = await self.azure_client.chat.completions.create(
+                    model=model or self.azure_deployment,
+                    messages=messages,
+                    temperature=temperature,
+                    stream=True,
+                    max_tokens=2000
+                )
+                
+                async for chunk in response:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yield {
+                            "type": "content",
+                            "delta": chunk.choices[0].delta.content
+                        }
+                        
+            elif provider == "openai" and self.openai_client:
+                response = await self.openai_client.chat.completions.create(
+                    model=model or self.openai_model,
+                    messages=messages,
+                    temperature=temperature,
+                    stream=True,
+                    max_tokens=2000
+                )
+                
+                async for chunk in response:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yield {
+                            "type": "content",
+                            "delta": chunk.choices[0].delta.content
+                        }
+            else:
+                raise ValueError(f"Provider {provider} not available")
+            
+            yield {"type": "done"}
+            
+        except Exception as e:
+            yield {
+                "type": "error",
+                "error": {"code": "stream_failed", "message": str(e)}
             }
+
+    async def _get_chat_response(self, messages: List[Dict], model: Optional[str], 
+                               temperature: float, provider: str) -> Dict:
+        """Get non-streaming chat response"""
+        try:
+            if provider == "azure" and self.azure_client:
+                response = await self.azure_client.chat.completions.create(
+                    model=model or self.azure_deployment,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=2000
+                )
+            elif provider == "openai" and self.openai_client:
+                response = await self.openai_client.chat.completions.create(
+                    model=model or self.openai_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=2000
+                )
+            else:
+                raise ValueError(f"Provider {provider} not available")
+            
+            return {
+                "text": response.choices[0].message.content or "",
+                "usage": response.usage.model_dump() if response.usage else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting chat response: {e}")
+            raise
+
+    async def generate_elasticsearch_chat(self, messages: List[Dict], schema_context: Dict[str, Any],
+                                        model: Optional[str] = None, temperature: float = 0.7,
+                                        conversation_id: Optional[str] = None,
+                                        return_debug: bool = False) -> Any:
+        """Generate context-aware chat response with Elasticsearch schema"""
+        with tracer.start_as_current_span("ai_elasticsearch_chat") as current_span:
+            provider = "azure" if self.azure_client else "openai"
+            current_span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.conversation_id": conversation_id or "unknown",
+                "ai.schema_indices": list(schema_context.keys()) if schema_context else []
+            })
+            
+            # Build enhanced system prompt with schema context
+            system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
+            
+            # Ensure we have a system message at the beginning
+            enhanced_messages = [{"role": "system", "content": system_prompt}]
+            enhanced_messages.extend(messages)
+            
+            try:
+                if provider == "azure" and self.azure_client:
+                    response = await self.azure_client.chat.completions.create(
+                        model=model or self.azure_deployment,
+                        messages=enhanced_messages,
+                        temperature=temperature,
+                        max_tokens=2000
+                    )
+                elif provider == "openai" and self.openai_client:
+                    response = await self.openai_client.chat.completions.create(
+                        model=model or self.openai_model,
+                        messages=enhanced_messages,
+                        temperature=temperature,
+                        max_tokens=2000
+                    )
+                else:
+                    raise ValueError(f"Provider {provider} not available")
+                
+                text = response.choices[0].message.content or ""
+                current_span.set_status(Status(StatusCode.OK))
+                
+                if return_debug:
+                    debug_info = {
+                        "messages": enhanced_messages,
+                        "response": response.model_dump() if hasattr(response, 'model_dump') else str(response),
+                        "schema_context": schema_context
+                    }
+                    return text, debug_info
+                else:
+                    return text
+                    
+            except Exception as e:
+                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.record_exception(e)
+                logger.error(f"Error in elasticsearch_chat: {e}")
+                raise
+
+    def _build_elasticsearch_chat_system_prompt(self, schema_context: Dict[str, Any]) -> str:
+        """Build system prompt with Elasticsearch schema context"""
+        prompt = """You are an AI assistant with access to Elasticsearch data. You can help users understand their data, generate queries, and analyze results.
+
+Available capabilities:
+1. Answer questions about data structure and schema
+2. Generate Elasticsearch queries when requested
+3. Explain query results and data patterns
+4. Provide general assistance and guidance
+
+"""
+        
+        if schema_context:
+            prompt += "Available Elasticsearch indices and their schemas:\n\n"
+            for index_name, schema in schema_context.items():
+                prompt += f"Index: {index_name}\n"
+                if isinstance(schema, dict) and "properties" in schema:
+                    prompt += f"Fields: {', '.join(schema['properties'].keys())}\n\n"
+                else:
+                    prompt += f"Schema: {json.dumps(schema, indent=2)}\n\n"
+        
+        prompt += """Important: Only generate actual Elasticsearch queries when the user specifically asks for a query. For general questions about the data or schema, provide informative responses without automatically creating queries."""
+        
+        return prompt
+
+    async def generate_elasticsearch_chat_stream(self, messages: List[Dict], schema_context: Dict[str, Any],
+                                               model: Optional[str] = None, temperature: float = 0.7,
+                                               conversation_id: Optional[str] = None):
+        """Stream context-aware chat response with Elasticsearch schema"""
+        # Build enhanced system prompt with schema context
+        system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
+        
+        # Ensure we have a system message at the beginning
+        enhanced_messages = [{"role": "system", "content": system_prompt}]
+        enhanced_messages.extend(messages)
+        
+        # Use the streaming method with enhanced messages
+        async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, 
+                                                     "azure" if self.azure_client else "openai"):
+            yield chunk
