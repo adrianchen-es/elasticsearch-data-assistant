@@ -154,7 +154,6 @@ const IndexSelector = ({
           Refresh
         </button>
       </div>
-
       <div className="relative">
         <select
           value={selectedIndex}
