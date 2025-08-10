@@ -11,7 +11,7 @@ app.use(express.json());
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'gateway' }));
 
 // Proxy all /api/* to FastAPI backend, preserving trace headers
-const backendBase = process.env.BACKEND_BASE_URL || 'http://backend:8000/api';
+const backendBase = process.env.BACKEND_BASE_URL || 'http://backend:8000';
 app.use('/api', createProxyMiddleware({
   target: backendBase,
   changeOrigin: true,
