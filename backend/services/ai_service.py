@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
-import json, logging, math, os
+import json, logging, math, os, time
 
 try:
     import tiktoken  # robust token counting when available
@@ -204,31 +204,56 @@ class AIService:
     def _ensure_clients_initialized(self):
         """Lazy initialization of clients on first use"""
         if self._initialization_status["clients_created"]:
+            logger.debug("🔄 AI clients already initialized, skipping creation")
             return
             
-        logger.info("Creating AI client connections...")
+        logger.info("🚀 Creating AI client connections...")
+        initialization_start_time = time.time()
+        
+        azure_success = False
+        openai_success = False
         
         # Initialize Azure OpenAI client
         if self._initialization_status["azure_configured"] and not self.azure_client:
             try:
+                azure_start_time = time.time()
+                logger.info("☁️ Initializing Azure OpenAI client...")
+                
                 self.azure_client = AsyncAzureOpenAI(
                     api_key=self.azure_api_key, 
                     azure_endpoint=self.azure_endpoint, 
                     api_version=self.azure_version
                 )
-                logger.info(f"✅ Azure OpenAI client created - Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}")
+                
+                azure_duration = time.time() - azure_start_time
+                azure_success = True
+                logger.info(f"✅ Azure OpenAI client created successfully in {azure_duration:.3f}s")
+                logger.info(f"   • Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}")
+                logger.info(f"   • Deployment: {self.azure_deployment}")
+                logger.info(f"   • API Version: {self.azure_version}")
+                
             except Exception as e:
-                error_msg = f"Failed to create Azure OpenAI client: {str(e)}"
+                azure_duration = time.time() - azure_start_time if 'azure_start_time' in locals() else 0
+                error_msg = f"Failed to create Azure OpenAI client after {azure_duration:.3f}s: {str(e)}"
                 self._initialization_status["errors"].append(error_msg)
                 logger.error(f"❌ {error_msg}")
 
         # Initialize OpenAI client  
         if self._initialization_status["openai_configured"] and not self.openai_client:
             try:
+                openai_start_time = time.time()
+                logger.info("🤖 Initializing OpenAI client...")
+                
                 self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-                logger.info(f"✅ OpenAI client created - Model: {self.openai_model}")
+                
+                openai_duration = time.time() - openai_start_time
+                openai_success = True
+                logger.info(f"✅ OpenAI client created successfully in {openai_duration:.3f}s")
+                logger.info(f"   • Model: {self.openai_model}")
+                
             except Exception as e:
-                error_msg = f"Failed to create OpenAI client: {str(e)}"
+                openai_duration = time.time() - openai_start_time if 'openai_start_time' in locals() else 0
+                error_msg = f"Failed to create OpenAI client after {openai_duration:.3f}s: {str(e)}"
                 self._initialization_status["errors"].append(error_msg)
                 logger.error(f"❌ {error_msg}")
         
@@ -236,16 +261,31 @@ class AIService:
         
         # Final validation
         if not self.azure_client and not self.openai_client:
-            error_msg = "❌ Failed to create any AI clients despite valid configuration"
+            total_duration = time.time() - initialization_start_time
+            error_msg = f"❌ Failed to create any AI clients despite valid configuration (after {total_duration:.3f}s)"
             logger.error(error_msg)
             raise ValueError("Failed to initialize AI clients")
         
+        # Success summary
+        total_duration = time.time() - initialization_start_time
         providers = []
         if self.azure_client:
             providers.append("Azure OpenAI")
         if self.openai_client:
             providers.append("OpenAI")
-        logger.info(f"🚀 AI clients ready: {', '.join(providers)}")
+            
+        configured_providers = []
+        if self._initialization_status.get('azure_configured', False):
+            configured_providers.append('Azure')
+        if self._initialization_status.get('openai_configured', False):
+            configured_providers.append('OpenAI')
+            
+        success_count = sum([azure_success, openai_success])
+        total_configured = len(configured_providers)
+            
+        logger.info(f"🎉 AI client initialization completed in {total_duration:.3f}s")
+        logger.info(f"🚀 Ready providers: {', '.join(providers)}")
+        logger.info(f"📊 Success rate: {success_count}/{total_configured} providers initialized")
     
     def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
         """Mask sensitive data for logging, showing only first few characters"""

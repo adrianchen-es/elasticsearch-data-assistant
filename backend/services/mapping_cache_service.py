@@ -93,20 +93,76 @@ class MappingCacheService:
 
     async def start_scheduler_async(self):
         """Start the background scheduler for cache updates (non-blocking)"""
+        start_time = time.time()
+        
         if self._scheduler:
+            logger.info("📅 Mapping cache scheduler already running, skipping initialization")
             return
-        self._scheduler = AsyncIOScheduler()
-        # refresh every 5 minutes
-        self._scheduler.add_job(self.refresh_all, 'interval', minutes=5)
-        self._scheduler.start()
-        logger.info("Mapping cache scheduler started (initial cache load will happen in background)")
+            
+        try:
+            logger.info("🚀 Initializing mapping cache scheduler...")
+            self._scheduler = AsyncIOScheduler()
+            
+            # Configure scheduler settings
+            refresh_interval = int(os.getenv("MAPPING_CACHE_REFRESH_INTERVAL", "5"))
+            logger.info(f"📅 Setting cache refresh interval to {refresh_interval} minutes")
+            
+            # Add the scheduled job
+            self._scheduler.add_job(
+                self.refresh_all, 
+                'interval', 
+                minutes=refresh_interval,
+                id='mapping_cache_refresh',
+                name='Mapping Cache Refresh',
+                replace_existing=True
+            )
+            
+            # Start the scheduler
+            self._scheduler.start()
+            
+            initialization_time = time.time() - start_time
+            logger.info(f"✅ Mapping cache scheduler started successfully in {initialization_time:.3f}s")
+            logger.info(f"🔄 Next automatic cache refresh scheduled in {refresh_interval} minutes")
+            
+        except Exception as e:
+            initialization_time = time.time() - start_time
+            logger.error(f"❌ Failed to start mapping cache scheduler after {initialization_time:.3f}s: {e}")
+            self._scheduler = None
+            raise
 
     async def stop_scheduler(self):
         """Stop the background scheduler"""
-        if self._scheduler:
-            self._scheduler.shutdown()
+        if not self._scheduler:
+            logger.info("📅 Mapping cache scheduler was not running")
+            return
+            
+        try:
+            stop_start_time = time.time()
+            logger.info("🛑 Stopping mapping cache scheduler...")
+            
+            # Check if scheduler is currently running jobs
+            running_jobs = self._scheduler.get_jobs()
+            if running_jobs:
+                logger.info(f"⏳ Waiting for {len(running_jobs)} running jobs to complete...")
+            
+            self._scheduler.shutdown(wait=True)
             self._scheduler = None
-        logger.info("Mapping cache service stopped")
+            
+            stop_duration = time.time() - stop_start_time
+            logger.info(f"✅ Mapping cache scheduler stopped gracefully in {stop_duration:.3f}s")
+            
+        except Exception as e:
+            stop_duration = time.time() - stop_start_time if 'stop_start_time' in locals() else 0
+            logger.error(f"❌ Error stopping mapping cache scheduler after {stop_duration:.3f}s: {e}")
+            # Force cleanup
+            try:
+                if self._scheduler:
+                    self._scheduler.shutdown(wait=False)
+                    self._scheduler = None
+                logger.info("🔧 Force stopped mapping cache scheduler")
+            except Exception as force_error:
+                logger.error(f"❌ Force stop also failed: {force_error}")
+                self._scheduler = None
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for monitoring/app.state"""

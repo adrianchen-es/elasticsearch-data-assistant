@@ -6,12 +6,16 @@ import json
 import logging
 import os  # Import os to read environment variables
 import asyncio
+import time
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class ElasticsearchService:
     def __init__(self, url: str, api_key: Optional[str] = None):
+        initialization_start_time = time.time()
+        logger.info(f"🔍 Initializing Elasticsearch service for {self._mask_url(url)}")
+        
         self.url = url
         self.api_key = api_key
         
@@ -21,7 +25,8 @@ class ElasticsearchService:
             "failed_requests": 0,
             "avg_response_time": 0,
             "last_ping": None,
-            "connection_pool_size": 0
+            "connection_pool_size": 0,
+            "initialization_time": 0
         }
 
         # Use environment variable to determine if we should verify SSL certificates
@@ -35,11 +40,22 @@ class ElasticsearchService:
 
         # Enhanced connection pool settings for better performance
         pool_maxsize = int(os.getenv("ELASTICSEARCH_POOL_MAXSIZE", "50"))  # Increased from 20
+        
+        logger.info(f"🔧 Elasticsearch configuration:")
+        logger.info(f"   • URL: {self._mask_url(url)}")
+        logger.info(f"   • SSL Verification: {verify_certs}")
+        logger.info(f"   • Request Timeout: {request_timeout}s")
+        logger.info(f"   • Max Retries: {max_retries}")
+        logger.info(f"   • Pool Max Size: {pool_maxsize}")
+        logger.info(f"   • API Key: {'configured' if api_key else 'not configured'}")
+        
         with tracer.start_as_current_span(
             "elasticsearch.initialize",
             attributes={"db.operation": "initialize"},
         ):
             try:
+                client_creation_start = time.time()
+                
                 connection_params = {
                     "verify_certs": verify_certs,
                     "request_timeout": request_timeout,
@@ -56,12 +72,41 @@ class ElasticsearchService:
                 self._connection_stats["connection_pool_size"] = pool_maxsize
                 
                 if api_key:
+                    logger.debug("🔐 Creating Elasticsearch client with API key authentication")
                     self.client = AsyncElasticsearch(url, api_key=api_key, **connection_params)
                 else:
+                    logger.debug("🔓 Creating Elasticsearch client without authentication")
                     self.client = AsyncElasticsearch(url, **connection_params)
+                    
+                client_creation_time = time.time() - client_creation_start
+                initialization_time = time.time() - initialization_start_time
+                
+                self._connection_stats["initialization_time"] = initialization_time
+                
+                logger.info(f"✅ Elasticsearch client created successfully")
+                logger.info(f"📊 Initialization performance:")
+                logger.info(f"   • Client creation: {client_creation_time:.3f}s")
+                logger.info(f"   • Total initialization: {initialization_time:.3f}s")
+                
             except Exception as e:
-                logger.error(f"Error initializing Elasticsearch client: {e}")
+                initialization_time = time.time() - initialization_start_time
+                logger.error(f"❌ Failed to initialize Elasticsearch client after {initialization_time:.3f}s: {e}")
                 raise
+    
+    def _mask_url(self, url: str) -> str:
+        """Mask sensitive parts of the URL for logging"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.password:
+                # Mask password in URL
+                masked_url = url.replace(parsed.password, "***")
+            else:
+                masked_url = url
+            return masked_url
+        except Exception:
+            # If URL parsing fails, just show the scheme and host
+            return f"{url.split('://')[0]}://***" if '://' in url else "***"
     
     def get_connection_stats(self) -> Dict[str, Any]:
         """Get connection statistics for monitoring"""
@@ -201,5 +246,29 @@ class ElasticsearchService:
 
     async def close(self):
         """Close the Elasticsearch client"""
+        close_start_time = time.time()
+        logger.info("🔌 Closing Elasticsearch connections...")
+        
         with tracer.start_as_current_span("elasticsearch.close_client", attributes={"db.operation": "close_client"}):
-            await self.client.close()
+            try:
+                if hasattr(self, 'client') and self.client:
+                    await self.client.close()
+                    
+                    close_duration = time.time() - close_start_time
+                    logger.info(f"✅ Elasticsearch connections closed successfully in {close_duration:.3f}s")
+                    
+                    # Log final connection statistics
+                    stats = self.get_connection_stats()
+                    logger.info(f"📊 Final connection statistics:")
+                    logger.info(f"   • Total requests: {stats['total_requests']}")
+                    logger.info(f"   • Failed requests: {stats['failed_requests']}")
+                    logger.info(f"   • Average response time: {stats['avg_response_time']:.3f}s")
+                    logger.info(f"   • Success rate: {((stats['total_requests'] - stats['failed_requests']) / max(stats['total_requests'], 1) * 100):.1f}%")
+                else:
+                    logger.info("🔌 Elasticsearch client was not initialized or already closed")
+                    
+            except Exception as e:
+                close_duration = time.time() - close_start_time
+                logger.error(f"❌ Error closing Elasticsearch connections after {close_duration:.3f}s: {e}")
+                # Don't re-raise the exception during shutdown
+                logger.info("🔄 Continuing with shutdown despite connection close error")

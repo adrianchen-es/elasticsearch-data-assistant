@@ -28,6 +28,27 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   
+  // Conversation management functions
+  const loadConversationFromStorage = () => {
+    try {
+      const storedConversation = localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
+      if (storedConversation) {
+        return JSON.parse(storedConversation);
+      }
+    } catch (error) {
+      console.warn('Failed to load conversation from storage:', error);
+    }
+    return null;
+  };
+
+  const saveConversationToStorage = (conversation) => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_ID, JSON.stringify(conversation));
+    } catch (error) {
+      console.warn('Failed to save conversation to storage:', error);
+    }
+  };
+  
   // Auto-scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -132,10 +153,6 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       return firstMessage.length > 50 ? firstMessage.substring(0, 47) + '...' : firstMessage;
     }
     return 'New Conversation';
-  };
-  
-  const fetchAvailableIndices = () => {
-    // This is now handled by IndexSelector component
   };
   
   const clearConversation = () => {
@@ -432,15 +449,9 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
             <p className="text-sm">
               {chatMode === "free" 
                 ? "Ask me anything! I'm here to help." 
-                : indicesLoading
-                  ? "Loading available indices..."
-                : indicesError
-                  ? `Unable to load indices: ${indicesError}`
                 : selectedIndex 
                   ? `I have access to the schema and data from the "${selectedIndex}" index.`
-                  : availableIndices.length === 0
-                    ? "No Elasticsearch indices found. Please check your connection."
-                    : "Please select an Elasticsearch index to get started with context-aware chat."
+                  : "Please select an Elasticsearch index to get started with context-aware chat."
               }
             </p>
           </div>
