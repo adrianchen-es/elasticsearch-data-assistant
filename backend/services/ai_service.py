@@ -897,6 +897,8 @@ class AIService:
                 
                 logger.debug(f"Free chat completed successfully using {provider}")
                 
+                logger.debug(f"Free chat completed successfully using {provider}")
+                
                 # Debug information
                 debug_info = {}
                 if return_debug:

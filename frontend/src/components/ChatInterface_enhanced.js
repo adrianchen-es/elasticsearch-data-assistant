@@ -17,6 +17,8 @@ export default function ChatInterface() {
   const [chatMode, setChatMode] = useState("free"); // "free" or "elasticsearch"
   const [selectedIndex, setSelectedIndex] = useState("");
   const [availableIndices, setAvailableIndices] = useState([]);
+  const [indicesLoading, setIndicesLoading] = useState(false);
+  const [indicesError, setIndicesError] = useState(null);
   const [conversationId, setConversationId] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
@@ -44,6 +46,13 @@ export default function ChatInterface() {
     loadSettings();
     fetchAvailableIndices();
   }, []);
+  
+  // Fetch indices when switching to Elasticsearch mode
+  useEffect(() => {
+    if (chatMode === "elasticsearch" && availableIndices.length === 0 && !indicesLoading && !indicesError) {
+      fetchAvailableIndices();
+    }
+  }, [chatMode]);
   
   // Save conversation to localStorage whenever it changes
   useEffect(() => {
@@ -132,14 +141,25 @@ export default function ChatInterface() {
   };
   
   const fetchAvailableIndices = async () => {
+    setIndicesLoading(true);
+    setIndicesError(null);
+    
     try {
       const response = await fetch('/api/indices');
       if (response.ok) {
         const indices = await response.json();
         setAvailableIndices(indices);
+        setIndicesError(null);
+      } else {
+        const errorText = await response.text();
+        setIndicesError(`Failed to fetch indices: ${response.status} ${response.statusText}`);
+        console.error('Error fetching indices:', errorText);
       }
     } catch (error) {
+      setIndicesError(`Network error: ${error.message}`);
       console.error('Error fetching indices:', error);
+    } finally {
+      setIndicesLoading(false);
     }
   };
   
@@ -168,9 +188,19 @@ export default function ChatInterface() {
     if (!input.trim() || isStreaming) return;
     
     // Validate elasticsearch mode requirements
-    if (chatMode === "elasticsearch" && !selectedIndex) {
-      setError("Please select an Elasticsearch index for context-aware chat.");
-      return;
+    if (chatMode === "elasticsearch") {
+      if (indicesLoading) {
+        setError("Please wait for indices to finish loading.");
+        return;
+      }
+      if (indicesError) {
+        setError("Unable to proceed - there was an error loading indices. Please retry loading indices first.");
+        return;
+      }
+      if (!selectedIndex) {
+        setError("Please select an Elasticsearch index for context-aware chat.");
+        return;
+      }
     }
     
     setError(null);
@@ -283,7 +313,7 @@ export default function ChatInterface() {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk]);
+  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, indicesLoading, indicesError, appendAssistantChunk]);
   
   const cancelRequest = () => {
     if (abortControllerRef.current) {
@@ -326,17 +356,45 @@ export default function ChatInterface() {
             {chatMode === "elasticsearch" && (
               <div className="flex items-center space-x-2">
                 <label className="text-sm font-medium text-gray-700">Index:</label>
-                <select
-                  value={selectedIndex}
-                  onChange={(e) => setSelectedIndex(e.target.value)}
-                  className="px-3 py-1 border border-gray-300 rounded-md text-sm"
-                  disabled={isStreaming}
-                >
-                  <option value="">Select an index...</option>
-                  {availableIndices.map(index => (
-                    <option key={index} value={index}>{index}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={selectedIndex}
+                    onChange={(e) => setSelectedIndex(e.target.value)}
+                    className={`px-3 py-1 border rounded-md text-sm ${
+                      indicesError 
+                        ? 'border-red-300 bg-red-50' 
+                        : 'border-gray-300'
+                    }`}
+                    disabled={isStreaming || indicesLoading}
+                  >
+                    {indicesLoading ? (
+                      <option value="">Fetching indices...</option>
+                    ) : indicesError ? (
+                      <option value="">Error loading indices</option>
+                    ) : availableIndices.length === 0 ? (
+                      <option value="">No indices available</option>
+                    ) : (
+                      <option value="">Select an index...</option>
+                    )}
+                    {!indicesLoading && !indicesError && availableIndices.map(index => (
+                      <option key={index} value={index}>{index}</option>
+                    ))}
+                  </select>
+                  {indicesLoading && (
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin h-3 w-3 border border-gray-400 border-t-transparent rounded-full"></div>
+                    </div>
+                  )}
+                </div>
+                {indicesError && (
+                  <button
+                    onClick={fetchAvailableIndices}
+                    className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded"
+                    disabled={indicesLoading}
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -415,6 +473,19 @@ export default function ChatInterface() {
                 ID: <span className="font-mono text-xs">{conversationId.slice(-8)}</span>
               </span>
             )}
+            {chatMode === "elasticsearch" && indicesLoading && (
+              <span className="ml-4 text-blue-600">
+                <div className="inline-flex items-center space-x-1">
+                  <div className="animate-spin h-3 w-3 border border-blue-500 border-t-transparent rounded-full"></div>
+                  <span className="text-xs">Loading indices...</span>
+                </div>
+              </span>
+            )}
+            {chatMode === "elasticsearch" && indicesError && (
+              <span className="ml-4 text-red-600">
+                <span className="text-xs">⚠ Indices error</span>
+              </span>
+            )}
           </div>
           {isStreaming && (
             <div className="flex items-center space-x-2">
@@ -441,9 +512,15 @@ export default function ChatInterface() {
             <p className="text-sm">
               {chatMode === "free" 
                 ? "Ask me anything! I'm here to help." 
+                : indicesLoading
+                  ? "Loading available indices..."
+                : indicesError
+                  ? `Unable to load indices: ${indicesError}`
                 : selectedIndex 
                   ? `I have access to the schema and data from the "${selectedIndex}" index.`
-                  : "Please select an Elasticsearch index to get started with context-aware chat."
+                  : availableIndices.length === 0
+                    ? "No Elasticsearch indices found. Please check your connection."
+                    : "Please select an Elasticsearch index to get started with context-aware chat."
               }
             </p>
           </div>
@@ -516,17 +593,23 @@ export default function ChatInterface() {
             placeholder={
               chatMode === "free" 
                 ? "Ask me anything..." 
+                : indicesLoading
+                  ? "Loading indices..."
+                : indicesError
+                  ? "Please retry loading indices..."
                 : selectedIndex
                   ? `Ask about your ${selectedIndex} data...`
-                  : "Select an index first..."
+                  : availableIndices.length === 0
+                    ? "No indices available..."
+                    : "Select an index first..."
             }
             className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={input.split('\n').length}
-            disabled={isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
+            disabled={isStreaming || (chatMode === "elasticsearch" && (!selectedIndex || indicesLoading || indicesError))}
           />
           <button
             onClick={sendMessage}
-            disabled={!input.trim() || isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
+            disabled={!input.trim() || isStreaming || (chatMode === "elasticsearch" && (!selectedIndex || indicesLoading || indicesError))}
             className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isStreaming ? "..." : "Send"}
