@@ -170,7 +170,7 @@ async def handle_elasticsearch_chat(
             )
             
             chat_duration = int((time.time() - chat_start) * 1000)
-            if debug_info:
+            if debug_info is not None:
                 debug_info["timings"]["elasticsearch_chat_ms"] = chat_duration
             
             chat_span.set_attribute("chat.response_time_ms", chat_duration)
@@ -178,7 +178,7 @@ async def handle_elasticsearch_chat(
             
             if req.debug and isinstance(result, tuple):
                 response_text, model_debug = result
-                if debug_info:
+                if debug_info is not None:
                     debug_info["model_info"] = model_debug
                 return response_text, debug_info
             else:
@@ -219,7 +219,7 @@ async def handle_free_chat(
             )
             
             chat_duration = int((time.time() - chat_start) * 1000)
-            if debug_info:
+            if debug_info is not None:
                 debug_info["timings"]["free_chat_ms"] = chat_duration
             
             chat_span.set_attribute("chat.response_time_ms", chat_duration)
@@ -227,7 +227,7 @@ async def handle_free_chat(
             
             if req.debug and isinstance(result, tuple):
                 response_text, model_debug = result
-                if debug_info:
+                if debug_info is not None:
                     debug_info["model_info"] = model_debug
                 return response_text, debug_info
             else:
@@ -283,7 +283,7 @@ def create_streaming_response(
                 debug_sent = False
                 async for event in async_gen:
                     # Add debug info to first content chunk
-                    if debug_info and not debug_sent and event.get("type") == "content":
+                    if debug_info is not None and not debug_sent and event.get("type") == "content":
                         event["debug"] = debug_info
                         debug_sent = True
                     
@@ -346,7 +346,7 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                         # Get schema for context-aware chat
                         schema_start = time.time()
                         schema = mapping_cache_service.get_schema(req.index_name)
-                        if debug_info:
+                        if debug_info is not None:
                             debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
                         
                         # Use context-aware streaming (to be implemented)
@@ -368,7 +368,7 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                             conversation_id=conversation_id
                         ):
                             # Add debug info to first chunk
-                            if debug_info and event.get("type") == "content":
+                            if debug_info is not None and event.get("type") == "content":
                                 event["debug"] = debug_info
                                 debug_info = None  # Only send once
                             yield (json.dumps(event) + "\n").encode("utf-8")
@@ -392,7 +392,7 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                 # Context-aware chat
                 schema_start = time.time()
                 schema = await mapping_cache_service.get_schema(req.index_name)
-                if debug_info:
+                if debug_info is not None:
                     debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
                 
                 chat_start = time.time()
@@ -404,12 +404,13 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     conversation_id=conversation_id,
                     return_debug=req.debug
                 )
-                if debug_info:
+                if debug_info is not None:
                     debug_info["timings"]["chat_ms"] = int((time.time() - chat_start) * 1000)
                 
                 if req.debug and isinstance(result, tuple):
                     response_text, model_debug = result
-                    debug_info["model_info"] = model_debug
+                    if debug_info is not None:
+                        debug_info["model_info"] = model_debug
                 else:
                     response_text = result
                     
@@ -422,17 +423,18 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     conversation_id=conversation_id,
                     return_debug=req.debug
                 )
-                if debug_info:
+                if debug_info is not None:
                     debug_info["timings"]["chat_ms"] = int((time.time() - chat_start) * 1000)
                 
                 if req.debug and isinstance(result, tuple):
                     response_text, model_debug = result
-                    debug_info["model_info"] = model_debug
+                    if debug_info is not None:
+                        debug_info["model_info"] = model_debug
                 else:
                     response_text = result
             
             # Final timing
-            if debug_info:
+            if debug_info is not None:
                 debug_info["timings"]["total_ms"] = int((time.time() - start_time) * 1000)
             
             return ChatResponse(
