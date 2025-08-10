@@ -6,7 +6,7 @@ const STORAGE_KEYS = {
   SETTINGS: 'elasticsearch_chat_settings'
 };
 
-export default function ChatInterface() {
+export default function ChatInterfaceEnhanced() {
   // Core chat state
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
