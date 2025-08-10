@@ -35,7 +35,7 @@ app.get('/api/healthz', async (req, res) => {
     // Check backend connectivity
     const backendCheckStart = Date.now();
     try {
-      const backendResponse = await fetch(`${BACKEND_URL}/health`, {
+      const backendResponse = await fetch(`${BACKEND_URL}/api/health`, {
         method: 'GET',
         headers: { 'User-Agent': 'gateway-healthcheck' },
         timeout: 5000
@@ -100,7 +100,7 @@ app.get('/api/healthz', async (req, res) => {
 // Stream chat endpoint pass-through
 app.post('/api/chat', async (req, res) => {
   try {
-    const upstream = await fetch(`${BACKEND_URL}/chat`, {
+    const upstream = await fetch(`${BACKEND_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -227,7 +227,7 @@ app.use('/api', createProxyMiddleware({
   }
 }));
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3100;
 const server = http.createServer(app);
 
 server.headersTimeout = 600000;   // 10 minutes to receive full headers
