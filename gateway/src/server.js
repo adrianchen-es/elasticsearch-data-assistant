@@ -20,8 +20,82 @@ app.use(compression({ filter: shouldCompress }));
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:8000';
 
-// Health
-app.get('/api/healthz', (_req, res) => res.status(200).send('ok'));
+// Enhanced proxy health check
+app.get('/api/healthz', async (req, res) => {
+  const startTime = Date.now();
+  const healthCheck = {
+    status: 'healthy',
+    message: 'Proxy gateway operational',
+    services: {},
+    timestamp: new Date().toISOString(),
+    response_time_ms: 0
+  };
+
+  try {
+    // Check backend connectivity
+    const backendCheckStart = Date.now();
+    try {
+      const backendResponse = await fetch(`${BACKEND_URL}/health`, {
+        method: 'GET',
+        headers: { 'User-Agent': 'gateway-healthcheck' },
+        timeout: 5000
+      });
+      
+      const backendResponseTime = Date.now() - backendCheckStart;
+      
+      if (backendResponse.ok) {
+        healthCheck.services.backend = {
+          status: 'healthy',
+          message: `Backend reachable in ${backendResponseTime}ms`,
+          response_time_ms: backendResponseTime
+        };
+      } else {
+        healthCheck.services.backend = {
+          status: 'unhealthy',
+          message: `Backend returned ${backendResponse.status}`,
+          response_time_ms: backendResponseTime
+        };
+        healthCheck.status = 'unhealthy';
+        healthCheck.message = 'Backend connectivity issues';
+      }
+    } catch (backendError) {
+      healthCheck.services.backend = {
+        status: 'error',
+        message: `Backend unreachable: ${backendError.message}`,
+        response_time_ms: Date.now() - backendCheckStart
+      };
+      healthCheck.status = 'unhealthy';
+      healthCheck.message = 'Backend unreachable';
+    }
+
+    // Check proxy server health
+    healthCheck.services.proxy = {
+      status: 'healthy',
+      message: 'Proxy server running',
+      uptime_seconds: Math.floor(process.uptime()),
+      memory_usage_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+    };
+
+    // Overall response time
+    healthCheck.response_time_ms = Date.now() - startTime;
+
+    res.status(healthCheck.status === 'healthy' ? 200 : 503).json(healthCheck);
+    
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      message: `Health check failed: ${error.message}`,
+      services: {
+        proxy: {
+          status: 'error',
+          message: error.message
+        }
+      },
+      timestamp: new Date().toISOString(),
+      response_time_ms: Date.now() - startTime
+    });
+  }
+});
 
 // Stream chat endpoint pass-through
 app.post('/api/chat', async (req, res) => {

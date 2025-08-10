@@ -130,13 +130,13 @@ function App() {
   };
 
   // Generate tooltip content
-  const getTooltipContent = () => {
+  const getTooltipContent = (healthStatus, systemName) => {
     const { status, message, lastChecked, services } = healthStatus;
     
-    let content = `Status: ${message}\nLast checked: ${formatLastChecked(lastChecked)}`;
+    let content = `${systemName}: ${message}\nLast checked: ${formatLastChecked(lastChecked)}`;
     
     if (Object.keys(services).length > 0) {
-      content += '\n\nServices:';
+      content += `\n\n${systemName} Services:`;
       Object.entries(services).forEach(([service, serviceStatus]) => {
         const statusIcon = typeof serviceStatus === 'object' 
           ? (serviceStatus.status === 'healthy' ? '✅' : '❌')
@@ -164,28 +164,52 @@ function App() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              {/* System Health Status */}
+              {/* Backend Health Status */}
               <div className="relative group">
                 <button
-                  onClick={checkHealthStatus}
+                  onClick={checkBackendHealth}
                   className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
-                  title={getTooltipContent()}
+                  title={getTooltipContent(backendHealth, 'Backend')}
                 >
-                  {renderHealthIcon()}
-                  <span className="text-sm text-gray-600 hidden sm:inline">
-                    {healthStatus.status === 'healthy' ? 'Healthy' : 
-                     healthStatus.status === 'unhealthy' ? 'Issues' :
-                     healthStatus.status === 'error' ? 'Error' : 'Checking...'}
+                  <Server className="h-4 w-4 text-gray-500" />
+                  {renderHealthIcon(backendHealth)}
+                  <span className="text-sm text-gray-600 hidden md:inline">
+                    Backend
                   </span>
                 </button>
                 
-                {/* Tooltip */}
+                {/* Backend Tooltip */}
                 <div className="absolute right-0 top-full mt-1 w-80 bg-black text-white text-xs rounded-md p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50">
                   <div className="whitespace-pre-line">
-                    {getTooltipContent()}
+                    {getTooltipContent(backendHealth, 'Backend')}
                   </div>
                   <div className="text-gray-300 mt-2 text-xs">
-                    Click to refresh status
+                    Click to refresh backend status
+                  </div>
+                </div>
+              </div>
+
+              {/* Proxy Health Status */}
+              <div className="relative group">
+                <button
+                  onClick={checkProxyHealth}
+                  className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
+                  title={getTooltipContent(proxyHealth, 'Proxy')}
+                >
+                  <Globe className="h-4 w-4 text-gray-500" />
+                  {renderHealthIcon(proxyHealth)}
+                  <span className="text-sm text-gray-600 hidden md:inline">
+                    Proxy
+                  </span>
+                </button>
+                
+                {/* Proxy Tooltip */}
+                <div className="absolute right-0 top-full mt-1 w-80 bg-black text-white text-xs rounded-md p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50">
+                  <div className="whitespace-pre-line">
+                    {getTooltipContent(proxyHealth, 'Proxy')}
+                  </div>
+                  <div className="text-gray-300 mt-2 text-xs">
+                    Click to refresh proxy status
                   </div>
                 </div>
               </div>
