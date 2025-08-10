@@ -199,6 +199,13 @@ app.use('/api/health', createProxyMiddleware({
     headersToPass.forEach((h) => {
       if (req.headers[h]) proxyReq.setHeader(h, req.headers[h]);
     });
+  },
+  onError: (err, req, res) => {
+    console.error('API proxy error:', err.message);
+    res.status(500).json({ 
+      error: 'API service unavailable',
+      message: err.message 
+    });
   }
 }));
 
