@@ -2,13 +2,76 @@ import './tracing.js';
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import http from 'http';
+import compression from 'compression';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// If compression is used, skip compressing NDJSON streams
+const shouldCompress = (req, res) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.includes('application/x-ndjson')) return false;
+  if (req.path.startsWith('/api/chat')) return false;
+  return compression.filter(req, res);
+};
+app.use(compression({ filter: shouldCompress }));
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:8000';
+
 // Health
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'gateway' }));
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
+// Stream chat endpoint pass-through
+app.post('/api/chat', async (req, res) => {
+  try {
+    const upstream = await fetch(`${BACKEND_URL}/chat`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': req.ip,
+      },
+      body: JSON.stringify({ ...req.body, stream: true }),
+    });
+
+    // If backend returns JSON error (non-stream), forward it as-is
+    const ct = upstream.headers.get('content-type') || '';
+    if (!upstream.ok && ct.includes('application/json')) {
+      const err = await upstream.json().catch(() => ({}));
+      return res.status(upstream.status).json(err);
+    }
+
+    // Prepare streaming response headers
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Flush headers so clients render immediately
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    // Pipe NDJSON chunks
+    if (!upstream.body) {
+      res.status(502).json({ error: { code: 'bad_gateway', message: 'Upstream returned no body' } });
+      return;
+    }
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value));
+    }
+    res.end();
+  } catch (e) {
+    // Surface as JSON error line to the client if they are expecting a stream
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(502).json({ error: { code: 'gateway_failed', message: 'Chat gateway failed.' } });
+  }
+});
 
 // Proxy all /api/* to FastAPI backend, preserving trace headers
 const backendBase = process.env.BACKEND_BASE_URL || 'http://backend:8000';
@@ -90,7 +153,16 @@ app.use('/api', createProxyMiddleware({
   }
 }));
 
-const port = process.env.PORT || 3100;
-app.listen(port, () => console.log(`Gateway listening on ${port}, proxy -> ${backendBase}`));
+const port = process.env.PORT || 3000;
+const server = http.createServer(app);
+
+server.headersTimeout = 600000;   // 10 minutes to receive full headers
+server.requestTimeout = 0;        // Disable per-request inactivity timeout (Node 18+)
+server.keepAliveTimeout = 120000; // Keep connections alive longer for chat
+server.timeout = 0;               // Legacy socket timeout off
+
+server.listen(port, () => {
+  console.log(`Gateway listening on ${port}`);
+});
 
 process.on('SIGTERM', async () => { await sdk.shutdown(); process.exit(0); });
