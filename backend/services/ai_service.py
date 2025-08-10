@@ -3,7 +3,6 @@ from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
-    # Add/adjust return_debug in your methods
 import json, logging, math, os
 
 try:
@@ -133,7 +132,7 @@ class AIService:
                  openai_api_key: Optional[str] = None,
                  openai_model: Optional[str] = None
     ):
-        logger.info("Initializing AIService...")
+        logger.info("⚡ Initializing AIService (fast startup)...")
         
         # Load configuration from parameters or environment
         self.azure_api_key = azure_api_key or os.getenv('AZURE_OPENAI_API_KEY')
@@ -143,7 +142,7 @@ class AIService:
         self.openai_api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
         self.openai_model = openai_model or os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 
-        # Initialize client connections
+        # Initialize client connections (lazy)
         self.azure_client = None
         self.openai_client = None
         
@@ -151,23 +150,21 @@ class AIService:
         self._initialization_status = {
             "azure_configured": False,
             "openai_configured": False,
+            "clients_created": False,
             "errors": []
         }
         
-        # Initialize Azure OpenAI client
+        # Quick configuration validation (don't create clients yet)
+        self._validate_configuration()
+        
+        logger.info(f"✅ AIService initialized (providers will be created on first use)")
+    
+    def _validate_configuration(self):
+        """Validate configuration without creating clients"""
+        # Check Azure configuration
         if self.azure_api_key and self.azure_endpoint and self.azure_deployment:
-            try:
-                self.azure_client = AsyncAzureOpenAI(
-                    api_key=self.azure_api_key, 
-                    azure_endpoint=self.azure_endpoint, 
-                    api_version=self.azure_version
-                )
-                self._initialization_status["azure_configured"] = True
-                logger.info(f"✅ Azure OpenAI client initialized successfully - Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}, Deployment: {self.azure_deployment}, Version: {self.azure_version}")
-            except Exception as e:
-                error_msg = f"Failed to initialize Azure OpenAI client: {str(e)}"
-                self._initialization_status["errors"].append(error_msg)
-                logger.error(f"❌ {error_msg}")
+            self._initialization_status["azure_configured"] = True
+            logger.debug(f"Azure OpenAI configuration valid - Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}, Deployment: {self.azure_deployment}")
         else:
             missing_fields = []
             if not self.azure_api_key:
@@ -178,37 +175,77 @@ class AIService:
                 missing_fields.append("AZURE_OPENAI_DEPLOYMENT")
             
             if missing_fields:
-                warning_msg = f"Azure OpenAI client not initialized - Missing: {', '.join(missing_fields)}"
+                warning_msg = f"Azure OpenAI not configured - Missing: {', '.join(missing_fields)}"
                 self._initialization_status["errors"].append(warning_msg)
-                logger.warning(f"⚠️  {warning_msg}")
+                logger.debug(f"⚠️  {warning_msg}")
 
-        # Initialize OpenAI client
+        # Check OpenAI configuration
         if self.openai_api_key:
-            try:
-                self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-                self._initialization_status["openai_configured"] = True
-                logger.info(f"✅ OpenAI client initialized successfully - Model: {self.openai_model}")
-            except Exception as e:
-                error_msg = f"Failed to initialize OpenAI client: {str(e)}"
-                self._initialization_status["errors"].append(error_msg)
-                logger.error(f"❌ {error_msg}")
+            self._initialization_status["openai_configured"] = True
+            logger.debug(f"OpenAI configuration valid - Model: {self.openai_model}")
         else:
-            warning_msg = "OpenAI client not initialized - Missing: OPENAI_API_KEY"
+            warning_msg = "OpenAI not configured - Missing: OPENAI_API_KEY"
             self._initialization_status["errors"].append(warning_msg)
-            logger.warning(f"⚠️  {warning_msg}")
+            logger.debug(f"⚠️  {warning_msg}")
         
-        # Final initialization summary
-        if not self.azure_client and not self.openai_client:
-            error_msg = "❌ AIService initialization failed - No AI providers configured. Please check your API keys and configuration."
+        # Check if we have at least one provider configured
+        if not self._initialization_status["azure_configured"] and not self._initialization_status["openai_configured"]:
+            error_msg = "❌ No AI providers configured. Please set up either Azure OpenAI or OpenAI credentials."
             logger.error(error_msg)
             raise ValueError("No AI providers configured. Please set up either Azure OpenAI or OpenAI credentials.")
         else:
             providers = []
-            if self.azure_client:
+            if self._initialization_status["azure_configured"]:
                 providers.append("Azure OpenAI")
-            if self.openai_client:
+            if self._initialization_status["openai_configured"]:
                 providers.append("OpenAI")
-            logger.info(f"🚀 AIService initialized successfully with providers: {', '.join(providers)}")
+            logger.info(f"🚀 AI providers available: {', '.join(providers)}")
+    
+    def _ensure_clients_initialized(self):
+        """Lazy initialization of clients on first use"""
+        if self._initialization_status["clients_created"]:
+            return
+            
+        logger.info("Creating AI client connections...")
+        
+        # Initialize Azure OpenAI client
+        if self._initialization_status["azure_configured"] and not self.azure_client:
+            try:
+                self.azure_client = AsyncAzureOpenAI(
+                    api_key=self.azure_api_key, 
+                    azure_endpoint=self.azure_endpoint, 
+                    api_version=self.azure_version
+                )
+                logger.info(f"✅ Azure OpenAI client created - Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}")
+            except Exception as e:
+                error_msg = f"Failed to create Azure OpenAI client: {str(e)}"
+                self._initialization_status["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+
+        # Initialize OpenAI client  
+        if self._initialization_status["openai_configured"] and not self.openai_client:
+            try:
+                self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
+                logger.info(f"✅ OpenAI client created - Model: {self.openai_model}")
+            except Exception as e:
+                error_msg = f"Failed to create OpenAI client: {str(e)}"
+                self._initialization_status["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+        
+        self._initialization_status["clients_created"] = True
+        
+        # Final validation
+        if not self.azure_client and not self.openai_client:
+            error_msg = "❌ Failed to create any AI clients despite valid configuration"
+            logger.error(error_msg)
+            raise ValueError("Failed to initialize AI clients")
+        
+        providers = []
+        if self.azure_client:
+            providers.append("Azure OpenAI")
+        if self.openai_client:
+            providers.append("OpenAI")
+        logger.info(f"🚀 AI clients ready: {', '.join(providers)}")
     
     def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
         """Mask sensitive data for logging, showing only first few characters"""
@@ -221,23 +258,27 @@ class AIService:
         return {
             "azure_configured": self._initialization_status["azure_configured"],
             "openai_configured": self._initialization_status["openai_configured"],
+            "clients_created": self._initialization_status["clients_created"],
             "available_providers": self._get_available_providers(),
             "errors": self._initialization_status["errors"],
-            "azure_deployment": self.azure_deployment if self.azure_client else None,
-            "openai_model": self.openai_model if self.openai_client else None
+            "azure_deployment": self.azure_deployment if self._initialization_status["azure_configured"] else None,
+            "openai_model": self.openai_model if self._initialization_status["openai_configured"] else None
         }
     
     def _get_available_providers(self) -> List[str]:
         """Get list of available AI providers"""
         providers = []
-        if self.azure_client:
+        if self._initialization_status["azure_configured"]:
             providers.append("azure")
-        if self.openai_client:
+        if self._initialization_status["openai_configured"]:
             providers.append("openai")
         return providers
     
     def _validate_provider(self, provider: str) -> None:
         """Validate that the requested provider is available"""
+        # Ensure clients are initialized before validation
+        self._ensure_clients_initialized()
+        
         if provider == "azure" and not self.azure_client:
             raise ValueError(
                 f"Azure OpenAI provider not available. "
@@ -256,6 +297,9 @@ class AIService:
     
     def _get_default_provider(self) -> str:
         """Get the default provider (prefer Azure, fallback to OpenAI)"""
+        # Ensure clients are initialized before getting default
+        self._ensure_clients_initialized()
+        
         if self.azure_client:
             return "azure"
         elif self.openai_client:

@@ -50,10 +50,13 @@ app.add_middleware(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup - Initialize services and warm up caches
+    # Startup - Initialize services with optimized startup
     logger.info("Starting up Elasticsearch Data Assistant...")
     
-    # Initialize services with optimized connection settings
+    # Initialize services concurrently for faster startup
+    logger.info("Initializing core services...")
+    
+    # Create services with lazy initialization
     es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
     ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
     mapping_cache_service = MappingCacheService(es_service)
@@ -70,24 +73,54 @@ async def lifespan(app: FastAPI):
         "cache_ttl": 30  # 30 seconds TTL for health checks
     }
     
-    # Start mapping cache scheduler and warm up cache
+    # Start background tasks without blocking startup
+    logger.info("Starting background services...")
+    background_tasks = []
+    
+    # Start mapping cache scheduler (non-blocking)
     try:
-        await mapping_cache_service.start_scheduler()
-        logger.info("Mapping cache scheduler started successfully")
+        await mapping_cache_service.start_scheduler_async()
+        logger.info("Mapping cache scheduler started")
         
-        # Warm up cache with available indices (non-blocking)
-        asyncio.create_task(_warm_up_cache(mapping_cache_service))
+        # Schedule cache warm-up as background task
+        background_tasks.append(
+            asyncio.create_task(_warm_up_cache(mapping_cache_service))
+        )
         
     except Exception as e:
-        logger.error(f"Failed to start mapping cache scheduler: {e}")
-        raise
+        logger.warning(f"Failed to start mapping cache scheduler: {e}")
+        # Don't fail startup for cache issues
     
-    logger.info("Startup complete")
+    # Start health check warm-up as background task
+    background_tasks.append(
+        asyncio.create_task(_warm_up_health_check(app.state))
+    )
+    
+    # Store background tasks for cleanup
+    app.state.background_tasks = background_tasks
+    
+    logger.info("✅ Startup complete - Server ready to accept requests")
     yield
     
     # Shutdown - Clean up resources
     logger.info("Shutting down Elasticsearch Data Assistant...")
     try:
+        # Cancel background tasks
+        for task in getattr(app.state, 'background_tasks', []):
+            if not task.done():
+                task.cancel()
+        
+        # Wait for tasks to complete or timeout
+        if hasattr(app.state, 'background_tasks'):
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*app.state.background_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Background tasks did not complete within timeout")
+        
+        # Clean up services
         await mapping_cache_service.stop_scheduler()
         await es_service.close()
         logger.info("Shutdown complete")
@@ -97,12 +130,24 @@ async def lifespan(app: FastAPI):
 async def _warm_up_cache(mapping_cache_service):
     """Warm up the mapping cache in the background"""
     try:
-        logger.info("Starting cache warm-up...")
-        await asyncio.sleep(1)  # Small delay to let startup complete
+        logger.info("Starting background cache warm-up...")
+        await asyncio.sleep(2)  # Allow server to start accepting requests first
         await mapping_cache_service.refresh_cache()
-        logger.info("Cache warm-up completed")
+        logger.info("✅ Cache warm-up completed")
     except Exception as e:
-        logger.warning(f"Cache warm-up failed (will retry): {e}")
+        logger.warning(f"Cache warm-up failed (will retry on scheduler): {e}")
+
+async def _warm_up_health_check(state):
+    """Warm up health check cache in the background"""
+    try:
+        logger.info("Starting background health check warm-up...")
+        await asyncio.sleep(1)  # Small delay
+        # This will populate the health cache
+        from routers.health import get_health_status
+        await get_health_status()
+        logger.info("✅ Health check warm-up completed")
+    except Exception as e:
+        logger.warning(f"Health check warm-up failed: {e}")
 
 # Use the lifespan context manager
 app.router.lifespan_context = lifespan

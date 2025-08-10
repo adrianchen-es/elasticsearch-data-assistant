@@ -76,20 +76,30 @@ class MappingCacheService:
         }
 
     async def start_scheduler(self):
-        """Start the background scheduler for cache updates"""
+        """Start the background scheduler for cache updates (blocking)"""
         if self._scheduler:
             return
         self._scheduler = AsyncIOScheduler()
         # refresh every 5 minutes
         self._scheduler.add_job(self.refresh_all, 'interval', minutes=5)
         self._scheduler.start()
-        # initial load (don't block startup if this fails)
+        # initial load (blocks startup)
         try:
             await self.refresh_all()
             logger.info("Mapping cache service started successfully")
         except Exception as e:
             logger.warning(f"Initial cache refresh failed (will retry): {e}")
             self._stats["refresh_errors"] += 1
+
+    async def start_scheduler_async(self):
+        """Start the background scheduler for cache updates (non-blocking)"""
+        if self._scheduler:
+            return
+        self._scheduler = AsyncIOScheduler()
+        # refresh every 5 minutes
+        self._scheduler.add_job(self.refresh_all, 'interval', minutes=5)
+        self._scheduler.start()
+        logger.info("Mapping cache scheduler started (initial cache load will happen in background)")
 
     async def stop_scheduler(self):
         """Stop the background scheduler"""
