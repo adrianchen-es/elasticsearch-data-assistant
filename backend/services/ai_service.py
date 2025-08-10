@@ -474,9 +474,9 @@ class AIService:
             
             # Success summary
             providers = []
-            if self.azure_client:
+            if self._initialization_status["azure_configured"]:
                 providers.append("Azure OpenAI")
-            if self.openai_client:
+            if self._initialization_status["openai_configured"]:
                 providers.append("OpenAI")
                 
             success_count = sum([azure_success, openai_success])
