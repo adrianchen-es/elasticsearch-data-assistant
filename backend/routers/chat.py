@@ -2,13 +2,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple, AsyncGenerator
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
 import json
 import time
 import uuid
+import logging
 from services.ai_service import AIService, TokenLimitError
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 class ChatMessage(BaseModel):
     role: str
@@ -29,11 +34,282 @@ class ChatResponse(BaseModel):
     conversation_id: str
     mode: str
     debug_info: Optional[Dict] = None
+
+class ChatError:
+    """Helper class for user-friendly error messages"""
     
-def get_ai_service() -> AIService:
-    # This should be replaced with proper dependency injection
-    # For now, we'll get it from app.state in the endpoint
-    pass
+    @staticmethod
+    def sanitize_error_message(error: Exception, include_debug: bool = False) -> str:
+        """Convert technical errors to user-friendly messages"""
+        error_str = str(error).lower()
+        
+        # AI service errors
+        if "provider not available" in error_str:
+            return "AI service is currently unavailable. Please try again later."
+        elif "api key" in error_str or "authentication" in error_str:
+            return "AI service authentication issue. Please contact support."
+        elif "timeout" in error_str:
+            return "Request timed out. Please try with a shorter message."
+        elif "rate limit" in error_str or "quota" in error_str:
+            return "Service is temporarily busy. Please wait a moment and try again."
+        
+        # Elasticsearch errors
+        elif "elasticsearch" in error_str:
+            if "index not found" in error_str:
+                return "The selected index was not found. Please select a different index."
+            elif "connection" in error_str:
+                return "Unable to connect to Elasticsearch. Please try again later."
+            else:
+                return "Data retrieval error. Please try again."
+        
+        # Network errors
+        elif "connection" in error_str or "network" in error_str:
+            return "Network connectivity issue. Please check your connection and try again."
+        
+        # Token/size errors
+        elif "token" in error_str or "too long" in error_str:
+            return "Your message is too long. Please try with a shorter message."
+        
+        # Generic fallback
+        else:
+            if include_debug:
+                return f"Request failed: {str(error)[:100]}..."
+            return "An unexpected error occurred. Please try again."
+    
+    @staticmethod
+    def create_error_response(error: Exception, error_code: str, include_debug: bool = False) -> Dict:
+        """Create standardized error response"""
+        return {
+            "code": error_code,
+            "message": ChatError.sanitize_error_message(error, include_debug),
+            "type": type(error).__name__ if include_debug else None,
+            "debug_message": str(error)[:200] if include_debug else None
+        }
+
+
+async def get_schema_context(mapping_cache_service, index_name: str, span: trace.Span) -> Optional[Dict]:
+    """Get schema context for Elasticsearch chat mode with tracing"""
+    if not index_name:
+        return None
+    
+    with tracer.start_as_current_span("get_schema_context", parent=span) as schema_span:
+        schema_span.set_attributes({
+            "elasticsearch.index": index_name,
+            "operation.type": "schema_fetch"
+        })
+        
+        try:
+            schema = await mapping_cache_service.get_schema(index_name)
+            if schema:
+                schema_span.set_attribute("schema.fields_count", len(schema.get("properties", {})))
+                schema_span.set_status(Status(StatusCode.OK))
+                logger.debug(f"Retrieved schema for index {index_name}")
+                return {index_name: schema}
+            else:
+                schema_span.set_status(Status(StatusCode.ERROR, "Schema not found"))
+                logger.warning(f"No schema found for index {index_name}")
+                return None
+        except Exception as e:
+            schema_span.set_status(Status(StatusCode.ERROR))
+            schema_span.record_exception(e)
+            logger.error(f"Error fetching schema for {index_name}: {e}")
+            raise
+
+
+def create_debug_info(req: ChatRequest, conversation_id: str) -> Optional[Dict]:
+    """Create debug information structure"""
+    if not req.debug:
+        return None
+    
+    return {
+        "request_id": str(uuid.uuid4()),
+        "conversation_id": conversation_id,
+        "mode": req.mode,
+        "timestamp": time.time(),
+        "timings": {},
+        "model_info": {},
+        "request_details": {
+            "model": req.model,
+            "temperature": req.temperature,
+            "stream": req.stream,
+            "message_count": len(req.messages),
+            "index_name": req.index_name
+        }
+    }
+
+
+async def handle_elasticsearch_chat(
+    ai_service: AIService,
+    req: ChatRequest,
+    conversation_id: str,
+    schema_context: Dict,
+    debug_info: Optional[Dict],
+    span: trace.Span
+) -> Tuple[str, Optional[Dict]]:
+    """Handle Elasticsearch context-aware chat"""
+    with tracer.start_as_current_span("elasticsearch_chat", parent=span) as chat_span:
+        chat_span.set_attributes({
+            "chat.mode": "elasticsearch",
+            "chat.index": req.index_name,
+            "chat.message_count": len(req.messages),
+            "chat.temperature": req.temperature,
+            "chat.model": req.model or "auto"
+        })
+        
+        try:
+            message_list = [m.model_dump() for m in req.messages]
+            chat_start = time.time()
+            
+            result = await ai_service.generate_elasticsearch_chat(
+                message_list,
+                schema_context=schema_context,
+                model=req.model,
+                temperature=req.temperature,
+                conversation_id=conversation_id,
+                return_debug=req.debug
+            )
+            
+            chat_duration = int((time.time() - chat_start) * 1000)
+            if debug_info:
+                debug_info["timings"]["elasticsearch_chat_ms"] = chat_duration
+            
+            chat_span.set_attribute("chat.response_time_ms", chat_duration)
+            chat_span.set_status(Status(StatusCode.OK))
+            
+            if req.debug and isinstance(result, tuple):
+                response_text, model_debug = result
+                if debug_info:
+                    debug_info["model_info"] = model_debug
+                return response_text, debug_info
+            else:
+                return result, debug_info
+                
+        except Exception as e:
+            chat_span.set_status(Status(StatusCode.ERROR))
+            chat_span.record_exception(e)
+            logger.error(f"Elasticsearch chat error: {e}")
+            raise
+
+
+async def handle_free_chat(
+    ai_service: AIService,
+    req: ChatRequest,
+    conversation_id: str,
+    debug_info: Optional[Dict],
+    span: trace.Span
+) -> Tuple[str, Optional[Dict]]:
+    """Handle free chat mode"""
+    with tracer.start_as_current_span("free_chat", parent=span) as chat_span:
+        chat_span.set_attributes({
+            "chat.mode": "free",
+            "chat.message_count": len(req.messages),
+            "chat.temperature": req.temperature,
+            "chat.model": req.model or "auto"
+        })
+        
+        try:
+            user_message = req.messages[-1].content if req.messages else ""
+            chat_start = time.time()
+            
+            result = await ai_service.free_chat(
+                user_message,
+                provider=req.model or "auto",
+                conversation_id=conversation_id,
+                return_debug=req.debug
+            )
+            
+            chat_duration = int((time.time() - chat_start) * 1000)
+            if debug_info:
+                debug_info["timings"]["free_chat_ms"] = chat_duration
+            
+            chat_span.set_attribute("chat.response_time_ms", chat_duration)
+            chat_span.set_status(Status(StatusCode.OK))
+            
+            if req.debug and isinstance(result, tuple):
+                response_text, model_debug = result
+                if debug_info:
+                    debug_info["model_info"] = model_debug
+                return response_text, debug_info
+            else:
+                return result, debug_info
+                
+        except Exception as e:
+            chat_span.set_status(Status(StatusCode.ERROR))
+            chat_span.record_exception(e)
+            logger.error(f"Free chat error: {e}")
+            raise
+
+
+def create_streaming_response(
+    ai_service: AIService,
+    req: ChatRequest,
+    conversation_id: str,
+    schema_context: Optional[Dict],
+    debug_info: Optional[Dict]
+) -> StreamingResponse:
+    """Create streaming response with proper error handling"""
+    
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        with tracer.start_as_current_span("chat_streaming") as stream_span:
+            stream_span.set_attributes({
+                "chat.mode": req.mode,
+                "chat.stream": True,
+                "conversation.id": conversation_id
+            })
+            
+            try:
+                message_list = [m.model_dump() for m in req.messages]
+                
+                if req.mode == "elasticsearch" and schema_context:
+                    # Elasticsearch streaming
+                    async_gen = ai_service.generate_elasticsearch_chat_stream(
+                        message_list,
+                        schema_context=schema_context,
+                        model=req.model,
+                        temperature=req.temperature,
+                        conversation_id=conversation_id
+                    )
+                else:
+                    # Free chat streaming
+                    async_gen = ai_service.generate_chat(
+                        message_list,
+                        model=req.model,
+                        temperature=req.temperature,
+                        stream=True,
+                        conversation_id=conversation_id
+                    )
+                
+                # Stream the response
+                debug_sent = False
+                async for event in async_gen:
+                    # Add debug info to first content chunk
+                    if debug_info and not debug_sent and event.get("type") == "content":
+                        event["debug"] = debug_info
+                        debug_sent = True
+                    
+                    yield (json.dumps(event) + "\n").encode("utf-8")
+                
+                stream_span.set_status(Status(StatusCode.OK))
+                
+            except TokenLimitError as te:
+                stream_span.set_status(Status(StatusCode.ERROR, "Token limit exceeded"))
+                error_event = {
+                    "type": "error",
+                    "error": te.to_dict()["error"]
+                }
+                yield (json.dumps(error_event) + "\n").encode("utf-8")
+                
+            except Exception as e:
+                stream_span.set_status(Status(StatusCode.ERROR))
+                stream_span.record_exception(e)
+                
+                error_event = {
+                    "type": "error",
+                    "error": ChatError.create_error_response(e, "streaming_failed", req.debug)
+                }
+                yield (json.dumps(error_event) + "\n").encode("utf-8")
+    
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 @router.post("/chat")
 async def chat_endpoint(req: ChatRequest, app_request: Request):
