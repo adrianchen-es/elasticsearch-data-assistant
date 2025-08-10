@@ -10,6 +10,7 @@ function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
   const [indices, setIndices] = useState([]);
+  const [selectedIndex, setSelectedIndex] = useState('');
 
   useEffect(() => {
     // Setup telemetry
@@ -67,11 +68,14 @@ function App() {
         {currentView === 'chat' && (
           <ChatInterface
             selectedProvider={selectedProvider}
+            selectedIndex={selectedIndex}
+            setSelectedIndex={setSelectedIndex}
           />
         )}
         {currentView === 'query' && (
           <QueryEditor
             selectedIndex={selectedIndex}
+            setSelectedIndex={setSelectedIndex}
           />
         )}
       </main>
