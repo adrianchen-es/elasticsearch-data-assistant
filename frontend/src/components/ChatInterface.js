@@ -31,21 +31,70 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   // Conversation management functions
   const loadConversationFromStorage = () => {
     try {
-      const storedConversation = localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
-      if (storedConversation) {
-        return JSON.parse(storedConversation);
+      const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
+      if (!currentId) {
+        return null;
+      }
+
+      const conversationsData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+      if (!conversationsData) {
+        return null;
+      }
+
+      const conversations = JSON.parse(conversationsData);
+      const conversation = conversations[currentId];
+      
+      if (conversation && conversation.messages) {
+        return {
+          id: currentId,
+          messages: Array.isArray(conversation.messages) ? conversation.messages : [],
+          mode: conversation.mode || "free",
+          index: conversation.index || "",
+          title: conversation.title || "Conversation"
+        };
       }
     } catch (error) {
       console.warn('Failed to load conversation from storage:', error);
+      // Clear potentially corrupted data
+      try {
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ID);
+        localStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
+      } catch (clearError) {
+        console.warn('Failed to clear corrupted storage:', clearError);
+      }
     }
     return null;
   };
 
-  const saveConversationToStorage = (conversation) => {
+  const saveConversationToStorage = (conversationData) => {
     try {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_ID, JSON.stringify(conversation));
+      if (!conversationData || !conversationData.id) {
+        console.warn('Invalid conversation data provided to saveConversationToStorage');
+        return false;
+      }
+
+      // Load existing conversations
+      const existingData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+      const conversations = existingData ? JSON.parse(existingData) : {};
+      
+      // Update the specific conversation
+      conversations[conversationData.id] = {
+        id: conversationData.id,
+        messages: conversationData.messages || [],
+        mode: conversationData.mode || "free",
+        index: conversationData.index || "",
+        lastUpdated: Date.now(),
+        title: conversationData.title || generateConversationTitle(conversationData.messages || [])
+      };
+
+      // Save both the conversations data and current ID
+      localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
+      localStorage.setItem(STORAGE_KEYS.CURRENT_ID, conversationData.id);
+      
+      return true;
     } catch (error) {
       console.warn('Failed to save conversation to storage:', error);
+      return false;
     }
   };
   
@@ -60,62 +109,52 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   
   // Load settings on mount and fetch indices if in elasticsearch mode
   useEffect(() => {
+    // Validate storage data first
+    validateStorageData();
+    
     loadSettings();
     const conversation = loadConversationFromStorage();
     if (conversation) {
-      setMessages(conversation.messages);
+      setMessages(conversation.messages || []);
       setConversationId(conversation.id);
+      setChatMode(conversation.mode || "free");
       setSelectedIndex(conversation.index || "");
+    } else {
+      // Create new conversation if none exists
+      const newId = generateConversationId();
+      setConversationId(newId);
     }
   }, []);
   
   // Save conversation to localStorage whenever it changes
   useEffect(() => {
     if (conversationId && messages.length > 0) {
-      saveConversation();
-    }
-  }, [messages, conversationId]);
-  
-  const loadConversation = () => {
-    try {
-      const conversations = JSON.parse(localStorage.getItem(STORAGE_KEYS.CONVERSATIONS) || '{}');
-      const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
-      
-      if (currentId && conversations[currentId]) {
-        const conversation = conversations[currentId];
-        setMessages(conversation.messages || []);
-        setConversationId(currentId);
-        setChatMode(conversation.mode || "free");
-        setSelectedIndex(conversation.index || "");
-      } else {
-        // Create new conversation
-        const newId = generateConversationId();
-        setConversationId(newId);
-        localStorage.setItem(STORAGE_KEYS.CURRENT_ID, newId);
-      }
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-      const newId = generateConversationId();
-      setConversationId(newId);
-    }
-  };
-  
-  const saveConversation = () => {
-    try {
-      const conversations = JSON.parse(localStorage.getItem(STORAGE_KEYS.CONVERSATIONS) || '{}');
-      conversations[conversationId] = {
+      const conversationData = {
         id: conversationId,
-        messages,
+        messages: messages,
         mode: chatMode,
         index: selectedIndex,
-        lastUpdated: Date.now(),
         title: generateConversationTitle(messages)
       };
-      localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
-      localStorage.setItem(STORAGE_KEYS.CURRENT_ID, conversationId);
-    } catch (error) {
-      console.error('Error saving conversation:', error);
+      saveConversationToStorage(conversationData);
     }
+  }, [messages, conversationId, chatMode, selectedIndex]);
+  
+  const saveConversation = () => {
+    if (!conversationId) {
+      console.warn('No conversation ID available for saving');
+      return;
+    }
+
+    const conversationData = {
+      id: conversationId,
+      messages: messages,
+      mode: chatMode,
+      index: selectedIndex,
+      title: generateConversationTitle(messages)
+    };
+
+    return saveConversationToStorage(conversationData);
   };
   
   const loadSettings = () => {
@@ -146,10 +185,52 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
   
+  // Utility function to validate and clean storage data
+  const validateStorageData = () => {
+    try {
+      const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
+      const conversationsData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+      const settingsData = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+
+      console.log('Storage validation:', {
+        currentId: currentId,
+        conversationsCount: conversationsData ? Object.keys(JSON.parse(conversationsData)).length : 0,
+        hasSettings: !!settingsData
+      });
+
+      // Validate conversations data structure
+      if (conversationsData) {
+        const conversations = JSON.parse(conversationsData);
+        const invalidKeys = [];
+        
+        Object.entries(conversations).forEach(([key, conv]) => {
+          if (!conv || !conv.id || !Array.isArray(conv.messages)) {
+            invalidKeys.push(key);
+          }
+        });
+
+        if (invalidKeys.length > 0) {
+          console.warn('Found invalid conversation data, cleaning up:', invalidKeys);
+          invalidKeys.forEach(key => delete conversations[key]);
+          localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Storage validation failed:', error);
+      return false;
+    }
+  };
+  
   const generateConversationTitle = (messages) => {
-    const userMessages = messages.filter(m => m.role === 'user');
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return 'New Conversation';
+    }
+
+    const userMessages = messages.filter(m => m && m.role === 'user' && m.content);
     if (userMessages.length > 0) {
-      const firstMessage = userMessages[0].content;
+      const firstMessage = userMessages[0].content.toString().trim();
       return firstMessage.length > 50 ? firstMessage.substring(0, 47) + '...' : firstMessage;
     }
     return 'New Conversation';
@@ -161,7 +242,13 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     setConversationId(newId);
     setError(null);
     setDebugInfo(null);
-    localStorage.setItem(STORAGE_KEYS.CURRENT_ID, newId);
+    
+    // Update current conversation ID in storage
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_ID, newId);
+    } catch (error) {
+      console.warn('Failed to update current conversation ID:', error);
+    }
   };
   
   const appendAssistantChunk = useCallback((delta) => {

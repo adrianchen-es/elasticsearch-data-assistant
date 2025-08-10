@@ -56,14 +56,19 @@ const IndexSelector = ({
     setIndicesError(null);
     try {
       const response = await fetch('/api/indices');
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableIndices(data.indices || []);
-      } else {
-        throw new Error('Failed to fetch indices');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch indices (${response.status}): ${errorText || response.statusText}`);
       }
+      const data = await response.json();
+      setAvailableIndices(data.indices || []);
+      
+      // Clear any previous error state on successful fetch
+      setIndicesError(null);
     } catch (err) {
-      setIndicesError(err.message);
+      const errorMessage = err.message || 'Failed to fetch indices';
+      setIndicesError(errorMessage);
+      setAvailableIndices([]); // Clear indices on error
       console.error('Error fetching indices:', err);
     } finally {
       setIndicesLoading(false);
