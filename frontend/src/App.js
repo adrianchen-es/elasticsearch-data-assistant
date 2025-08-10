@@ -1,13 +1,12 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search } from 'lucide-react';
+import { setupTelemetryWeb } from './telemetry/setup';
+import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
-import { IndexSelector, ProviderSelector } from './components/Selectors';
-import { setupTelemetryWeb } from './telemetry/setup';
 
 function App() {
-  const [selectedIndex, setSelectedIndex] = useState('');
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
   const [indices, setIndices] = useState([]);
@@ -15,23 +14,7 @@ function App() {
   useEffect(() => {
     // Setup telemetry
     setupTelemetryWeb();
-    
-    // Fetch available indices
-    fetchIndices();
   }, []);
-
-  const fetchIndices = async () => {
-    try {
-      const response = await fetch('/api/indices');
-      const data = await response.json();
-      setIndices(data);
-      if (data.length > 0 && !selectedIndex) {
-        setSelectedIndex(data[0]);
-      }
-    } catch (error) {
-      console.error('Failed to fetch indices:', error);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -44,18 +27,6 @@ function App() {
               <h1 className="text-xl font-semibold text-gray-900">
                 Elasticsearch AI Assistant
               </h1>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <IndexSelector
-                indices={indices}
-                selectedIndex={selectedIndex}
-                onIndexChange={setSelectedIndex}
-              />
-              <ProviderSelector
-                selectedProvider={selectedProvider}
-                onProviderChange={setSelectedProvider}
-              />
             </div>
           </div>
         </div>
@@ -95,7 +66,6 @@ function App() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         {currentView === 'chat' && (
           <ChatInterface
-            selectedIndex={selectedIndex}
             selectedProvider={selectedProvider}
           />
         )}
