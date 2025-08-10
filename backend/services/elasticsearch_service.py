@@ -35,30 +35,33 @@ class ElasticsearchService:
 
         # Enhanced connection pool settings for better performance
         pool_maxsize = int(os.getenv("ELASTICSEARCH_POOL_MAXSIZE", "50"))  # Increased from 20
-
-        try:
-            connection_params = {
-                "verify_certs": verify_certs,
-                "request_timeout": request_timeout,
-                "max_retries": max_retries,
-                "retry_on_timeout": retry_on_timeout,
-                "http_compress": True,  # Enable compression to reduce network overhead
-                "headers": {
-                    "Connection": "keep-alive",  # Keep connections alive for reuse
-                    "Accept-Encoding": "gzip, deflate",  # Enable compression
+        with tracer.start_as_current_span(
+            "elasticsearch.initialize",
+            attributes={"db.operation": "initialize"},
+        ):
+            try:
+                connection_params = {
+                    "verify_certs": verify_certs,
+                    "request_timeout": request_timeout,
+                    "max_retries": max_retries,
+                    "retry_on_timeout": retry_on_timeout,
+                    "http_compress": True,  # Enable compression to reduce network overhead
+                    "headers": {
+                        "Connection": "keep-alive",  # Keep connections alive for reuse
+                        "Accept-Encoding": "gzip, deflate",  # Enable compression
+                    }
                 }
-            }
-            
-            # Store pool size for monitoring
-            self._connection_stats["connection_pool_size"] = pool_maxsize
-            
-            if api_key:
-                self.client = AsyncElasticsearch(url, api_key=api_key, **connection_params)
-            else:
-                self.client = AsyncElasticsearch(url, **connection_params)
-        except Exception as e:
-            logger.error(f"Error initializing Elasticsearch client: {e}")
-            raise
+                
+                # Store pool size for monitoring
+                self._connection_stats["connection_pool_size"] = pool_maxsize
+                
+                if api_key:
+                    self.client = AsyncElasticsearch(url, api_key=api_key, **connection_params)
+                else:
+                    self.client = AsyncElasticsearch(url, **connection_params)
+            except Exception as e:
+                logger.error(f"Error initializing Elasticsearch client: {e}")
+                raise
     
     def get_connection_stats(self) -> Dict[str, Any]:
         """Get connection statistics for monitoring"""
