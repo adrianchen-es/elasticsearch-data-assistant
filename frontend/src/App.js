@@ -29,6 +29,12 @@ function App() {
                 Elasticsearch AI Assistant
               </h1>
             </div>
+            <div className="flex items-center space-x-4">
+              <ProviderSelector
+                selectedProvider={selectedProvider}
+                onProviderChange={setSelectedProvider}
+              />
+            </div>
           </div>
         </div>
       </header>
