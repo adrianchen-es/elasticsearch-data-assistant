@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
