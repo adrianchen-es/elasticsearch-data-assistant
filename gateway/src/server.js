@@ -15,7 +15,7 @@ const backendBase = process.env.BACKEND_BASE_URL || 'http://backend:8000';
 
 // Configure different timeouts for different endpoints
 const defaultTimeout = 30000; // 30 seconds
-const chatTimeout = 120000;   // 2 minutes for LLM chats
+const chatTimeout = 300000;   // 2 minutes for LLM chats
 const healthTimeout = 10000;  // 10 seconds for health checks
 
 app.use('/api/chat', createProxyMiddleware({

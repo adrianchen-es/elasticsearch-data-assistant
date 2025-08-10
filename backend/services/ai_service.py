@@ -133,6 +133,9 @@ class AIService:
                  openai_api_key: Optional[str] = None,
                  openai_model: Optional[str] = None
     ):
+        logger.info("Initializing AIService...")
+        
+        # Load configuration from parameters or environment
         self.azure_api_key = azure_api_key or os.getenv('AZURE_OPENAI_API_KEY')
         self.azure_endpoint = azure_endpoint or os.getenv('AZURE_OPENAI_ENDPOINT')
         self.azure_deployment = azure_deployment or os.getenv('AZURE_OPENAI_DEPLOYMENT')
@@ -140,15 +143,134 @@ class AIService:
         self.openai_api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
         self.openai_model = openai_model or os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 
+        # Initialize client connections
         self.azure_client = None
-        if self.azure_api_key and self.azure_endpoint and self.azure_deployment:
-            self.azure_client = AsyncAzureOpenAI(api_key=self.azure_api_key, azure_endpoint=self.azure_endpoint, api_version=self.azure_version)
-
         self.openai_client = None
-        if self.openai_api_key:
-            self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
+        
+        # Track initialization status for debugging
+        self._initialization_status = {
+            "azure_configured": False,
+            "openai_configured": False,
+            "errors": []
+        }
+        
+        # Initialize Azure OpenAI client
+        if self.azure_api_key and self.azure_endpoint and self.azure_deployment:
+            try:
+                self.azure_client = AsyncAzureOpenAI(
+                    api_key=self.azure_api_key, 
+                    azure_endpoint=self.azure_endpoint, 
+                    api_version=self.azure_version
+                )
+                self._initialization_status["azure_configured"] = True
+                logger.info(f"✅ Azure OpenAI client initialized successfully - Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}, Deployment: {self.azure_deployment}, Version: {self.azure_version}")
+            except Exception as e:
+                error_msg = f"Failed to initialize Azure OpenAI client: {str(e)}"
+                self._initialization_status["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+        else:
+            missing_fields = []
+            if not self.azure_api_key:
+                missing_fields.append("AZURE_OPENAI_API_KEY")
+            if not self.azure_endpoint:
+                missing_fields.append("AZURE_OPENAI_ENDPOINT")
+            if not self.azure_deployment:
+                missing_fields.append("AZURE_OPENAI_DEPLOYMENT")
+            
+            if missing_fields:
+                warning_msg = f"Azure OpenAI client not initialized - Missing: {', '.join(missing_fields)}"
+                self._initialization_status["errors"].append(warning_msg)
+                logger.warning(f"⚠️  {warning_msg}")
 
-    async def generate_elasticsearch_query(self, user_prompt: str, mapping_info: Dict[str, Any], provider: str = "azure") -> Dict[str, Any]:
+        # Initialize OpenAI client
+        if self.openai_api_key:
+            try:
+                self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
+                self._initialization_status["openai_configured"] = True
+                logger.info(f"✅ OpenAI client initialized successfully - Model: {self.openai_model}")
+            except Exception as e:
+                error_msg = f"Failed to initialize OpenAI client: {str(e)}"
+                self._initialization_status["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+        else:
+            warning_msg = "OpenAI client not initialized - Missing: OPENAI_API_KEY"
+            self._initialization_status["errors"].append(warning_msg)
+            logger.warning(f"⚠️  {warning_msg}")
+        
+        # Final initialization summary
+        if not self.azure_client and not self.openai_client:
+            error_msg = "❌ AIService initialization failed - No AI providers configured. Please check your API keys and configuration."
+            logger.error(error_msg)
+            raise ValueError("No AI providers configured. Please set up either Azure OpenAI or OpenAI credentials.")
+        else:
+            providers = []
+            if self.azure_client:
+                providers.append("Azure OpenAI")
+            if self.openai_client:
+                providers.append("OpenAI")
+            logger.info(f"🚀 AIService initialized successfully with providers: {', '.join(providers)}")
+    
+    def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
+        """Mask sensitive data for logging, showing only first few characters"""
+        if not data or len(data) <= show_chars:
+            return "***"
+        return f"{data[:show_chars]}***"
+    
+    def get_initialization_status(self) -> Dict[str, Any]:
+        """Get initialization status for debugging"""
+        return {
+            "azure_configured": self._initialization_status["azure_configured"],
+            "openai_configured": self._initialization_status["openai_configured"],
+            "available_providers": self._get_available_providers(),
+            "errors": self._initialization_status["errors"],
+            "azure_deployment": self.azure_deployment if self.azure_client else None,
+            "openai_model": self.openai_model if self.openai_client else None
+        }
+    
+    def _get_available_providers(self) -> List[str]:
+        """Get list of available AI providers"""
+        providers = []
+        if self.azure_client:
+            providers.append("azure")
+        if self.openai_client:
+            providers.append("openai")
+        return providers
+    
+    def _validate_provider(self, provider: str) -> None:
+        """Validate that the requested provider is available"""
+        if provider == "azure" and not self.azure_client:
+            raise ValueError(
+                f"Azure OpenAI provider not available. "
+                f"Initialization status: {self._initialization_status}. "
+                f"Please check AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT environment variables."
+            )
+        elif provider == "openai" and not self.openai_client:
+            raise ValueError(
+                f"OpenAI provider not available. "
+                f"Initialization status: {self._initialization_status}. "
+                f"Please check OPENAI_API_KEY environment variable."
+            )
+        elif provider not in ["azure", "openai"]:
+            available = self._get_available_providers()
+            raise ValueError(f"Invalid provider '{provider}'. Available providers: {available}")
+    
+    def _get_default_provider(self) -> str:
+        """Get the default provider (prefer Azure, fallback to OpenAI)"""
+        if self.azure_client:
+            return "azure"
+        elif self.openai_client:
+            return "openai"
+        else:
+            raise ValueError("No AI providers available")
+
+    async def generate_elasticsearch_query(self, user_prompt: str, mapping_info: Dict[str, Any], provider: str = "auto", return_debug: bool = False) -> Dict[str, Any]:
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability
+        self._validate_provider(provider)
+        
         with tracer.start_as_current_span(
             "ai_generate_query", kind=SpanKind.CLIENT,
             attributes={
@@ -163,28 +285,68 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Generate an Elasticsearch query for: {user_prompt}"}
             ]
+            
+            logger.debug(f"Generating Elasticsearch query using {provider} provider")
+            
             try:
-                if provider == "azure" and self.azure_client:
-                    response = await self.azure_client.chat.completions.create(model=self.azure_deployment, messages=messages, temperature=0.1)
-                elif provider == "openai" and self.openai_client:
-                    response = await self.openai_client.chat.completions.create(model=self.openai_model, messages=messages, temperature=0.1)
-                else:
-                    raise ValueError(f"AI provider {provider} not available")
+                if provider == "azure":
+                    response = await self.azure_client.chat.completions.create(
+                        model=self.azure_deployment, 
+                        messages=messages, 
+                        temperature=0.1
+                    )
+                else:  # openai
+                    response = await self.openai_client.chat.completions.create(
+                        model=self.openai_model, 
+                        messages=messages, 
+                        temperature=0.1
+                    )
+                
                 query_text = response.choices[0].message.content
                 if not query_text:
-                    raise ValueError("query_text is empty")
-                return json.loads(query_text)
+                    raise ValueError(f"Empty response from {provider} API")
+                
+                try:
+                    query_json = json.loads(query_text)
+                    logger.debug(f"Successfully generated Elasticsearch query using {provider}")
+                    return query_json
+                except json.JSONDecodeError as json_err:
+                    error_msg = f"Invalid JSON response from {provider}: {query_text[:200]}..."
+                    logger.error(error_msg)
+                    raise ValueError(error_msg) from json_err
+                    
             except Exception as e:
                 current_span = trace.get_current_span()
                 current_span.set_status(Status(StatusCode.ERROR))
                 current_span.record_exception(e)
-                logger.exception("Error generating query")
-                query_json = json.loads(query_text) if query_text else None
-                dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
-                return query_json, dbg
-                #raise
+                
+                error_context = {
+                    "provider": provider,
+                    "model": self.azure_deployment if provider == "azure" else self.openai_model,
+                    "prompt_length": len(user_prompt),
+                    "mapping_indices": list(mapping_info.keys()),
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                
+                logger.error(f"Error generating Elasticsearch query: {error_context}")
+                
+                if return_debug:
+                    error_context.update({
+                        'messages': messages,
+                        'initialization_status': self.get_initialization_status()
+                    })
+                
+                raise ValueError(f"Failed to generate query using {provider}: {str(e)}") from e
 
-    async def summarize_results(self, query_results: Dict[str, Any], original_prompt: str, provider: str = "azure") -> str:
+    async def summarize_results(self, query_results: Dict[str, Any], original_prompt: str, provider: str = "auto", return_debug: bool = False) -> str:
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability
+        self._validate_provider(provider)
+        
         with tracer.start_as_current_span(
             "ai_summarize_results", kind=SpanKind.CLIENT,
             attributes={
@@ -210,19 +372,53 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ]
+            
+            logger.debug(f"Summarizing results using {provider} provider")
+            
             try:
-                if provider == "azure" and self.azure_client:
-                    response = await self.azure_client.chat.completions.create(model=self.azure_deployment, messages=messages, temperature=0.3)
-                elif provider == "openai" and self.openai_client:
-                    response = await self.openai_client.chat.completions.create(model=self.openai_model, messages=messages, temperature=0.3)
-                else:
-                    raise ValueError(f"AI provider {provider} not available")
-                return response.choices[0].message.content
-            except Exception:
-                logger.exception("Error summarizing results")
-                dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
-                return dbg
-                #raise
+                if provider == "azure":
+                    response = await self.azure_client.chat.completions.create(
+                        model=self.azure_deployment, 
+                        messages=messages, 
+                        temperature=0.3
+                    )
+                else:  # openai
+                    response = await self.openai_client.chat.completions.create(
+                        model=self.openai_model, 
+                        messages=messages, 
+                        temperature=0.3
+                    )
+                
+                summary = response.choices[0].message.content
+                if not summary:
+                    raise ValueError(f"Empty summary response from {provider} API")
+                
+                logger.debug(f"Successfully generated summary using {provider}")
+                return summary
+                
+            except Exception as e:
+                current_span = trace.get_current_span()
+                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.record_exception(e)
+                
+                error_context = {
+                    "provider": provider,
+                    "model": self.azure_deployment if provider == "azure" else self.openai_model,
+                    "prompt_length": len(original_prompt),
+                    "results_count": len(query_results.get("hits", {}).get("hits", [])),
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                
+                logger.error(f"Error summarizing results: {error_context}")
+                
+                if return_debug:
+                    error_context.update({
+                        'messages': messages,
+                        'initialization_status': self.get_initialization_status()
+                    })
+                
+                raise ValueError(f"Failed to summarize results using {provider}: {str(e)}") from e
 
     def _build_system_prompt(self, mapping_info: Dict[str, Any]) -> str:
         return (
@@ -239,25 +435,31 @@ class AIService:
             "Return only the JSON query, no additional text or formatting."
         )
 
-    async def free_chat(self, user_prompt: str, provider: str = "azure", return_debug: bool = False, 
+    async def free_chat(self, user_prompt: str, provider: str = "auto", return_debug: bool = False, 
                        context_info: Optional[Dict[str, Any]] = None, 
                        conversation_id: Optional[str] = None) -> Tuple[str, dict]:
         """
         Free chat mode that doesn't require Elasticsearch context
         """
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability
+        self._validate_provider(provider)
+        
         with tracer.start_as_current_span("ai_free_chat", kind=SpanKind.CLIENT):
             current_span = trace.get_current_span()
             current_span.set_attributes({
-            "ai.provider": provider,
-            "ai.model": (self.azure_deployment if provider == "azure" else self.openai_model),
-            "ai.prompt.length": len(user_prompt),
-            "ai.mode": "free_chat",
-            "ai.conversation_id": conversation_id or "unknown"
-        })
+                "ai.provider": provider,
+                "ai.model": (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.prompt.length": len(user_prompt),
+                "ai.mode": "free_chat",
+                "ai.conversation_id": conversation_id or "unknown"
+            })
         
             # Build system prompt for free chat
             system_prompt = "You are a helpful AI assistant. Provide clear, accurate, and helpful responses."
-            current_span = trace.get_current_span()
             
             # Add context information if available
             if context_info:
@@ -269,30 +471,32 @@ class AIService:
                 {"role": "user", "content": user_prompt}
             ]
             
+            logger.debug(f"Starting free chat using {provider} provider")
+            
             try:
-                if provider == "azure" and self.azure_client:
+                if provider == "azure":
                     response = await self.azure_client.chat.completions.create(
                         model=self.azure_deployment, 
                         messages=messages, 
                         temperature=0.7,  # Slightly higher temperature for more creative responses
                         max_tokens=2000
                     )
-                elif provider == "openai" and self.openai_client:
+                else:  # openai
                     response = await self.openai_client.chat.completions.create(
                         model=self.openai_model, 
                         messages=messages, 
                         temperature=0.7,
                         max_tokens=2000
                     )
-                else:
-                    raise ValueError(f"AI provider {provider} not available or not configured")
                 
                 text = response.choices[0].message.content
                 if not text:
-                    raise ValueError("Empty response from AI provider")
+                    raise ValueError(f"Empty response from {provider} API")
                     
                 current_span.set_attribute("ai.response.length", len(text))
                 current_span.set_status(Status(StatusCode.OK))
+                
+                logger.debug(f"Free chat completed successfully using {provider}")
                 
                 # Debug information
                 debug_info = {}
@@ -304,6 +508,7 @@ class AIService:
                         'temperature': 0.7,
                         'context_provided': context_info is not None,
                         'conversation_id': conversation_id,
+                        'initialization_status': self.get_initialization_status(),
                         'raw_response': response.model_dump() if hasattr(response, 'model_dump') else {
                             'choices': [{
                                 'message': {'content': text},
@@ -318,24 +523,42 @@ class AIService:
             except Exception as e:
                 current_span.set_status(Status(StatusCode.ERROR))
                 current_span.record_exception(e)
-                logger.error(f"Error in free chat: {e}")
+                
+                error_context = {
+                    "provider": provider,
+                    "model": self.azure_deployment if provider == "azure" else self.openai_model,
+                    "prompt_length": len(user_prompt),
+                    "conversation_id": conversation_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                
+                logger.error(f"Error in free chat: {error_context}")
                 
                 # Return error information
                 error_response = f"I apologize, but I encountered an error while processing your request: {str(e)}"
                 debug_info = {
                     'error': str(e),
+                    'error_context': error_context,
                     'messages': messages,
-                    'provider': provider
+                    'provider': provider,
+                    'initialization_status': self.get_initialization_status()
                 } if return_debug else {}
                 
                 return error_response, debug_info
 
     async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None, 
                           temperature: float = 0.2, stream: bool = False, 
-                          conversation_id: Optional[str] = None):
+                          conversation_id: Optional[str] = None, provider: str = "auto"):
         """Generate chat response with optional streaming support"""
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability
+        self._validate_provider(provider)
+        
         with tracer.start_as_current_span("ai_generate_chat") as current_span:
-            provider = "azure" if self.azure_client else "openai"
             current_span.set_attributes({
                 "ai.provider": provider,
                 "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
@@ -343,6 +566,8 @@ class AIService:
                 "ai.conversation_id": conversation_id or "unknown",
                 "ai.message_count": len(messages)
             })
+            
+            logger.debug(f"Generating chat response using {provider} provider (streaming: {stream})")
             
             try:
                 if stream:
@@ -353,14 +578,27 @@ class AIService:
             except Exception as e:
                 current_span.set_status(Status(StatusCode.ERROR))
                 current_span.record_exception(e)
-                logger.error(f"Error in generate_chat: {e}")
-                raise
+                
+                error_context = {
+                    "provider": provider,
+                    "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                    "stream": stream,
+                    "conversation_id": conversation_id,
+                    "message_count": len(messages),
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                
+                logger.error(f"Error in generate_chat: {error_context}")
+                raise ValueError(f"Failed to generate chat response using {provider}: {str(e)}") from e
 
     async def _stream_chat_response(self, messages: List[Dict], model: Optional[str], 
                                   temperature: float, provider: str):
         """Stream chat response"""
+        logger.debug(f"Starting stream chat response using {provider}")
+        
         try:
-            if provider == "azure" and self.azure_client:
+            if provider == "azure":
                 response = await self.azure_client.chat.completions.create(
                     model=model or self.azure_deployment,
                     messages=messages,
@@ -376,7 +614,7 @@ class AIService:
                             "delta": chunk.choices[0].delta.content
                         }
                         
-            elif provider == "openai" and self.openai_client:
+            else:  # openai
                 response = await self.openai_client.chat.completions.create(
                     model=model or self.openai_model,
                     messages=messages,
@@ -391,54 +629,85 @@ class AIService:
                             "type": "content",
                             "delta": chunk.choices[0].delta.content
                         }
-            else:
-                raise ValueError(f"Provider {provider} not available")
             
+            logger.debug(f"Stream completed successfully using {provider}")
             yield {"type": "done"}
             
         except Exception as e:
+            error_context = {
+                "provider": provider,
+                "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+            
+            logger.error(f"Error in stream chat response: {error_context}")
             yield {
                 "type": "error",
-                "error": {"code": "stream_failed", "message": str(e)}
+                "error": {
+                    "code": "stream_failed", 
+                    "message": str(e),
+                    "provider": provider,
+                    "initialization_status": self.get_initialization_status()
+                }
             }
 
     async def _get_chat_response(self, messages: List[Dict], model: Optional[str], 
                                temperature: float, provider: str) -> Dict:
         """Get non-streaming chat response"""
+        logger.debug(f"Getting chat response using {provider}")
+        
         try:
-            if provider == "azure" and self.azure_client:
+            if provider == "azure":
                 response = await self.azure_client.chat.completions.create(
                     model=model or self.azure_deployment,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=2000
                 )
-            elif provider == "openai" and self.openai_client:
+            else:  # openai
                 response = await self.openai_client.chat.completions.create(
                     model=model or self.openai_model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=2000
                 )
-            else:
-                raise ValueError(f"Provider {provider} not available")
+            
+            text = response.choices[0].message.content or ""
+            if not text:
+                logger.warning(f"Empty response from {provider} API")
+            
+            logger.debug(f"Chat response completed successfully using {provider}")
             
             return {
-                "text": response.choices[0].message.content or "",
+                "text": text,
                 "usage": response.usage.model_dump() if response.usage else None
             }
             
         except Exception as e:
-            logger.error(f"Error getting chat response: {e}")
-            raise
+            error_context = {
+                "provider": provider,
+                "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+            
+            logger.error(f"Error getting chat response: {error_context}")
+            raise ValueError(f"Failed to get chat response using {provider}: {str(e)}") from e
 
     async def generate_elasticsearch_chat(self, messages: List[Dict], schema_context: Dict[str, Any],
                                         model: Optional[str] = None, temperature: float = 0.7,
                                         conversation_id: Optional[str] = None,
-                                        return_debug: bool = False) -> Any:
+                                        return_debug: bool = False, provider: str = "auto") -> Any:
         """Generate context-aware chat response with Elasticsearch schema"""
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability
+        self._validate_provider(provider)
+        
         with tracer.start_as_current_span("ai_elasticsearch_chat") as current_span:
-            provider = "azure" if self.azure_client else "openai"
             current_span.set_attributes({
                 "ai.provider": provider,
                 "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
@@ -453,32 +722,39 @@ class AIService:
             enhanced_messages = [{"role": "system", "content": system_prompt}]
             enhanced_messages.extend(messages)
             
+            logger.debug(f"Generating Elasticsearch chat using {provider} provider")
+            
             try:
-                if provider == "azure" and self.azure_client:
+                if provider == "azure":
                     response = await self.azure_client.chat.completions.create(
                         model=model or self.azure_deployment,
                         messages=enhanced_messages,
                         temperature=temperature,
                         max_tokens=2000
                     )
-                elif provider == "openai" and self.openai_client:
+                else:  # openai
                     response = await self.openai_client.chat.completions.create(
                         model=model or self.openai_model,
                         messages=enhanced_messages,
                         temperature=temperature,
                         max_tokens=2000
                     )
-                else:
-                    raise ValueError(f"Provider {provider} not available")
                 
                 text = response.choices[0].message.content or ""
+                if not text:
+                    logger.warning(f"Empty response from {provider} API")
+                
                 current_span.set_status(Status(StatusCode.OK))
+                logger.debug(f"Elasticsearch chat completed successfully using {provider}")
                 
                 if return_debug:
                     debug_info = {
                         "messages": enhanced_messages,
                         "response": response.model_dump() if hasattr(response, 'model_dump') else str(response),
-                        "schema_context": schema_context
+                        "schema_context": schema_context,
+                        "provider": provider,
+                        "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                        "initialization_status": self.get_initialization_status()
                     }
                     return text, debug_info
                 else:
@@ -487,8 +763,18 @@ class AIService:
             except Exception as e:
                 current_span.set_status(Status(StatusCode.ERROR))
                 current_span.record_exception(e)
-                logger.error(f"Error in elasticsearch_chat: {e}")
-                raise
+                
+                error_context = {
+                    "provider": provider,
+                    "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                    "conversation_id": conversation_id,
+                    "schema_indices": list(schema_context.keys()) if schema_context else [],
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                
+                logger.error(f"Error in elasticsearch_chat: {error_context}")
+                raise ValueError(f"Failed to generate Elasticsearch chat using {provider}: {str(e)}") from e
 
     def _build_elasticsearch_chat_system_prompt(self, schema_context: Dict[str, Any]) -> str:
         """Build system prompt with Elasticsearch schema context"""
@@ -517,8 +803,17 @@ Available capabilities:
 
     async def generate_elasticsearch_chat_stream(self, messages: List[Dict], schema_context: Dict[str, Any],
                                                model: Optional[str] = None, temperature: float = 0.7,
-                                               conversation_id: Optional[str] = None):
+                                               conversation_id: Optional[str] = None, provider: str = "auto"):
         """Stream context-aware chat response with Elasticsearch schema"""
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = self._get_default_provider()
+            
+        # Validate provider availability  
+        self._validate_provider(provider)
+        
+        logger.debug(f"Starting Elasticsearch chat stream using {provider} provider")
+        
         # Build enhanced system prompt with schema context
         system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
         
@@ -527,6 +822,5 @@ Available capabilities:
         enhanced_messages.extend(messages)
         
         # Use the streaming method with enhanced messages
-        async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, 
-                                                     "azure" if self.azure_client else "openai"):
+        async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
             yield chunk
