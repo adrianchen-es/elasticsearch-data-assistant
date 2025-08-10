@@ -349,36 +349,11 @@ async def _warm_up_health_check(state, task_start_times):
             logger.warning(f"⚠️ [{task_id.upper()}] Health check warm-up failed after {total_task_time:.3f}s: {e}")
             logger.info(f"🔄 [{task_id.upper()}] Health checks will be performed on demand")
 
-# Create FastAPI app with lifespan
-app = FastAPI(
-    title='Elasticsearch Data Assistant',
-    description="AI-powered Elasticsearch query interface",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# Instrument FastAPI
-try:        
-    FastAPIInstrumentor.instrument_app(app)
-    logger.info("OpenTelemetry FastAPI instrumentation setup complete")
-    
-except Exception as e:
-    logger.error(f"Failed to setup FastAPI telemetry: {e}")
-    # Don't fail the app if telemetry setup fails
-
-# Instrument Requests
-RequestsInstrumentor().instrument()
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[os.getenv('CORS_ALLOW_ORIGINS', '*')],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Use the lifespan context manager
+app.router.lifespan_context = lifespan
 
 # Register routers
+# Router deps can access cache & es via module-level singletons
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(query.router, prefix="/api", tags=["query"])
