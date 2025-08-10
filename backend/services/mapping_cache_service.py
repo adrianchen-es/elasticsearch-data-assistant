@@ -412,8 +412,106 @@ class MappingCacheService:
         return {
             **self._stats,
             "refresh_in_progress": self._refresh_in_progress,
-            "cache_size_mb": len(str(self._mappings)) / 1024 / 1024,
+            "cache_size_mb": self._stats.get("cache_size_bytes", 0) / 1024 / 1024,
+            "uptime_seconds": current_time - (self._initialization_status.get("initialization_time", current_time) or current_time),
+            "scheduler_running": self._scheduler is not None and self._scheduler.running,
+            "initialization_status": self._initialization_status,
+            "time_since_last_refresh": current_time - self._last_refresh_time if self._last_refresh_time > 0 else None,
+            "concurrent_requests": len(self._concurrent_requests),
+            "cache_hit_ratio": getattr(self, '_cache_hit_ratio', None),  # Will be calculated if available
         }
+
+    def get_initialization_status(self) -> Dict[str, Any]:
+        """Get detailed initialization status for debugging"""
+        return {
+            **self._initialization_status,
+            "scheduler_running": self._scheduler is not None and self._scheduler.running,
+            "current_stats": self.get_cache_stats()
+        }
+
+    async def initialize_async(self) -> Dict[str, Any]:
+        """Complete async initialization with scheduler start and initial refresh"""
+        with tracer.start_as_current_span(
+            "mapping_cache_service.initialize_async",
+            kind=SpanKind.INTERNAL
+        ) as init_span:
+            logger.info("🚀 Performing complete mapping cache service initialization (async)...")
+            init_start_time = time.time()
+            
+            try:
+                # Start the scheduler
+                await self.start_scheduler_async()
+                
+                # Perform initial refresh
+                logger.info("🔄 Performing initial cache refresh...")
+                await self.refresh_all()
+                
+                init_duration = time.time() - init_start_time
+                self._initialization_status["complete_initialization_time"] = init_duration
+                
+                status = self.get_initialization_status()
+                
+                init_span.set_attributes({
+                    "mapping_cache.complete_init_duration_ms": init_duration * 1000,
+                    "mapping_cache.scheduler_started": status["scheduler_running"],
+                    "mapping_cache.initial_refresh_completed": status["initial_refresh_completed"],
+                    "mapping_cache.total_indices": self._stats["total_indices"]
+                })
+                
+                logger.info(f"✅ Mapping cache service fully initialized in {init_duration:.3f}s")
+                logger.info(f"📊 Ready with {self._stats['cached_mappings']} cached mappings")
+                init_span.set_status(Status(StatusCode.OK, "Full initialization completed"))
+                
+                return status
+                
+            except Exception as e:
+                init_duration = time.time() - init_start_time
+                error_msg = f"Mapping cache service async initialization failed after {init_duration:.3f}s: {e}"
+                logger.error(f"❌ {error_msg}")
+                
+                init_span.set_status(Status(StatusCode.ERROR, error_msg))
+                init_span.record_exception(e)
+                raise
+
+    def initialize_sync(self) -> Dict[str, Any]:
+        """Complete sync initialization (legacy support) - limited functionality"""
+        with tracer.start_as_current_span(
+            "mapping_cache_service.initialize_sync",
+            kind=SpanKind.INTERNAL
+        ) as init_span:
+            logger.info("🚀 Performing mapping cache service sync initialization (limited)...")
+            init_start_time = time.time()
+            
+            try:
+                # Note: Cannot start async scheduler in sync mode
+                logger.warning("⚠️ Sync initialization mode - scheduler will not be started")
+                
+                init_duration = time.time() - init_start_time
+                self._initialization_status["complete_initialization_time"] = init_duration
+                self._initialization_status["warnings"].append("Sync initialization - scheduler not started")
+                
+                status = self.get_initialization_status()
+                
+                init_span.set_attributes({
+                    "mapping_cache.complete_init_duration_ms": init_duration * 1000,
+                    "mapping_cache.sync_mode": True,
+                    "mapping_cache.scheduler_started": False
+                })
+                
+                logger.info(f"✅ Mapping cache service initialized in sync mode in {init_duration:.3f}s")
+                logger.warning("⚠️ Scheduler not started in sync mode - use async initialization for full functionality")
+                init_span.set_status(Status(StatusCode.OK, "Sync initialization completed (limited)"))
+                
+                return status
+                
+            except Exception as e:
+                init_duration = time.time() - init_start_time
+                error_msg = f"Mapping cache service sync initialization failed after {init_duration:.3f}s: {e}"
+                logger.error(f"❌ {error_msg}")
+                
+                init_span.set_status(Status(StatusCode.ERROR, error_msg))
+                init_span.record_exception(e)
+                raise
 
     async def refresh_cache(self):
         """Public method to trigger cache refresh (alias for refresh_all)"""
