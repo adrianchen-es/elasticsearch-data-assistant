@@ -500,14 +500,96 @@ class AIService:
     def get_initialization_status(self) -> Dict[str, Any]:
         """Get initialization status for debugging"""
         return {
-            "azure_configured": self._initialization_status["azure_configured"],
-            "openai_configured": self._initialization_status["openai_configured"],
-            "clients_created": self._initialization_status["clients_created"],
+            **self._initialization_status,
             "available_providers": self._get_available_providers(),
-            "errors": self._initialization_status["errors"],
             "azure_deployment": self.azure_deployment if self._initialization_status["azure_configured"] else None,
-            "openai_model": self.openai_model if self._initialization_status["openai_configured"] else None
+            "openai_model": self.openai_model if self._initialization_status["openai_configured"] else None,
+            "clients_ready": self._clients_initialized
         }
+
+    async def initialize_async(self) -> Dict[str, Any]:
+        """Complete async initialization with comprehensive status reporting"""
+        with tracer.start_as_current_span(
+            "ai_service.initialize_async",
+            kind=SpanKind.INTERNAL
+        ) as init_span:
+            logger.info("🚀 Performing complete AI service initialization (async)...")
+            init_start_time = time.time()
+            
+            try:
+                # Ensure clients are created
+                await self._ensure_clients_initialized_async()
+                
+                # Verify functionality by testing a simple operation (if possible)
+                if self.azure_client or self.openai_client:
+                    logger.info("🔍 AI service clients are ready for use")
+                
+                init_duration = time.time() - init_start_time
+                self._initialization_status["complete_initialization_time"] = init_duration
+                
+                status = self.get_initialization_status()
+                
+                init_span.set_attributes({
+                    "ai_service.complete_init_duration_ms": init_duration * 1000,
+                    "ai_service.clients_ready": status["clients_ready"],
+                    "ai_service.providers_available": len(status["available_providers"])
+                })
+                
+                logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
+                init_span.set_status(Status(StatusCode.OK, "Full initialization completed"))
+                
+                return status
+                
+            except Exception as e:
+                init_duration = time.time() - init_start_time
+                error_msg = f"AI service async initialization failed after {init_duration:.3f}s: {e}"
+                logger.error(f"❌ {error_msg}")
+                
+                init_span.set_status(Status(StatusCode.ERROR, error_msg))
+                init_span.record_exception(e)
+                raise
+
+    def initialize_sync(self) -> Dict[str, Any]:
+        """Complete sync initialization with comprehensive status reporting"""
+        with tracer.start_as_current_span(
+            "ai_service.initialize_sync",
+            kind=SpanKind.INTERNAL
+        ) as init_span:
+            logger.info("🚀 Performing complete AI service initialization (sync)...")
+            init_start_time = time.time()
+            
+            try:
+                # Ensure clients are created
+                self._ensure_clients_initialized()
+                
+                # Verify functionality
+                if self.azure_client or self.openai_client:
+                    logger.info("🔍 AI service clients are ready for use")
+                
+                init_duration = time.time() - init_start_time
+                self._initialization_status["complete_initialization_time"] = init_duration
+                
+                status = self.get_initialization_status()
+                
+                init_span.set_attributes({
+                    "ai_service.complete_init_duration_ms": init_duration * 1000,
+                    "ai_service.clients_ready": status["clients_ready"],
+                    "ai_service.providers_available": len(status["available_providers"])
+                })
+                
+                logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
+                init_span.set_status(Status(StatusCode.OK, "Full initialization completed"))
+                
+                return status
+                
+            except Exception as e:
+                init_duration = time.time() - init_start_time
+                error_msg = f"AI service sync initialization failed after {init_duration:.3f}s: {e}"
+                logger.error(f"❌ {error_msg}")
+                
+                init_span.set_status(Status(StatusCode.ERROR, error_msg))
+                init_span.record_exception(e)
+                raise
     
     def _get_available_providers(self) -> List[str]:
         """Get list of available AI providers"""

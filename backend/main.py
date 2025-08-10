@@ -25,17 +25,6 @@ from config.settings import settings
 from routers import chat, query, health
 import logging
 
-setup_telemetry()  # Initialize OpenTelemetry
-
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
-
-from services.elasticsearch_service import ElasticsearchService
-from services.mapping_cache_service import MappingCacheService
-from services.ai_service import AIService
-from config.settings import settings
-from routers import chat, query, health
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager with OpenTelemetry tracing"""
