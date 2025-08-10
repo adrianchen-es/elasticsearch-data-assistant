@@ -1,6 +1,6 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, Database, Search } from 'lucide-react';
+import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
 import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
@@ -11,11 +11,101 @@ function App() {
   const [currentView, setCurrentView] = useState('chat');
   const [indices, setIndices] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('');
+  
+  // Health status state
+  const [healthStatus, setHealthStatus] = useState({
+    status: 'checking', // 'healthy', 'unhealthy', 'checking', 'error'
+    message: 'Checking system status...',
+    lastChecked: null,
+    services: {}
+  });
+
+  // Check health status
+  const checkHealthStatus = async () => {
+    try {
+      setHealthStatus(prev => ({ ...prev, status: 'checking', message: 'Checking system status...' }));
+      
+      const response = await fetch('/api/health');
+      const data = await response.json();
+      
+      if (response.ok) {
+        setHealthStatus({
+          status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
+          message: data.message || (data.status === 'healthy' ? 'All systems operational' : 'Some services unavailable'),
+          lastChecked: new Date().toISOString(),
+          services: data.services || {}
+        });
+      } else {
+        throw new Error(data.message || 'Health check failed');
+      }
+    } catch (error) {
+      setHealthStatus({
+        status: 'error',
+        message: `Health check failed: ${error.message}`,
+        lastChecked: new Date().toISOString(),
+        services: {}
+      });
+    }
+  };
 
   useEffect(() => {
     // Setup telemetry
     setupTelemetryWeb();
+    
+    // Initial health check
+    checkHealthStatus();
+    
+    // Set up periodic health checks every 30 seconds
+    const healthCheckInterval = setInterval(checkHealthStatus, 30000);
+    
+    return () => clearInterval(healthCheckInterval);
   }, []);
+
+  // Render health status icon
+  const renderHealthIcon = () => {
+    const iconProps = { className: "h-5 w-5" };
+    
+    switch (healthStatus.status) {
+      case 'healthy':
+        return <CheckCircle {...iconProps} className="h-5 w-5 text-green-500" />;
+      case 'unhealthy':
+        return <AlertCircle {...iconProps} className="h-5 w-5 text-yellow-500" />;
+      case 'error':
+        return <XCircle {...iconProps} className="h-5 w-5 text-red-500" />;
+      case 'checking':
+      default:
+        return <RefreshCw {...iconProps} className="h-5 w-5 text-gray-400 animate-spin" />;
+    }
+  };
+
+  // Format last checked time
+  const formatLastChecked = (timestamp) => {
+    if (!timestamp) return 'Never';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
+  };
+
+  // Generate tooltip content
+  const getTooltipContent = () => {
+    const { status, message, lastChecked, services } = healthStatus;
+    
+    let content = `Status: ${message}\nLast checked: ${formatLastChecked(lastChecked)}`;
+    
+    if (Object.keys(services).length > 0) {
+      content += '\n\nServices:';
+      Object.entries(services).forEach(([service, serviceStatus]) => {
+        const statusIcon = typeof serviceStatus === 'object' 
+          ? (serviceStatus.status === 'healthy' ? '✅' : '❌')
+          : (serviceStatus === 'healthy' ? '✅' : '❌');
+        const serviceMessage = typeof serviceStatus === 'object' 
+          ? serviceStatus.message || service
+          : service;
+        content += `\n${statusIcon} ${serviceMessage}`;
+      });
+    }
+    
+    return content;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -30,6 +120,32 @@ function App() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              {/* System Health Status */}
+              <div className="relative group">
+                <button
+                  onClick={checkHealthStatus}
+                  className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
+                  title={getTooltipContent()}
+                >
+                  {renderHealthIcon()}
+                  <span className="text-sm text-gray-600 hidden sm:inline">
+                    {healthStatus.status === 'healthy' ? 'Healthy' : 
+                     healthStatus.status === 'unhealthy' ? 'Issues' :
+                     healthStatus.status === 'error' ? 'Error' : 'Checking...'}
+                  </span>
+                </button>
+                
+                {/* Tooltip */}
+                <div className="absolute right-0 top-full mt-1 w-80 bg-black text-white text-xs rounded-md p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50">
+                  <div className="whitespace-pre-line">
+                    {getTooltipContent()}
+                  </div>
+                  <div className="text-gray-300 mt-2 text-xs">
+                    Click to refresh status
+                  </div>
+                </div>
+              </div>
+              
               <ProviderSelector
                 selectedProvider={selectedProvider}
                 onProviderChange={setSelectedProvider}
