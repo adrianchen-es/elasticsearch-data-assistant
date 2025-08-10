@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Check, X, Copy, RefreshCw } from 'lucide-react';
 import ReactJson from 'react-json-view';
+import { IndexSelector } from './Selectors';
 
 const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [query, setQuery] = useState({
@@ -13,38 +14,6 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [validationStatus, setValidationStatus] = useState(null);
-  const [availableIndices, setAvailableIndices] = useState([]);
-  const [indicesLoading, setIndicesLoading] = useState(false);
-  const [indicesError, setIndicesError] = useState(null);
-
-  // Fetch available indices
-  const fetchAvailableIndices = async () => {
-    setIndicesLoading(true);
-    setIndicesError(null);
-    try {
-      const response = await fetch('/api/indices');
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableIndices(data.indices || []);
-      } else {
-        throw new Error('Failed to fetch indices');
-      }
-    } catch (err) {
-      setIndicesError(err.message);
-      console.error('Error fetching indices:', err);
-    } finally {
-      setIndicesLoading(false);
-    }
-  };
-
-  // Fetch indices on component mount
-  useEffect(() => {
-    fetchAvailableIndices();
-  }, []);
-
-  const retryFetchIndices = () => {
-    fetchAvailableIndices();
-  };
 
   const validateQuery = async () => {
     if (!selectedIndex) return;
@@ -118,63 +87,13 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   return (
     <div className="flex flex-col h-[calc(100vh-200px)]">
       {/* Index Selection */}
-      <div className="mb-6 p-4 bg-white rounded-lg border">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-gray-700">Elasticsearch Index</h3>
-          {indicesLoading && (
-            <div className="flex items-center text-sm text-gray-500">
-              <RefreshCw className="animate-spin h-4 w-4 mr-1" />
-              Loading...
-            </div>
-          )}
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          <select
-            className={`flex-1 px-3 py-2 border rounded-md text-sm ${
-              indicesError ? 'border-red-300 bg-red-50' : 'border-gray-300'
-            } ${indicesLoading ? 'opacity-50' : ''}`}
-            value={selectedIndex}
-            onChange={(e) => setSelectedIndex(e.target.value)}
-            disabled={indicesLoading}
-          >
-            <option value="">
-              {indicesLoading 
-                ? "Fetching indices..." 
-                : indicesError 
-                  ? "Error loading indices" 
-                  : "Select an index..."}
-            </option>
-            {availableIndices.map((index) => (
-              <option key={index} value={index}>
-                {index}
-              </option>
-            ))}
-          </select>
-          
-          {indicesError && (
-            <button
-              onClick={retryFetchIndices}
-              className="px-3 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 flex items-center"
-            >
-              <RefreshCw className="h-4 w-4 mr-1" />
-              Retry
-            </button>
-          )}
-        </div>
-        
-        {indicesError && (
-          <div className="mt-2 text-sm text-red-600">
-            {indicesError}
-          </div>
-        )}
-        
-        {selectedIndex && (
-          <div className="mt-2 text-sm text-green-600">
-            ✓ Using index: <strong>{selectedIndex}</strong>
-          </div>
-        )}
-      </div>
+      <IndexSelector
+        selectedIndex={selectedIndex}
+        onIndexChange={setSelectedIndex}
+        variant="detailed"
+        showLabel={true}
+        showStatus={true}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
         {/* Query Editor */}
