@@ -23,12 +23,14 @@ async def health_check(app_request: Request):
     
     # Check if we have cached health data
     health_cache = getattr(app_request.app.state, 'health_cache', {})
-    last_check = health_cache.get('last_check', 0)
+    last_check = health_cache.get('last_check')
     cache_ttl = health_cache.get('cache_ttl', 30)
+    cached_response = health_cache.get('cached_response')
     
-    # Return cached result if still valid
-    if current_time - last_check < cache_ttl and 'cached_response' in health_cache:
-        cached_response = health_cache['cached_response']
+    # Return cached result if still valid (only if all required cache data is present)
+    if (last_check is not None and 
+        cached_response is not None and 
+        current_time - last_check < cache_ttl):
         cached_response['cached'] = True
         return HealthResponse(**cached_response)
     
