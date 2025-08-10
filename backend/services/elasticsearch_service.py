@@ -30,24 +30,19 @@ class ElasticsearchService:
         
         # Configure timeouts and connection settings with performance optimizations
         request_timeout = float(os.getenv("ELASTICSEARCH_REQUEST_TIMEOUT", "30"))
-        connect_timeout = float(os.getenv("ELASTICSEARCH_CONNECT_TIMEOUT", "10"))
         max_retries = int(os.getenv("ELASTICSEARCH_MAX_RETRIES", "3"))
         retry_on_timeout = os.getenv("ELASTICSEARCH_RETRY_ON_TIMEOUT", "true").lower() == "true"
-        
+
         # Enhanced connection pool settings for better performance
         pool_maxsize = int(os.getenv("ELASTICSEARCH_POOL_MAXSIZE", "50"))  # Increased from 20
-        pool_block = os.getenv("ELASTICSEARCH_POOL_BLOCK", "false").lower() == "true"
-        
+
         try:
             connection_params = {
                 "verify_certs": verify_certs,
                 "request_timeout": request_timeout,
-                "timeout": connect_timeout,
                 "max_retries": max_retries,
                 "retry_on_timeout": retry_on_timeout,
                 "http_compress": True,  # Enable compression to reduce network overhead
-                "maxsize": pool_maxsize,  # Enhanced connection pool size
-                "block": pool_block,  # Don't block when pool is full
                 "headers": {
                     "Connection": "keep-alive",  # Keep connections alive for reuse
                     "Accept-Encoding": "gzip, deflate",  # Enable compression
