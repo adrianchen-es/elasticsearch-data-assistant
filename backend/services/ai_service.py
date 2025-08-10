@@ -1,13 +1,128 @@
 # backend/services/ai_service.py
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
     # Add/adjust return_debug in your methods
-import json, logging, os
+import json, logging, math, os
+
+try:
+    import tiktoken  # robust token counting when available
+except Exception:
+    tiktoken = None
+
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+class TokenLimitError(Exception):
+    def __init__(self, message: str, *, model: str, limit: int, prompt_tokens: int, reserved_for_output: int):
+        super().__init__(message)
+        self.model = model
+        self.limit = limit
+        self.prompt_tokens = prompt_tokens
+        self.reserved_for_output = reserved_for_output
+
+    def to_dict(self) -> Dict:
+        return {
+            "error": {
+                "code": "token_limit_exceeded",
+                "message": str(self),
+                "details": {
+                    "model": self.model,
+                    "context_window": self.limit,
+                    "prompt_tokens": self.prompt_tokens,
+                    "reserved_for_output": self.reserved_for_output,
+                    "available_for_prompt": max(self.limit - self.reserved_for_output, 0),
+                },
+            }
+        }
+
+
+# Reasonable defaults. Adjust if your deployment uses different model names.
+MAX_CONTEXT_TOKENS = {
+    "gpt-4o": 128_000,
+    "gpt-4o-mini": 128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4": 8_192,
+    "gpt-3.5-turbo": 4_096,
+    # fallback key for unknown models
+    "__default__": 128_000,
+}
+
+# Keep some space for the model to respond
+RESERVED_COMPLETION_TOKENS = 2_048
+
+
+def _get_context_window(model: Optional[str]) -> int:
+    if not model:
+        return MAX_CONTEXT_TOKENS["__default__"]
+    return MAX_CONTEXT_TOKENS.get(model, MAX_CONTEXT_TOKENS["__default__"])
+
+
+def _approx_token_count_from_text(text: str) -> int:
+    # Simple heuristic: ~4 chars per token in English
+    return max(1, math.ceil(len(text) / 4))
+
+
+def _count_tokens_with_tiktoken(messages: List[Dict], model: Optional[str]) -> int:
+    # Use message-aware counting if possible
+    if tiktoken is None:
+        # Fallback: concatenate visible text
+        joined = "\n".join(
+            f"{m.get('role','user')}: {m.get('content','') if isinstance(m.get('content'), str) else json.dumps(m.get('content'))}"
+            for m in messages
+        )
+        return _approx_token_count_from_text(joined)
+
+    # Choose encoding by model if known; else pick a common base
+    try:
+        enc = tiktoken.encoding_for_model(model) if model else tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        enc = tiktoken.get_encoding("cl100k_base")
+
+    # Approximate message token format (role + content)
+    # This is close enough for pre-checks; exact tokenization depends on model rules.
+    tokens = 0
+    for m in messages:
+        role = m.get("role", "user")
+        content = m.get("content", "")
+        if isinstance(content, list):
+            # If your app uses structured content (images, tool calls), refine this as needed
+            try:
+                content = " ".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part) for part in content
+                )
+            except Exception:
+                content = json.dumps(content)
+        tokens += len(enc.encode(role)) + len(enc.encode(str(content))) + 4  # +4 overhead per message (rough)
+    return tokens
+
+
+def count_prompt_tokens(messages: List[Dict], model: Optional[str]) -> int:
+    return _count_tokens_with_tiktoken(messages, model)
+
+
+def ensure_token_budget(messages: List[Dict], model: Optional[str]) -> Tuple[int, int, int]:
+    prompt_tokens = count_prompt_tokens(messages, model)
+    limit = _get_context_window(model)
+    if prompt_tokens > (limit - RESERVED_COMPLETION_TOKENS):
+        raise TokenLimitError(
+            f"Your message is too long for the selected model. Limit {limit} tokens, "
+            f"received {prompt_tokens}. Try shortening your input.",
+            model=model or "unknown",
+            limit=limit,
+            prompt_tokens=prompt_tokens,
+            reserved_for_output=RESERVED_COMPLETION_TOKENS,
+        )
+    return prompt_tokens, RESERVED_COMPLETION_TOKENS, limit
+
+
+def _chunk_text(text: str, chunk_size: int = 500) -> Iterable[str]:
+    # Simple chunker to simulate streaming when provider doesn't support it
+    for i in range(0, len(text), chunk_size):
+        yield text[i : i + chunk_size]
+
 
 class AIService:
     def __init__(self,
@@ -205,3 +320,72 @@ class AIService:
             } if return_debug else {}
             
             return error_response, debug_info
+
+    def generate_chat(
+        self,
+        messages: List[Dict],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.2,
+        stream: bool = False,
+    ):
+        """
+        Returns either a dict {text, usage} when stream=False, or a generator of NDJSON-ready dicts when stream=True.
+        """
+        # Token guard
+        prompt_tokens, reserved_for_output, _limit = ensure_token_budget(messages, model)
+
+        # Prefer using underlying client's streaming if available, otherwise simulate.
+        if stream:
+            # Try native streaming on the underlying client if it exists in your original implementation.
+            try:
+                # stream_resp = self.client.chat.completions.create(
+                #     model=model,
+                #     messages=messages,
+                #     temperature=temperature,
+                #     stream=True,
+                # )
+                # for event in stream_resp:
+                #     delta = event.choices[0].delta.content or ""
+                #     if delta:
+                #         yield {"type": "message", "delta": delta}
+                # usage after stream end is often provided separately, fall back to None if unknown
+                # yield {"type": "final", "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": None, "total_tokens": None}}
+                raise NotImplementedError  # remove if you wire native streaming
+            except NotImplementedError:
+                # Fallback: get full response and chunk it
+                # resp = self.client.chat.completions.create(
+                #     model=model,
+                #     messages=messages,
+                #     temperature=temperature,
+                # )
+                # full_text = resp.choices[0].message.content or ""
+                full_text = ""  # replace with actual text from your existing code
+                completion_tokens = count_prompt_tokens([{"role": "assistant", "content": full_text}], model)
+                for delta in _chunk_text(full_text):
+                    yield {"type": "message", "delta": delta}
+                yield {
+                    "type": "final",
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                    },
+                }
+        else:
+            # resp = self.client.chat.completions.create(
+            #     model=model,
+            #     messages=messages,
+            #     temperature=temperature,
+            # )
+            # text = resp.choices[0].message.content or ""
+            text = ""  # replace with actual text from your existing code
+            completion_tokens = count_prompt_tokens([{"role": "assistant", "content": text}], model)
+            return {
+                "text": text,
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+            }
