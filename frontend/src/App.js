@@ -1,6 +1,6 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
 import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
@@ -12,57 +12,101 @@ function App() {
   const [indices, setIndices] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('');
   
-  // Health status state
-  const [healthStatus, setHealthStatus] = useState({
+  // Backend health status state (/api/health)
+  const [backendHealth, setBackendHealth] = useState({
     status: 'checking', // 'healthy', 'unhealthy', 'checking', 'error'
-    message: 'Checking system status...',
+    message: 'Checking backend status...',
     lastChecked: null,
     services: {}
   });
 
-  // Check health status
-  const checkHealthStatus = async () => {
+  // Proxy health status state (/api/healthz)
+  const [proxyHealth, setProxyHealth] = useState({
+    status: 'checking', // 'healthy', 'unhealthy', 'checking', 'error'
+    message: 'Checking proxy status...',
+    lastChecked: null,
+    services: {}
+  });
+
+  // Check backend health status
+  const checkBackendHealth = async () => {
     try {
-      setHealthStatus(prev => ({ ...prev, status: 'checking', message: 'Checking system status...' }));
+      setBackendHealth(prev => ({ ...prev, status: 'checking', message: 'Checking backend status...' }));
       
       const response = await fetch('/api/health');
       const data = await response.json();
       
       if (response.ok) {
-        setHealthStatus({
+        setBackendHealth({
           status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
-          message: data.message || (data.status === 'healthy' ? 'All systems operational' : 'Some services unavailable'),
+          message: data.message || (data.status === 'healthy' ? 'Backend operational' : 'Backend issues detected'),
           lastChecked: new Date().toISOString(),
           services: data.services || {}
         });
       } else {
-        throw new Error(data.message || 'Health check failed');
+        throw new Error(data.message || 'Backend health check failed');
       }
     } catch (error) {
-      setHealthStatus({
+      setBackendHealth({
         status: 'error',
-        message: `Health check failed: ${error.message}`,
+        message: `Backend unreachable: ${error.message}`,
         lastChecked: new Date().toISOString(),
         services: {}
       });
     }
   };
 
+  // Check proxy health status
+  const checkProxyHealth = async () => {
+    try {
+      setProxyHealth(prev => ({ ...prev, status: 'checking', message: 'Checking proxy status...' }));
+      
+      const response = await fetch('/api/healthz');
+      const data = await response.json();
+      
+      if (response.ok) {
+        setProxyHealth({
+          status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
+          message: data.message || (data.status === 'healthy' ? 'Proxy operational' : 'Proxy issues detected'),
+          lastChecked: new Date().toISOString(),
+          services: data.services || {}
+        });
+      } else {
+        throw new Error(data.message || 'Proxy health check failed');
+      }
+    } catch (error) {
+      setProxyHealth({
+        status: 'error',
+        message: `Proxy unreachable: ${error.message}`,
+        lastChecked: new Date().toISOString(),
+        services: {}
+      });
+    }
+  };
+
+  // Check both health endpoints
+  const checkAllHealth = async () => {
+    await Promise.all([
+      checkBackendHealth(),
+      checkProxyHealth()
+    ]);
+  };
+
   useEffect(() => {
     // Setup telemetry
     setupTelemetryWeb();
     
-    // Initial health check
-    checkHealthStatus();
+    // Initial health checks
+    checkAllHealth();
     
     // Set up periodic health checks every 30 seconds
-    const healthCheckInterval = setInterval(checkHealthStatus, 30000);
+    const healthCheckInterval = setInterval(checkAllHealth, 30000);
     
     return () => clearInterval(healthCheckInterval);
   }, []);
 
   // Render health status icon
-  const renderHealthIcon = () => {
+  const renderHealthIcon = (healthStatus) => {
     const iconProps = { className: "h-5 w-5" };
     
     switch (healthStatus.status) {

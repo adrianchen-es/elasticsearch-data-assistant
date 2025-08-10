@@ -21,7 +21,7 @@ app.use(compression({ filter: shouldCompress }));
 const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:8000';
 
 // Health
-app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+app.get('/api/healthz', (_req, res) => res.status(200).send('ok'));
 
 // Stream chat endpoint pass-through
 app.post('/api/chat', async (req, res) => {
