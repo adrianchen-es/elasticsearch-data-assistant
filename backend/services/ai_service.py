@@ -116,12 +116,92 @@ class AIService:
             "Return only the JSON query, no additional text or formatting."
         )
 
-    async def free_chat(self, user_prompt: str, provider: str = "azure", return_debug: bool = False) -> Tuple[str, dict]:
+    @tracer.start_as_current_span("ai_free_chat", kind=SpanKind.CLIENT)
+    async def free_chat(self, user_prompt: str, provider: str = "azure", return_debug: bool = False, 
+                       context_info: Optional[Dict[str, Any]] = None, 
+                       conversation_id: Optional[str] = None) -> Tuple[str, dict]:
+        """
+        Free chat mode that doesn't require Elasticsearch context
+        """
+        current_span = trace.get_current_span()
+        current_span.set_attributes({
+            "ai.provider": provider,
+            "ai.model": (self.azure_deployment if provider == "azure" else self.openai_model),
+            "ai.prompt.length": len(user_prompt),
+            "ai.mode": "free_chat",
+            "ai.conversation_id": conversation_id or "unknown"
+        })
+        
+        # Build system prompt for free chat
+        system_prompt = "You are a helpful AI assistant. Provide clear, accurate, and helpful responses."
+        
+        # Add context information if available
+        if context_info:
+            system_prompt += f"\n\nAvailable context: {json.dumps(context_info, indent=2)}"
+            system_prompt += "\nNote: You can reference this context in your responses if relevant, but don't automatically query or analyze the data unless specifically asked."
+        
         messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        # ... call provider as before ...
-        text = response.choices[0].message.content
-        dbg = { 'messages': messages, 'raw': response.model_dump() if hasattr(response, 'model_dump') else response } if return_debug else {}
-        return text, dbg
+        
+        try:
+            if provider == "azure" and self.azure_client:
+                response = await self.azure_client.chat.completions.create(
+                    model=self.azure_deployment, 
+                    messages=messages, 
+                    temperature=0.7,  # Slightly higher temperature for more creative responses
+                    max_tokens=2000
+                )
+            elif provider == "openai" and self.openai_client:
+                response = await self.openai_client.chat.completions.create(
+                    model=self.openai_model, 
+                    messages=messages, 
+                    temperature=0.7,
+                    max_tokens=2000
+                )
+            else:
+                raise ValueError(f"AI provider {provider} not available or not configured")
+            
+            text = response.choices[0].message.content
+            if not text:
+                raise ValueError("Empty response from AI provider")
+                
+            current_span.set_attribute("ai.response.length", len(text))
+            current_span.set_status(Status(StatusCode.OK))
+            
+            # Debug information
+            debug_info = {}
+            if return_debug:
+                debug_info = {
+                    'messages': messages,
+                    'provider': provider,
+                    'model': self.azure_deployment if provider == "azure" else self.openai_model,
+                    'temperature': 0.7,
+                    'context_provided': context_info is not None,
+                    'conversation_id': conversation_id,
+                    'raw_response': response.model_dump() if hasattr(response, 'model_dump') else {
+                        'choices': [{
+                            'message': {'content': text},
+                            'finish_reason': response.choices[0].finish_reason if response.choices else 'unknown'
+                        }],
+                        'usage': getattr(response, 'usage', {})
+                    }
+                }
+            
+            return text, debug_info
+            
+        except Exception as e:
+            current_span.set_status(Status(StatusCode.ERROR))
+            current_span.record_exception(e)
+            logger.error(f"Error in free chat: {e}")
+            
+            # Return error information
+            error_response = f"I apologize, but I encountered an error while processing your request: {str(e)}"
+            debug_info = {
+                'error': str(e),
+                'messages': messages,
+                'provider': provider
+            } if return_debug else {}
+            
+            return error_response, debug_info

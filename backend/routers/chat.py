@@ -1,5 +1,5 @@
 # backend/routers/chat.py
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 import os, time, json, hashlib
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -27,12 +27,24 @@ def is_mapping_request(message: str) -> bool:
 
 class ChatRequest(BaseModel):
     message: str
-    index_name: str
+    index_name: Optional[str] = None  # Make index_name optional for free chat
     mode: Optional[str] = 'elastic'  # 'elastic' | 'free'
     provider: Optional[str] = None   # 'openai' | 'azure' (None uses env default)
     debug: Optional[bool] = False
+    include_context: Optional[bool] = True  # Whether to include context in free chat
+    conversation_id: Optional[str] = None  # For maintaining conversation context
 
-@router.post('/chat')
+class ChatResponse(BaseModel):
+    answer: str
+    mode: str
+    conversation_id: Optional[str] = None
+    debug: Optional[Dict[str, Any]] = None
+    # Elasticsearch-specific fields (only for elastic mode)
+    query: Optional[Dict[str, Any]] = None
+    raw_results: Optional[Dict[str, Any]] = None
+    query_id: Optional[str] = None
+
+@router.post('/chat', response_model=ChatResponse)
 async def chat(req: ChatRequest, app_request: Request):
 
     es = app_request.app.state.es_service
@@ -43,59 +55,118 @@ async def chat(req: ChatRequest, app_request: Request):
         span.set_attributes({
             'chat.mode': req.mode,
             'chat.provider': req.provider or (os.getenv('LLM_PROVIDER') or 'azure'),
-            'chat.index': req.index or ''
+            'chat.index': req.index_name or '',
+            'chat.debug': req.debug,
+            'chat.include_context': req.include_context
         })
         trace_id = _trace_id_hex(span)
         provider = req.provider or os.getenv('LLM_PROVIDER', 'azure')
 
         t_start = time.perf_counter()
+        conversation_id = req.conversation_id or f"chat_{int(time.time())}_{hash(req.message) % 10000}"
 
-        if req.mode == 'free' or not req.index:
+        # Enhanced free chat mode
+        if req.mode == 'free' or not req.index_name:
             llm_t0 = time.perf_counter()
-            answer, llm_debug = await ai.free_chat(req.message, provider=provider, return_debug=req.debug)
+            
+            # Build context for free chat if requested
+            context_info = None
+            if req.include_context and req.index_name:
+                try:
+                    context_t0 = time.perf_counter()
+                    # Get basic index info without full mapping
+                    indices = await cache.get_available_indices()
+                    if req.index_name in indices:
+                        context_info = {
+                            "available_index": req.index_name,
+                            "note": "This is a free chat mode. Elasticsearch data is available but not automatically queried."
+                        }
+                    context_ms = int((time.perf_counter() - context_t0) * 1000)
+                except Exception as e:
+                    logger.warning(f"Failed to get context for free chat: {e}")
+                    context_ms = 0
+            
+            answer, llm_debug = await ai.free_chat(
+                req.message, 
+                provider=provider, 
+                return_debug=req.debug,
+                context_info=context_info,
+                conversation_id=conversation_id
+            )
             llm_ms = int((time.perf_counter() - llm_t0) * 1000)
 
-            resp = { 'answer': answer }
+            response_data = {
+                'answer': answer,
+                'mode': 'free',
+                'conversation_id': conversation_id
+            }
+            
             if req.debug:
-                resp['debug'] = {
+                response_data['debug'] = {
                     'request': req.model_dump(),
                     'traceId': trace_id,
-                    'timings': { 'llm_ms': llm_ms, 'total_ms': int((time.perf_counter()-t_start)*1000) },
-                    'llm': llm_debug
+                    'conversation_id': conversation_id,
+                    'timings': { 
+                        'llm_ms': llm_ms, 
+                        'context_ms': context_ms if req.include_context else 0,
+                        'total_ms': int((time.perf_counter()-t_start)*1000) 
+                    },
+                    'mode': 'free_chat',
+                    'provider': provider,
+                    'context_included': req.include_context,
+                    'llm_debug': llm_debug
                 }
-            return resp
+            return ChatResponse(**response_data)
 
-        # Elastic-assisted path
+        # Elasticsearch-assisted chat mode
+        if not req.index_name:
+            raise HTTPException(status_code=400, detail="index_name is required for elastic mode")
+            
         schema_t0 = time.perf_counter()
-        schema = await cache.get_schema(req.index)
+        schema = await cache.get_schema(req.index_name)
         schema_ms = int((time.perf_counter() - schema_t0) * 1000)
+        
         if not schema:
+            # Fallback to basic mapping
             mappings = await cache.get_all_mappings()
-            mapping_blob = mappings.get(req.index) or {}
-            schema = { 'title': f'{req.index} mapping', 'type': 'object', 'properties': mapping_blob }
+            mapping_blob = mappings.get(req.index_name) or {}
+            schema = { 'title': f'{req.index_name} mapping', 'type': 'object', 'properties': mapping_blob }
+        
         schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()[:8]
         span.set_attribute('chat.schema_hash', schema_hash)
 
         gen_t0 = time.perf_counter()
-        schema_context = { req.index: schema }
+        schema_context = { req.index_name: schema }
         query_json, gen_debug = await ai.generate_elasticsearch_query(
             req.message, schema_context, provider=provider, return_debug=req.debug
         )
         gen_ms = int((time.perf_counter() - gen_t0) * 1000)
 
         es_t0 = time.perf_counter()
-        results = await es.execute_query(req.index, query_json)
+        results = await es.execute_query(req.index_name, query_json)
         es_ms = int((time.perf_counter() - es_t0) * 1000)
 
         sum_t0 = time.perf_counter()
         answer, sum_debug = await ai.summarize_results(results, req.message, provider=provider, return_debug=req.debug)
         sum_ms = int((time.perf_counter() - sum_t0) * 1000)
 
-        payload = { 'answer': answer }
+        # Generate query ID for tracking
+        query_id = f"q_{int(time.time())}_{hash(str(query_json)) % 10000}"
+
+        response_data = {
+            'answer': answer,
+            'mode': 'elastic',
+            'conversation_id': conversation_id,
+            'query': query_json,
+            'raw_results': results,
+            'query_id': query_id
+        }
+        
         if req.debug:
-            payload['debug'] = {
+            response_data['debug'] = {
                 'request': req.model_dump(),
                 'traceId': trace_id,
+                'conversation_id': conversation_id,
                 'timings': {
                     'schema_ms': schema_ms,
                     'build_query_ms': gen_ms,
@@ -103,10 +174,26 @@ async def chat(req: ChatRequest, app_request: Request):
                     'summarize_ms': sum_ms,
                     'total_ms': int((time.perf_counter() - t_start) * 1000)
                 },
-                'index': req.index,
+                'mode': 'elasticsearch_assisted',
+                'provider': provider,
+                'index': req.index_name,
                 'schemaHash': schema_hash,
-                'querySent': query_json,
-                'llm': { 'build': gen_debug, 'summarize': sum_debug },
-                'raw': { 'schema': schema, 'esResults': results }
+                'queryGenerated': query_json,
+                'queryId': query_id,
+                'llm_debug': { 
+                    'query_generation': gen_debug, 
+                    'result_summarization': sum_debug 
+                },
+                'raw_data': { 
+                    'schema': schema, 
+                    'elasticsearch_results': results 
+                },
+                'performance_insights': {
+                    'schema_lookup_efficiency': 'cached' if schema_ms < 100 else 'slow',
+                    'query_generation_speed': 'fast' if gen_ms < 2000 else 'slow',
+                    'elasticsearch_response_time': 'fast' if es_ms < 1000 else 'slow',
+                    'total_pipeline_speed': 'excellent' if int((time.perf_counter() - t_start) * 1000) < 5000 else 'needs_optimization'
+                }
             }
-        return payload
+        
+        return ChatResponse(**response_data)
