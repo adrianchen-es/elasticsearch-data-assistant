@@ -1,12 +1,12 @@
 FROM node:20-alpine
 WORKDIR /srv
-COPY package*.json ./
 
-COPY src ./src
-
-RUN npm install --omit=dev && \
-    npm cache clean --force && \
+RUN npm cache clean --force && \
     rm -rf /root/.npm /root/.node-gyp /root/.config
+
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY src ./src
 
 ENV NODE_ENV=production \
     PORT=3100 \
