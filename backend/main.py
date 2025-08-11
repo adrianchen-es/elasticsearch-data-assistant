@@ -47,7 +47,7 @@ async def _retry_service_init(init_fn, name, max_attempts=3, delay=2):
             except Exception as e:
                 attempt_span.set_attribute("success", False)
                 attempt_span.record_exception(e)
-                attempt_span.set_status(Status(StatusCode.ERROR), description=str(e))
+                attempt_span.set_status(status=(StatusCode.ERROR), description=str(e))
                 logger.warning(f"⚠️ [{name}] Attempt {attempt} failed: {e}")
                 last_exc = e
                 if attempt < max_attempts:
@@ -93,7 +93,7 @@ async def _create_elasticsearch_service():
                 "error": str(e)
             })
             es_span.record_exception(e)
-            es_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            es_span.set_status(status=(StatusCode.ERROR), description=str(e))
             logger.error(f"❌ Elasticsearch service creation failed after {init_time:.3f}s: {e}")
             raise
 
@@ -144,7 +144,7 @@ async def _create_ai_service():
                 "error": str(e)
             })
             ai_span.record_exception(e)
-            ai_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            ai_span.set_status(status=(StatusCode.ERROR), description=str(e))
             logger.error(f"❌ AI service creation failed after {init_time:.3f}s: {e}")
             raise
 
@@ -179,7 +179,7 @@ async def _create_mapping_cache_service(es_service):
                 "error": str(e)
             })
             cache_span.record_exception(e)
-            cache_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            cache_span.set_status(status=(StatusCode.ERROR), description=str(e))
             logger.error(f"❌ Mapping cache service creation failed after {init_time:.3f}s: {e}")
             raise
 
@@ -229,7 +229,7 @@ async def _initialize_core_services():
             
         except Exception as e:
             services_span.record_exception(e)
-            services_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            services_span.set_status(status=(StatusCode.ERROR), description=str(e))
             logger.error(f"❌ Core services initialization failed: {e}")
             raise
 
@@ -271,7 +271,7 @@ async def _setup_background_tasks(mapping_cache_service, app_state):
             
         except Exception as e:
             bg_span.record_exception(e)
-            bg_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            bg_span.set_status(status=(StatusCode.ERROR), description=str(e))
             logger.warning(f"⚠️ Background services setup failed: {e}")
             # Return empty list to not fail startup
             return [], {}
@@ -333,7 +333,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             total_startup_time = asyncio.get_event_loop().time() - startup_start_time
             startup_span.record_exception(e)
-            startup_span.set_status(Status(StatusCode.ERROR), description=str(e))
+            startup_span.set_status(status=(StatusCode.ERROR), description=str(e))
             startup_span.set_attribute("total_startup_time", total_startup_time)
             logger.error(f"❌ Startup failed after {total_startup_time:.3f}s: {e}")
             raise
@@ -449,7 +449,7 @@ async def _warm_up_cache(mapping_cache_service, task_start_times):
             
         except Exception as e:
             span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR), description=str(e))
+            span.set_status(status=(StatusCode.ERROR), description=str(e))
             total_task_time = asyncio.get_event_loop().time() - task_start_times[task_id]
             logger.warning(f"⚠️ [{task_id.upper()}] Cache warm-up failed after {total_task_time:.3f}s: {e}")
             logger.info(f"🔄 [{task_id.upper()}] Cache will retry on next scheduled refresh")
@@ -515,7 +515,7 @@ async def _warm_up_health_check(state, task_start_times):
                 
         except Exception as e:
             span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR), description=str(e))
+            span.set_status(status=(StatusCode.ERROR), description=str(e))
             total_task_time = asyncio.get_event_loop().time() - task_start_times[task_id]
             logger.warning(f"⚠️ [{task_id.upper()}] Health check warm-up failed after {total_task_time:.3f}s: {e}")
             logger.info(f"🔄 [{task_id.upper()}] Health checks will be performed on demand")
