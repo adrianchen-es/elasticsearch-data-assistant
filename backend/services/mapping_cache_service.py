@@ -118,7 +118,7 @@ class MappingCacheService:
             except Exception as e:
                 init_duration = time.time() - init_start_time
                 logger.error(f"❌ MappingCacheService initialization failed after {init_duration:.3f}s: {e}")
-                init_span.set_status(Status(StatusCode.ERROR, f"Service initialization failed: {e}"))
+                init_span.set_status(StatusCode.ERROR, f"Service initialization failed: {e}")
                 init_span.record_exception(e)
                 raise
 

@@ -194,7 +194,7 @@ class AIService:
             except Exception as e:
                 init_duration = time.time() - init_start_time
                 logger.error(f"❌ AIService initialization failed after {init_duration:.3f}s: {e}")
-                init_span.set_status(Status(StatusCode.ERROR, f"Service initialization failed: {e}"))
+                init_span.set_status(StatusCode.ERROR, f"Service initialization failed: {e}")
                 init_span.record_exception(e)
                 raise
     
@@ -717,7 +717,7 @@ class AIService:
                     
             except Exception as e:
                 current_span = trace.get_current_span()
-                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
                 
                 error_context = {
@@ -797,7 +797,7 @@ class AIService:
                 
             except Exception as e:
                 current_span = trace.get_current_span()
-                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
                 
                 error_context = {
@@ -920,7 +920,7 @@ class AIService:
                 return text, debug_info
                 
             except Exception as e:
-                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
                 
                 error_context = {
@@ -975,7 +975,7 @@ class AIService:
                     return await self._get_chat_response(messages, model, temperature, provider)
                     
             except Exception as e:
-                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
                 
                 error_context = {
@@ -1049,7 +1049,7 @@ class AIService:
             }
             
             logger.error(f"Error in stream chat response: {error_context}")
-            span.set_status(Status(StatusCode.ERROR))
+            span.set_status(StatusCode.ERROR)
             span.record_exception(e)
             yield {
                 "type": "error",
@@ -1110,7 +1110,7 @@ class AIService:
             }
             
             logger.error(f"Error getting chat response: {error_context}")
-            span.set_status(Status(StatusCode.ERROR))
+            span.set_status(StatusCode.ERROR)
             span.record_exception(e)
             raise ValueError(f"Failed to get chat response using {provider}: {str(e)}") from e
 
@@ -1180,7 +1180,7 @@ class AIService:
                     return text
                     
             except Exception as e:
-                current_span.set_status(Status(StatusCode.ERROR))
+                current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
                 
                 error_context = {

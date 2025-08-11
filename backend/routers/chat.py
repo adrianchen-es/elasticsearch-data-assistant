@@ -127,7 +127,7 @@ async def get_schema_context(mapping_cache_service, index_name: str, span: trace
                 logger.warning(f"No schema found for index {index_name}")
                 return None
         except Exception as e:
-            schema_span.set_status(Status(StatusCode.ERROR))
+            schema_span.set_status(StatusCode.ERROR)
             schema_span.record_exception(e)
             logger.error(f"Error fetching schema for {index_name}: {e}")
             raise
@@ -202,7 +202,7 @@ async def handle_elasticsearch_chat(
                 return result, debug_info
                 
         except Exception as e:
-            chat_span.set_status(Status(StatusCode.ERROR))
+            chat_span.set_status(StatusCode.ERROR)
             chat_span.record_exception(e)
             logger.error(f"Elasticsearch chat error: {e}")
             raise
@@ -251,7 +251,7 @@ async def handle_free_chat(
                 return result, debug_info
                 
         except Exception as e:
-            chat_span.set_status(Status(StatusCode.ERROR))
+            chat_span.set_status(StatusCode.ERROR)
             chat_span.record_exception(e)
             logger.error(f"Free chat error: {e}")
             raise
@@ -317,7 +317,7 @@ def create_streaming_response(
                 yield (json.dumps(error_event) + "\n").encode("utf-8")
                 
             except Exception as e:
-                stream_span.set_status(Status(StatusCode.ERROR))
+                stream_span.set_status(StatusCode.ERROR)
                 stream_span.record_exception(e)
                 
                 error_event = {
