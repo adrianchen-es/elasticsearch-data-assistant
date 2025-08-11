@@ -16,6 +16,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Heuristic keywords to detect mapping/schema requests
+MAPPING_KEYWORDS = [
+    "mapping", "mappings", "fields", "schema", "structure", "columns",
+    "field list", "index fields", "properties", "types"
+]
+
+def _is_mapping_request(messages: List[ChatMessage]) -> bool:
+    if not messages:
+        return False
+    try:
+        last = messages[-1].content
+        text = last if isinstance(last, str) else json.dumps(last)
+    except Exception:
+        text = str(messages[-1].content)
+    lowered = text.lower()
+    return any(k in lowered for k in MAPPING_KEYWORDS)
+
+
 class ChatMessage(BaseModel):
     role: str
     content: Any
