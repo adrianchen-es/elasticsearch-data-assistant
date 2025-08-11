@@ -25,145 +25,318 @@ from config.settings import settings
 from routers import chat, query, health
 import logging
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan manager with OpenTelemetry tracing"""
-    with tracer.start_as_current_span("application_startup") as startup_span:
-        # Startup - Initialize services with optimized startup
-        startup_start_time = asyncio.get_event_loop().time()
-        logger.info("🚀 Starting up Elasticsearch Data Assistant...")
-        
-        # Initialize services concurrently for faster startup
-        logger.info("📦 Initializing core services...")
-        
-        # Service initialization tracking
-        service_timings = {}
-        
-        # Add retry logic for service initialization
-        async def retry_service_init(init_fn, name, max_attempts=3, delay=2):
-            last_exc = None
-            for attempt in range(1, max_attempts + 1):
-                with tracer.start_as_current_span(f"{name}_init_attempt", attributes={"attempt": attempt}):
-                    try:
-                        logger.info(f"🔄 Attempt {attempt}/{max_attempts} to initialize {name}...")
-                        result = await init_fn()
-                        logger.info(f"✅ {name} initialized successfully on attempt {attempt}")
-                        return result
-                    except Exception as e:
-                        logger.warning(f"⚠️ {name} initialization failed on attempt {attempt}: {e}")
-                        last_exc = e
-                        await asyncio.sleep(delay)
-            logger.error(f"❌ {name} failed to initialize after {max_attempts} attempts: {last_exc}")
-            raise last_exc
-
-        async def create_es_service():
-            with tracer.start_as_current_span("elasticsearch_service_init") as es_span:
-                service_start_time = asyncio.get_event_loop().time()
-                logger.info("🔍 Creating Elasticsearch service...")
-                es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
-                service_timings["elasticsearch_service"] = asyncio.get_event_loop().time() - service_start_time
-                es_span.set_attribute("initialization_time", service_timings["elasticsearch_service"])
-                logger.info(f"✅ Elasticsearch service created in {service_timings['elasticsearch_service']:.3f}s")
-                return es_service
-
-        async def create_ai_service():
-            with tracer.start_as_current_span("ai_service_init") as ai_span:
-                service_start_time = asyncio.get_event_loop().time()
-                logger.info("🤖 Creating AI service...")
-                ai_service = AIService(settings.azure_ai_api_key, settings.azure_ai_endpoint, settings.azure_ai_deployment)
-                service_timings["ai_service"] = asyncio.get_event_loop().time() - service_start_time
-                ai_span.set_attribute("initialization_time", service_timings["ai_service"])
-                logger.info(f"✅ AI service created in {service_timings['ai_service']:.3f}s")
-                # Log AI service initialization status
-                init_status = ai_service.get_initialization_status()
-                ai_span.set_attribute("azure_configured", init_status['azure_configured'])
-                ai_span.set_attribute("openai_configured", init_status['openai_configured'])
-                logger.info(f"🧠 AI providers configured: Azure={init_status['azure_configured']}, OpenAI={init_status['openai_configured']}")
-                return ai_service
-
-        async def create_mapping_cache_service(es_service):
-            with tracer.start_as_current_span("mapping_cache_service_init") as cache_span:
-                service_start_time = asyncio.get_event_loop().time()
-                logger.info("🗂️ Creating mapping cache service...")
-                mapping_cache_service = MappingCacheService(es_service)
-                service_timings["mapping_cache_service"] = asyncio.get_event_loop().time() - service_start_time
-                cache_span.set_attribute("initialization_time", service_timings["mapping_cache_service"])
-                logger.info(f"✅ Mapping cache service created in {service_timings['mapping_cache_service']:.3f}s")
-                return mapping_cache_service
-
-        # Actually run the retries
-        es_service = await retry_service_init(create_es_service, "ElasticsearchService")
-        ai_service = await retry_service_init(create_ai_service, "AIService")
-        mapping_cache_service = await retry_service_init(lambda: create_mapping_cache_service(es_service), "MappingCacheService")
-    
-        
-        # Store services in app state for efficient access
-        logger.info("🏪 Storing services in application state...")
-        app.state.es_service = es_service
-        app.state.ai_service = ai_service
-        app.state.mapping_cache_service = mapping_cache_service
-        
-        # Initialize health check cache
-        logger.info("🏥 Initializing health check cache...")
-        app.state.health_cache = {
-            "last_check": None,
-            "status": "unknown",
-            "cache_ttl": 30  # 30 seconds TTL for health checks
-        }
-        logger.info("✅ Health check cache initialized with 30s TTL")
-        
-        # Start background tasks without blocking startup
-        with tracer.start_as_current_span("background_tasks_init") as bg_span:
-            logger.info("🔄 Starting background services...")
-            background_tasks = []
-            task_start_times = {}
-            
-            # Start mapping cache scheduler (non-blocking)
-            scheduler_start_time = asyncio.get_event_loop().time()
+async def _retry_service_init(init_fn, name, max_attempts=3, delay=2):
+    """Generic retry logic for service initialization with tracing"""
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        with tracer.start_as_current_span(
+            f"{name}_init_attempt", 
+            attributes={
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "service_name": name
+            }
+        ) as attempt_span:
             try:
-                logger.info("📅 Starting mapping cache scheduler...")
-                await mapping_cache_service.start_scheduler_async()
-                service_timings["scheduler_startup"] = asyncio.get_event_loop().time() - scheduler_start_time
-                bg_span.set_attribute("scheduler_startup_time", service_timings["scheduler_startup"])
-                logger.info(f"✅ Mapping cache scheduler started in {service_timings['scheduler_startup']:.3f}s")
-                
-                # Schedule cache warm-up as background task
-                logger.info("🔥 Scheduling cache warm-up background task...")
-                task_start_times["cache_warmup"] = asyncio.get_event_loop().time()
-                background_tasks.append(
-                    asyncio.create_task(_warm_up_cache(mapping_cache_service, task_start_times))
-                )
-                
+                logger.info(f"🔄 [{name}] Attempt {attempt}/{max_attempts}...")
+                result = await init_fn()
+                attempt_span.set_attribute("success", True)
+                logger.info(f"✅ [{name}] Initialized successfully on attempt {attempt}")
+                return result
             except Exception as e:
-                bg_span.record_exception(e)
-                logger.warning(f"⚠️ Failed to start mapping cache scheduler: {e}")
-                # Don't fail startup for cache issues
+                attempt_span.set_attribute("success", False)
+                attempt_span.record_exception(e)
+                attempt_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+                logger.warning(f"⚠️ [{name}] Attempt {attempt} failed: {e}")
+                last_exc = e
+                if attempt < max_attempts:
+                    logger.info(f"⏳ [{name}] Waiting {delay}s before retry...")
+                    await asyncio.sleep(delay)
+    
+    logger.error(f"❌ [{name}] Failed after {max_attempts} attempts: {last_exc}")
+    raise last_exc
+
+async def _create_elasticsearch_service():
+    """Create and configure Elasticsearch service with comprehensive tracing"""
+    with tracer.start_as_current_span("elasticsearch_service_create") as es_span:
+        service_start_time = asyncio.get_event_loop().time()
+        logger.info("🔍 Creating Elasticsearch service...")
+        
+        es_span.set_attributes({
+            "service.type": "elasticsearch",
+            "elasticsearch.url": settings.elasticsearch_url,
+            "elasticsearch.has_api_key": bool(settings.elasticsearch_api_key)
+        })
+        
+        try:
+            es_service = ElasticsearchService(settings.elasticsearch_url, settings.elasticsearch_api_key)
             
-            # Start health check warm-up as background task
-            logger.info("🏥 Scheduling health check warm-up background task...")
-            task_start_times["health_warmup"] = asyncio.get_event_loop().time()
-            background_tasks.append(
-                asyncio.create_task(_warm_up_health_check(app.state, task_start_times))
+            # Test connectivity (basic ping)
+            logger.debug("🔍 Testing Elasticsearch connectivity...")
+            # Note: We don't await here as it's lazy initialization
+            
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            es_span.set_attributes({
+                "initialization_time": init_time,
+                "success": True
+            })
+            
+            logger.info(f"✅ Elasticsearch service created in {init_time:.3f}s")
+            return es_service, init_time
+            
+        except Exception as e:
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            es_span.set_attributes({
+                "initialization_time": init_time,
+                "success": False,
+                "error": str(e)
+            })
+            es_span.record_exception(e)
+            es_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            logger.error(f"❌ Elasticsearch service creation failed after {init_time:.3f}s: {e}")
+            raise
+
+async def _create_ai_service():
+    """Create and configure AI service with comprehensive tracing"""
+    with tracer.start_as_current_span("ai_service_create") as ai_span:
+        service_start_time = asyncio.get_event_loop().time()
+        logger.info("🤖 Creating AI service...")
+        
+        ai_span.set_attributes({
+            "service.type": "ai",
+            "azure.has_api_key": bool(settings.azure_ai_api_key),
+            "azure.has_endpoint": bool(settings.azure_ai_endpoint),
+            "azure.has_deployment": bool(settings.azure_ai_deployment)
+        })
+        
+        try:
+            ai_service = AIService(
+                settings.azure_ai_api_key, 
+                settings.azure_ai_endpoint, 
+                settings.azure_ai_deployment
             )
             
-            bg_span.set_attribute("background_tasks_count", len(background_tasks))
+            # Get initialization status for tracing
+            init_status = ai_service.get_initialization_status()
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            
+            ai_span.set_attributes({
+                "initialization_time": init_time,
+                "azure_configured": init_status.get('azure_configured', False),
+                "openai_configured": init_status.get('openai_configured', False),
+                "providers_count": len([p for p in ['azure', 'openai'] 
+                                      if init_status.get(f'{p}_configured', False)]),
+                "success": True
+            })
+            
+            logger.info(f"✅ AI service created in {init_time:.3f}s")
+            logger.info(f"🧠 AI providers: Azure={init_status.get('azure_configured', False)}, "
+                       f"OpenAI={init_status.get('openai_configured', False)}")
+            
+            return ai_service, init_time
+            
+        except Exception as e:
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            ai_span.set_attributes({
+                "initialization_time": init_time,
+                "success": False,
+                "error": str(e)
+            })
+            ai_span.record_exception(e)
+            ai_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            logger.error(f"❌ AI service creation failed after {init_time:.3f}s: {e}")
+            raise
+
+async def _create_mapping_cache_service(es_service):
+    """Create and configure mapping cache service with comprehensive tracing"""
+    with tracer.start_as_current_span("mapping_cache_service_create") as cache_span:
+        service_start_time = asyncio.get_event_loop().time()
+        logger.info("🗂️ Creating mapping cache service...")
         
-        # Store background tasks for cleanup
-        app.state.background_tasks = background_tasks
+        cache_span.set_attributes({
+            "service.type": "mapping_cache",
+            "elasticsearch_service_available": es_service is not None
+        })
         
-        # Calculate total startup time
-        total_startup_time = asyncio.get_event_loop().time() - startup_start_time
-        startup_span.set_attribute("total_startup_time", total_startup_time)
+        try:
+            mapping_cache_service = MappingCacheService(es_service)
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            
+            cache_span.set_attributes({
+                "initialization_time": init_time,
+                "success": True
+            })
+            
+            logger.info(f"✅ Mapping cache service created in {init_time:.3f}s")
+            return mapping_cache_service, init_time
+            
+        except Exception as e:
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            cache_span.set_attributes({
+                "initialization_time": init_time,
+                "success": False,
+                "error": str(e)
+            })
+            cache_span.record_exception(e)
+            cache_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            logger.error(f"❌ Mapping cache service creation failed after {init_time:.3f}s: {e}")
+            raise
+
+async def _initialize_core_services():
+    """Initialize all core services with retry logic and comprehensive tracing"""
+    with tracer.start_as_current_span("core_services_init") as services_span:
+        logger.info("📦 Initializing core services...")
+        service_timings = {}
         
-        # Log detailed startup summary
-        logger.info("📊 Startup Performance Summary:")
-        for service_name, timing in service_timings.items():
-            logger.info(f"  • {service_name}: {timing:.3f}s")
+        try:
+            # Initialize services with retries
+            logger.info("🔍 Initializing Elasticsearch service...")
+            es_service, es_time = await _retry_service_init(
+                _create_elasticsearch_service, "ElasticsearchService"
+            )
+            service_timings["elasticsearch_service"] = es_time
+            
+            logger.info("🤖 Initializing AI service...")
+            ai_service, ai_time = await _retry_service_init(
+                _create_ai_service, "AIService"
+            )
+            service_timings["ai_service"] = ai_time
+            
+            logger.info("🗂️ Initializing mapping cache service...")
+            mapping_cache_service, cache_time = await _retry_service_init(
+                lambda: _create_mapping_cache_service(es_service), "MappingCacheService"
+            )
+            service_timings["mapping_cache_service"] = cache_time
+            
+            total_time = sum(service_timings.values())
+            services_span.set_attributes({
+                "services_count": 3,
+                "total_initialization_time": total_time,
+                "elasticsearch_time": es_time,
+                "ai_service_time": ai_time,
+                "mapping_cache_time": cache_time,
+                "success": True
+            })
+            
+            logger.info(f"✅ All core services initialized in {total_time:.3f}s")
+            return {
+                "es_service": es_service,
+                "ai_service": ai_service,
+                "mapping_cache_service": mapping_cache_service,
+                "timings": service_timings
+            }
+            
+        except Exception as e:
+            services_span.record_exception(e)
+            services_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            logger.error(f"❌ Core services initialization failed: {e}")
+            raise
+
+async def _setup_background_tasks(mapping_cache_service, app_state):
+    """Setup and start background tasks with tracing"""
+    with tracer.start_as_current_span("background_tasks_setup") as bg_span:
+        logger.info("🔄 Setting up background services...")
+        background_tasks = []
+        task_start_times = {}
         
-        logger.info(f"🎉 Startup complete in {total_startup_time:.3f}s - Server ready to accept requests!")
-        logger.info(f"📡 Background tasks scheduled: {len(background_tasks)} tasks running")
+        try:
+            # Start mapping cache scheduler
+            scheduler_start_time = asyncio.get_event_loop().time()
+            logger.info("📅 Starting mapping cache scheduler...")
+            await mapping_cache_service.start_scheduler_async()
+            scheduler_time = asyncio.get_event_loop().time() - scheduler_start_time
+            
+            # Schedule background tasks
+            task_start_times["cache_warmup"] = asyncio.get_event_loop().time()
+            background_tasks.append(
+                asyncio.create_task(_warm_up_cache(mapping_cache_service, task_start_times))
+            )
+            
+            task_start_times["health_warmup"] = asyncio.get_event_loop().time()
+            background_tasks.append(
+                asyncio.create_task(_warm_up_health_check(app_state, task_start_times))
+            )
+            
+            bg_span.set_attributes({
+                "scheduler_startup_time": scheduler_time,
+                "background_tasks_count": len(background_tasks),
+                "success": True
+            })
+            
+            logger.info(f"✅ Background services started in {scheduler_time:.3f}s")
+            logger.info(f"📡 Background tasks scheduled: {len(background_tasks)} tasks")
+            
+            return background_tasks, {"scheduler_startup": scheduler_time}
+            
+        except Exception as e:
+            bg_span.record_exception(e)
+            bg_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            logger.warning(f"⚠️ Background services setup failed: {e}")
+            # Return empty list to not fail startup
+            return [], {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager with improved traceability"""
+    startup_start_time = asyncio.get_event_loop().time()
+    
+    with tracer.start_as_current_span("application_startup") as startup_span:
+        logger.info("🚀 Starting up Elasticsearch Data Assistant...")
         
-        startup_span.set_status(trace.Status(trace.StatusCode.OK))
+        try:
+            # Initialize core services
+            services_result = await _initialize_core_services()
+            es_service = services_result["es_service"]
+            ai_service = services_result["ai_service"] 
+            mapping_cache_service = services_result["mapping_cache_service"]
+            service_timings = services_result["timings"]
+            
+            # Store services in app state
+            logger.info("🏪 Storing services in application state...")
+            app.state.es_service = es_service
+            app.state.ai_service = ai_service
+            app.state.mapping_cache_service = mapping_cache_service
+            
+            # Initialize health check cache
+            logger.info("🏥 Initializing health check cache...")
+            app.state.health_cache = {
+                "last_check": None,
+                "status": "unknown",
+                "cache_ttl": 30  # 30 seconds TTL for health checks
+            }
+            logger.info("✅ Health check cache initialized with 30s TTL")
+            
+            # Setup background tasks
+            background_tasks, bg_timings = await _setup_background_tasks(
+                mapping_cache_service, app.state
+            )
+            app.state.background_tasks = background_tasks
+            service_timings.update(bg_timings)
+            
+            # Calculate total startup time and log summary
+            total_startup_time = asyncio.get_event_loop().time() - startup_start_time
+            startup_span.set_attributes({
+                "total_startup_time": total_startup_time,
+                "services_count": 3,
+                "background_tasks_count": len(background_tasks),
+                "success": True
+            })
+            
+            logger.info("📊 Startup Performance Summary:")
+            for service_name, timing in service_timings.items():
+                logger.info(f"  • {service_name}: {timing:.3f}s")
+            
+            logger.info(f"🎉 Startup complete in {total_startup_time:.3f}s - Server ready!")
+            startup_span.set_status(trace.Status(trace.StatusCode.OK))
+            
+        except Exception as e:
+            total_startup_time = asyncio.get_event_loop().time() - startup_start_time
+            startup_span.record_exception(e)
+            startup_span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+            startup_span.set_attribute("total_startup_time", total_startup_time)
+            logger.error(f"❌ Startup failed after {total_startup_time:.3f}s: {e}")
+            raise
+        
         yield
     
     # Shutdown - Clean up resources
@@ -173,66 +346,66 @@ async def lifespan(app: FastAPI):
         
         shutdown_timings = {}
     
-    try:
-        # Cancel background tasks
-        task_cleanup_start = asyncio.get_event_loop().time()
-        background_tasks = getattr(app.state, 'background_tasks', [])
-        
-        if background_tasks:
-            logger.info(f"🔄 Cancelling {len(background_tasks)} background tasks...")
-            for i, task in enumerate(background_tasks):
-                if not task.done():
-                    logger.debug(f"  • Cancelling task {i+1}/{len(background_tasks)}")
-                    task.cancel()
-                else:
-                    logger.debug(f"  • Task {i+1}/{len(background_tasks)} already completed")
-        
-            # Wait for tasks to complete or timeout
-            try:
-                logger.info("⏳ Waiting for background tasks to complete (5s timeout)...")
-                await asyncio.wait_for(
-                    asyncio.gather(*background_tasks, return_exceptions=True),
-                    timeout=5.0
-                )
-                logger.info("✅ Background tasks completed gracefully")
-            except asyncio.TimeoutError:
-                logger.warning("⚠️ Background tasks did not complete within 5s timeout")
-        
-        shutdown_timings["background_tasks"] = asyncio.get_event_loop().time() - task_cleanup_start
-        
-        # Clean up services
-        services_cleanup_start = asyncio.get_event_loop().time()
-        
-        logger.info("🗂️ Stopping mapping cache scheduler...")
-        await mapping_cache_service.stop_scheduler()
-        
-        logger.info("🔍 Closing Elasticsearch connections...")
-        await es_service.close()
-        
-        shutdown_timings["services_cleanup"] = asyncio.get_event_loop().time() - services_cleanup_start
-        
-        # Calculate total shutdown time
-        total_shutdown_time = asyncio.get_event_loop().time() - shutdown_start_time
-        
-        logger.info("📊 Shutdown Performance Summary:")
-        for component, timing in shutdown_timings.items():
-            logger.info(f"  • {component}: {timing:.3f}s")
-        logger.info(f"✅ Shutdown completed gracefully in {total_shutdown_time:.3f}s")
-        
-    except Exception as e:
-        total_shutdown_time = asyncio.get_event_loop().time() - shutdown_start_time
-        logger.error(f"❌ Error during shutdown after {total_shutdown_time:.3f}s: {e}")
-        logger.info("🔄 Attempting force cleanup...")
-        
-        # Force cleanup attempt
         try:
-            if hasattr(mapping_cache_service, 'stop_scheduler'):
-                await mapping_cache_service.stop_scheduler()
-            if hasattr(es_service, 'close'):
-                await es_service.close()
-            logger.info("✅ Force cleanup completed")
-        except Exception as cleanup_error:
-            logger.error(f"❌ Force cleanup also failed: {cleanup_error}")
+            # Cancel background tasks
+            task_cleanup_start = asyncio.get_event_loop().time()
+            background_tasks = getattr(app.state, 'background_tasks', [])
+            
+            if background_tasks:
+                logger.info(f"🔄 Cancelling {len(background_tasks)} background tasks...")
+                for i, task in enumerate(background_tasks):
+                    if not task.done():
+                        logger.debug(f"  • Cancelling task {i+1}/{len(background_tasks)}")
+                        task.cancel()
+                    else:
+                        logger.debug(f"  • Task {i+1}/{len(background_tasks)} already completed")
+            
+                # Wait for tasks to complete or timeout
+                try:
+                    logger.info("⏳ Waiting for background tasks to complete (5s timeout)...")
+                    await asyncio.wait_for(
+                        asyncio.gather(*background_tasks, return_exceptions=True),
+                        timeout=5.0
+                    )
+                    logger.info("✅ Background tasks completed gracefully")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Background tasks did not complete within 5s timeout")
+            
+            shutdown_timings["background_tasks"] = asyncio.get_event_loop().time() - task_cleanup_start
+            
+            # Clean up services
+            services_cleanup_start = asyncio.get_event_loop().time()
+            
+            logger.info("🗂️ Stopping mapping cache scheduler...")
+            await mapping_cache_service.stop_scheduler()
+            
+            logger.info("🔍 Closing Elasticsearch connections...")
+            await es_service.close()
+            
+            shutdown_timings["services_cleanup"] = asyncio.get_event_loop().time() - services_cleanup_start
+            
+            # Calculate total shutdown time
+            total_shutdown_time = asyncio.get_event_loop().time() - shutdown_start_time
+            
+            logger.info("📊 Shutdown Performance Summary:")
+            for component, timing in shutdown_timings.items():
+                logger.info(f"  • {component}: {timing:.3f}s")
+            logger.info(f"✅ Shutdown completed gracefully in {total_shutdown_time:.3f}s")
+            
+        except Exception as e:
+            total_shutdown_time = asyncio.get_event_loop().time() - shutdown_start_time
+            logger.error(f"❌ Error during shutdown after {total_shutdown_time:.3f}s: {e}")
+            logger.info("🔄 Attempting force cleanup...")
+            
+            # Force cleanup attempt
+            try:
+                if hasattr(mapping_cache_service, 'stop_scheduler'):
+                    await mapping_cache_service.stop_scheduler()
+                if hasattr(es_service, 'close'):
+                    await es_service.close()
+                logger.info("✅ Force cleanup completed")
+            except Exception as cleanup_error:
+                logger.error(f"❌ Force cleanup also failed: {cleanup_error}")
 
 async def _warm_up_cache(mapping_cache_service, task_start_times):
     """Warm up the mapping cache in the background"""
@@ -249,7 +422,7 @@ async def _warm_up_cache(mapping_cache_service, task_start_times):
             warmup_start = asyncio.get_event_loop().time()
             
             logger.info(f"🗂️ [{task_id.upper()}] Refreshing mapping cache...")
-            await mapping_cache_service.refresh_cache()
+            await mapping_cache_service.refresh_all()
             
             # Calculate timings
             warmup_duration = asyncio.get_event_loop().time() - warmup_start
@@ -337,7 +510,6 @@ async def _warm_up_health_check(state, task_start_times):
                 total_services = len(services)
                 span.set_attribute("healthy_services", healthy_services)
                 span.set_attribute("total_services", total_services)
-                # Don't fail startup for cache issues
                 logger.info(f"  • Healthy services: {healthy_services}/{total_services}")
                 
         except Exception as e:
