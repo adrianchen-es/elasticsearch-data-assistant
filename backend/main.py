@@ -199,7 +199,7 @@ async def _initialize_core_services():
             
             logger.info("🤖 Initializing AI service...")
             ai_service, ai_time = await _retry_service_init(
-                _create_ai_service, "AIService"
+                lambda: _create_ai_service(), "AIService"
             )
             service_timings["ai_service"] = ai_time
             
