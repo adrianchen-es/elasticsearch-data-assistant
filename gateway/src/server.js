@@ -142,7 +142,6 @@ app.post('/api/chat', async (req, res) => {
     res.end();
   } catch (e) {
     // Surface as JSON error line to the client if they are expecting a stream
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.status(502).json({ error: { code: 'gateway_failed', message: 'Chat gateway failed.' } });
   }
 });
