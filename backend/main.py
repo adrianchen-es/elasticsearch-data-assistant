@@ -564,8 +564,10 @@ async def _warm_up_health_check(state, task_start_times):
             if services:
                 healthy_services = sum(1 for status in services.values() if 'healthy' in status.lower())
                 total_services = len(services)
-                span.set_attribute("healthy_services", healthy_services)
-                span.set_attribute("total_services", total_services)
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+                logger.warning(f"⚠️ Failed to start mapping cache scheduler: {e}")
+                # Don't fail startup for cache issues
                 logger.info(f"  • Healthy services: {healthy_services}/{total_services}")
                 
         except Exception as e:
