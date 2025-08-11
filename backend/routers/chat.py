@@ -399,7 +399,7 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
             return ChatResponse(response=reply, conversation_id=conversation_id, mode=req.mode, debug_info=debug_info)
 
         if req.stream:
-            def event_stream() -> Generator[bytes, None, None]:
+            async def event_stream() -> AsyncGenerator[bytes, None]:
                 try:
                     # Convert messages to the format expected by AI service
                     message_list = [m.model_dump() for m in req.messages]
@@ -407,12 +407,12 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     if req.mode == "elasticsearch" and req.index_name:
                         # Get schema for context-aware chat
                         schema_start = time.time()
-                        schema = mapping_cache_service.get_schema(req.index_name)
+                        schema = await mapping_cache_service.get_schema(req.index_name)
                         if debug_info is not None:
                             debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
                         
-                        # Use context-aware streaming (to be implemented)
-                        for event in ai_service.generate_elasticsearch_chat_stream(
+                        # Use context-aware streaming
+                        async for event in ai_service.generate_elasticsearch_chat_stream(
                             message_list,
                             schema_context={req.index_name: schema} if schema else {},
                             model=req.model,
@@ -422,7 +422,7 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                             yield (json.dumps(event) + "\n").encode("utf-8")
                     else:
                         # Free chat streaming
-                        for event in ai_service.generate_chat(
+                        async for event in ai_service.generate_chat(
                             message_list,
                             model=req.model,
                             temperature=req.temperature,
