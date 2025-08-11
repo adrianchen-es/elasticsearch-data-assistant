@@ -61,8 +61,11 @@ async def health_check(app_request: Request):
     async def check_ai_service():
         try:
             ai_service = app_request.app.state.ai_service
-            if ai_service.azure_client or ai_service.openai_client:
+            status = ai_service.get_initialization_status()
+            if status.get("clients_ready") and (status.get("azure_configured") or status.get("openai_configured")):
                 return "ai_service", "healthy"
+            elif status.get("azure_configured") or status.get("openai_configured"):
+                return "ai_service", "degraded: clients not ready"
             else:
                 return "ai_service", "unhealthy: no AI provider configured"
         except Exception as e:
