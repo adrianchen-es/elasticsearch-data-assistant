@@ -60,8 +60,9 @@ const IndexSelector = ({
         const errorText = await response.text();
         throw new Error(`Failed to fetch indices (${response.status}): ${errorText || response.statusText}`);
       }
-      const data = await response.json();
-      setAvailableIndices(data.indices || []);
+  const data = await response.json();
+  // Support both array and object responses
+  setAvailableIndices(Array.isArray(data) ? data : (data.indices || []));
       
       // Clear any previous error state on successful fetch
       setIndicesError(null);
