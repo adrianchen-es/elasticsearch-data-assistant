@@ -189,7 +189,7 @@ class AIService:
                 })
                 
                 logger.info(f"✅ AIService initialized successfully in {init_duration:.3f}s (lazy client creation enabled)")
-                init_span.set_status(Status(StatusCode.OK, "Service initialized successfully"))
+                init_span.set_status(StatusCode.OK, "Service initialized successfully")
                 
             except Exception as e:
                 init_duration = time.time() - init_start_time
@@ -259,7 +259,7 @@ class AIService:
                     "ai_service.warning_count": len(validation_results["warnings"]),
                     "ai_service.providers_configured": providers
                 })
-                config_span.set_status(Status(StatusCode.OK, "Configuration validation successful"))
+                config_span.set_status(StatusCode.OK, "Configuration validation successful")
     
     async def _ensure_clients_initialized_async(self):
         """Async version of client initialization with proper locking"""
@@ -378,7 +378,7 @@ class AIService:
                 logger.info(f"🚀 Ready providers: {', '.join(providers)}")
                 logger.info(f"📊 Success rate: {success_count}/{total_configured} providers initialized")
                 
-                client_span.set_status(Status(StatusCode.OK, f"Clients initialized: {', '.join(providers)}"))
+                client_span.set_status(StatusCode.OK, f"Clients initialized: {', '.join(providers)}")
 
     def _ensure_clients_initialized(self):
         """Synchronous version of client initialization (legacy support)"""
@@ -487,7 +487,7 @@ class AIService:
             logger.info(f"🚀 Ready providers: {', '.join(providers)}")
             logger.info(f"📊 Success rate: {success_count}/{total_configured} providers initialized")
             
-            client_span.set_status(Status(StatusCode.OK, f"Clients initialized: {', '.join(providers)}"))
+            client_span.set_status(StatusCode.OK, f"Clients initialized: {', '.join(providers)}")
     
     def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
         """Mask sensitive data for logging, showing only first few characters"""
@@ -534,7 +534,7 @@ class AIService:
                 })
                 
                 logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
-                init_span.set_status(Status(StatusCode.OK, "Full initialization completed"))
+                init_span.set_status(StatusCode.OK, "Full initialization completed")
                 
                 return status
                 
@@ -576,7 +576,7 @@ class AIService:
                 })
                 
                 logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
-                init_span.set_status(Status(StatusCode.OK, "Full initialization completed"))
+                init_span.set_status(StatusCode.OK, "Full initialization completed")
                 
                 return status
                 
@@ -893,7 +893,7 @@ class AIService:
                     raise ValueError(f"Empty response from {provider} API")
                     
                 current_span.set_attribute("ai.response.length", len(text))
-                current_span.set_status(Status(StatusCode.OK))
+                current_span.set_status(StatusCode.OK)
                 
                 logger.debug(f"Free chat completed successfully using {provider}")
                 
@@ -1037,7 +1037,7 @@ class AIService:
                         }
             
             logger.debug(f"Stream completed successfully using {provider}")
-            span.set_status(Status(StatusCode.OK))
+            span.set_status(StatusCode.OK)
             yield {"type": "done"}
             
         except Exception as e:
@@ -1094,7 +1094,7 @@ class AIService:
                 logger.warning(f"Empty response from {provider} API")
             
             logger.debug(f"Chat response completed successfully using {provider}")
-            span.set_status(Status(StatusCode.OK))
+            span.set_status(StatusCode.OK)
             
             return {
                 "text": text,
@@ -1163,7 +1163,7 @@ class AIService:
                 if not text:
                     logger.warning(f"Empty response from {provider} API")
                 
-                current_span.set_status(Status(StatusCode.OK))
+                current_span.set_status(StatusCode.OK)
                 logger.debug(f"Elasticsearch chat completed successfully using {provider}")
                 
                 if return_debug:

@@ -119,7 +119,7 @@ async def get_schema_context(mapping_cache_service, index_name: str, span: trace
             schema = await mapping_cache_service.get_schema(index_name)
             if schema:
                 schema_span.set_attribute("schema.fields_count", len(schema.get("properties", {})))
-                schema_span.set_status(Status(StatusCode.OK))
+                schema_span.set_status(StatusCode.OK)
                 logger.debug(f"Retrieved schema for index {index_name}")
                 return {index_name: schema}
             else:
@@ -191,7 +191,7 @@ async def handle_elasticsearch_chat(
                 debug_info["timings"]["elasticsearch_chat_ms"] = chat_duration
             
             chat_span.set_attribute("chat.response_time_ms", chat_duration)
-            chat_span.set_status(Status(StatusCode.OK))
+            chat_span.set_status(StatusCode.OK)
             
             if req.debug and isinstance(result, tuple):
                 response_text, model_debug = result
@@ -240,7 +240,7 @@ async def handle_free_chat(
                 debug_info["timings"]["free_chat_ms"] = chat_duration
             
             chat_span.set_attribute("chat.response_time_ms", chat_duration)
-            chat_span.set_status(Status(StatusCode.OK))
+            chat_span.set_status(StatusCode.OK)
             
             if req.debug and isinstance(result, tuple):
                 response_text, model_debug = result
@@ -306,7 +306,7 @@ def create_streaming_response(
                     
                     yield (json.dumps(event) + "\n").encode("utf-8")
                 
-                stream_span.set_status(Status(StatusCode.OK))
+                stream_span.set_status(StatusCode.OK)
                 
             except TokenLimitError as te:
                 stream_span.set_status(Status(StatusCode.ERROR, "Token limit exceeded"))
