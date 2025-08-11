@@ -275,7 +275,7 @@ async def _warm_up_cache(mapping_cache_service, task_start_times):
             
         except Exception as e:
             span.record_exception(e)
-            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
             total_task_time = asyncio.get_event_loop().time() - task_start_times[task_id]
             logger.warning(f"⚠️ [{task_id.upper()}] Cache warm-up failed after {total_task_time:.3f}s: {e}")
             logger.info(f"🔄 [{task_id.upper()}] Cache will retry on next scheduled refresh")
@@ -335,13 +335,15 @@ async def _warm_up_health_check(state, task_start_times):
             if services:
                 healthy_services = sum(1 for status in services.values() if 'healthy' in status.lower())
                 total_services = len(services)
-                span.set_attribute("healthy_services", healthy_services)
-                span.set_attribute("total_services", total_services)
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+                logger.warning(f"⚠️ Failed to start mapping cache scheduler: {e}")
+                # Don't fail startup for cache issues
                 logger.info(f"  • Healthy services: {healthy_services}/{total_services}")
                 
         except Exception as e:
             span.record_exception(e)
-            span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
             total_task_time = asyncio.get_event_loop().time() - task_start_times[task_id]
             logger.warning(f"⚠️ [{task_id.upper()}] Health check warm-up failed after {total_task_time:.3f}s: {e}")
             logger.info(f"🔄 [{task_id.upper()}] Health checks will be performed on demand")
