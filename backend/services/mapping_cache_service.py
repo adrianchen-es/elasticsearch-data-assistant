@@ -113,7 +113,7 @@ class MappingCacheService:
                 })
                 
                 logger.info(f"✅ MappingCacheService initialized successfully in {init_duration:.3f}s")
-                init_span.set_status(StatusCode.OK, "Service initialized successfully")
+                init_span.set_status(StatusCode.OK)
                 
             except Exception as e:
                 init_duration = time.time() - init_start_time
@@ -196,7 +196,7 @@ class MappingCacheService:
                 logger.info(f"✅ Mapping cache scheduler started successfully in {initialization_time:.3f}s")
                 logger.info(f"🔄 Next automatic cache refresh scheduled in {refresh_interval} minutes")
                 
-                scheduler_span.set_status(StatusCode.OK, "Scheduler started successfully")
+                scheduler_span.set_status(StatusCode.OK)
                 
             except Exception as e:
                 initialization_time = time.time() - start_time
@@ -218,7 +218,7 @@ class MappingCacheService:
             try:
                 logger.debug("🔄 Starting scheduled cache refresh...")
                 await self.refresh_all()
-                refresh_span.set_status(StatusCode.OK, "Scheduled refresh completed")
+                refresh_span.set_status(StatusCode.OK)
                 logger.debug("✅ Scheduled cache refresh completed successfully")
                 
             except Exception as e:
@@ -319,7 +319,7 @@ class MappingCacheService:
                 
                 logger.info(f"✅ Mapping cache service fully initialized in {init_duration:.3f}s")
                 logger.info(f"📊 Ready with {self._stats['cached_mappings']} cached mappings")
-                init_span.set_status(StatusCode.OK, "Full initialization completed")
+                init_span.set_status(StatusCode.OK)
                 
                 return status
                 
@@ -359,7 +359,7 @@ class MappingCacheService:
                 
                 logger.info(f"✅ Mapping cache service initialized in sync mode in {init_duration:.3f}s")
                 logger.warning("⚠️ Scheduler not started in sync mode - use async initialization for full functionality")
-                init_span.set_status(StatusCode.OK, "Sync initialization completed (limited)")
+                init_span.set_status(StatusCode.OK)
                 
                 return status
                 
@@ -507,7 +507,7 @@ class MappingCacheService:
                 logger.info(f"📊 Cache statistics: {len(self._mappings)} mappings, {len(self._schemas)} schemas, {cache_size_bytes / 1024:.1f}KB")
                 
                 self._last_refresh_time = current_time
-                refresh_span.set_status(StatusCode.OK, f"Refresh completed: {successful_refreshes}/{len(indices)} successful")
+                refresh_span.set_status(StatusCode.OK)
                 
             except Exception as e:
                 refresh_duration = time.time() - refresh_start_time
