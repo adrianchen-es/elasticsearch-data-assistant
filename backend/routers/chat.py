@@ -15,9 +15,44 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Heuristic keywords to detect mapping/schema requests
+MAPPING_KEYWORDS = [
+    "mapping", "mappings", "fields", "schema", "structure", "columns",
+    "field list", "index fields", "properties", "types"
+]
+
+def _is_mapping_request(messages: List[ChatMessage]) -> bool:
+    if not messages:
+        return False
+    try:
+        last = messages[-1].content
+        text = last if isinstance(last, str) else json.dumps(last)
+    except Exception:
+        text = str(messages[-1].content)
+    lowered = text.lower()
+    return any(k in lowered for k in MAPPING_KEYWORDS)
+
+
 class ChatMessage(BaseModel):
     role: str
     content: Any
+
+# Heuristic keywords to detect mapping/schema requests
+MAPPING_KEYWORDS = [
+    "mapping", "mappings", "fields", "schema", "structure", "columns",
+    "field list", "index fields", "properties", "types"
+]
+
+def _is_mapping_request(messages: List[ChatMessage]) -> bool:
+    if not messages:
+        return False
+    try:
+        last = messages[-1].content
+        text = last if isinstance(last, str) else json.dumps(last)
+    except Exception:
+        text = str(messages[-1].content)
+    lowered = text.lower()
+    return any(k in lowered for k in MAPPING_KEYWORDS)
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
@@ -336,6 +371,51 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
         
         start_time = time.time()
         
+        # Fast-path: if user is asking about mapping/schema in ES mode, bypass LLM
+        if req.mode == "elasticsearch" and _is_mapping_request(req.messages):
+            index = req.index_name
+            if not index:
+                msg = "Please select an index to view its mapping/schema."
+                if req.stream:
+                    async def mapping_error_stream():
+                        yield (json.dumps({"type": "error", "error": {"code": "missing_index", "message": msg}}) + "\n").encode("utf-8")
+                    return StreamingResponse(mapping_error_stream(), media_type="application/x-ndjson")
+                return ChatResponse(response=msg, conversation_id=conversation_id, mode=req.mode, debug_info=debug_info)
+
+            # Fetch mapping directly from cache/service
+            mapping = await mapping_cache_service.get_mapping(index)
+            # Normalize to dict for safe serialization
+            if hasattr(mapping, "model_dump"):
+                mapping_dict = mapping.model_dump()
+            elif isinstance(mapping, dict):
+                mapping_dict = mapping
+            else:
+                try:
+                    mapping_dict = json.loads(json.dumps(mapping, default=str))
+                except Exception:
+                    mapping_dict = {"_raw": str(mapping)}
+
+            # Build concise reply
+            index_body = mapping_dict.get(index) or next(iter(mapping_dict.values()), {}) if mapping_dict else {}
+            properties = (index_body.get("mappings") or {}).get("properties", {})
+            field_names = sorted(list(properties.keys())) if isinstance(properties, dict) else []
+            preview = ", ".join(field_names[:50]) + (" …" if len(field_names) > 50 else "")
+            reply = f"Index '{index}' has {len(field_names)} fields. Example fields: {preview}" if field_names else "No field properties found in mapping."
+
+            if req.stream:
+                async def mapping_stream():
+                    # send one content chunk then done
+                    yield (json.dumps({"type": "content", "delta": reply}) + "\n").encode("utf-8")
+                    if debug_info is not None:
+                        yield (json.dumps({"type": "debug", "debug": {**debug_info, "mapping_fields_count": len(field_names)}}) + "\n").encode("utf-8")
+                    yield (json.dumps({"type": "done"}) + "\n").encode("utf-8")
+                return StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
+
+            # Non-streaming mapping response
+            if debug_info is not None:
+                debug_info.setdefault("mapping", {"index": index, "fields_count": len(field_names)})
+            return ChatResponse(response=reply, conversation_id=conversation_id, mode=req.mode, debug_info=debug_info)
+
         if req.stream:
             def event_stream() -> Generator[bytes, None, None]:
                 try:

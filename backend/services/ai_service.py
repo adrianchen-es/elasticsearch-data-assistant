@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
-import json, logging, math, os, time
+import asyncio, json, logging, math, os, time
 
 try:
     import tiktoken  # robust token counting when available
@@ -250,8 +250,8 @@ class AIService:
                     providers.append("Azure OpenAI")
                 if self._initialization_status["openai_configured"]:
                     providers.append("OpenAI")
-                logger.info(f"🎯 AI providers configured: {', '.join(providers)}")
-                
+                logger.info(f"🎯 AI providers configured: {', '.join(providers) if providers else 'None'}")
+
                 # Set span attributes
                 config_span.set_attributes({
                     "ai_service.azure_configured": validation_results["azure"],
@@ -260,8 +260,6 @@ class AIService:
                     "ai_service.providers_configured": providers
                 })
                 config_span.set_status(Status(StatusCode.OK, "Configuration validation successful"))
-                providers.append("OpenAI")
-            logger.info(f"🚀 AI providers available: {', '.join(providers)}")
     
     async def _ensure_clients_initialized_async(self):
         """Async version of client initialization with proper locking"""
@@ -667,12 +665,11 @@ class AIService:
             raise ValueError("No AI providers available")
 
     async def generate_elasticsearch_query(self, user_prompt: str, mapping_info: Dict[str, Any], provider: str = "auto", return_debug: bool = False) -> Dict[str, Any]:
-        # Auto-select provider if not specified
+        # Auto-select provider if not specified (async-safe)
         if provider == "auto":
-            provider = self._get_default_provider()
-            
-        # Validate provider availability
-        self._validate_provider(provider)
+            provider = await self._get_default_provider_async()
+        # Validate provider availability (async-safe)
+        await self._validate_provider_async(provider)
         
         with tracer.start_as_current_span(
             "ai_generate_query", kind=SpanKind.CLIENT,
@@ -743,12 +740,11 @@ class AIService:
                 raise ValueError(f"Failed to generate query using {provider}: {str(e)}") from e
 
     async def summarize_results(self, query_results: Dict[str, Any], original_prompt: str, provider: str = "auto", return_debug: bool = False) -> str:
-        # Auto-select provider if not specified
+        # Auto-select provider if not specified (async-safe)
         if provider == "auto":
-            provider = self._get_default_provider()
-            
-        # Validate provider availability
-        self._validate_provider(provider)
+            provider = await self._get_default_provider_async()
+        # Validate provider availability (async-safe)
+        await self._validate_provider_async(provider)
         
         with tracer.start_as_current_span(
             "ai_summarize_results", kind=SpanKind.CLIENT,
@@ -997,8 +993,15 @@ class AIService:
 
     async def _stream_chat_response(self, messages: List[Dict], model: Optional[str], 
                                   temperature: float, provider: str):
-        """Stream chat response"""
-        logger.debug(f"Starting stream chat response using {provider}")
+        """Stream chat response with tracing"""
+        with tracer.start_as_current_span("ai_stream_chat_response", kind=SpanKind.CLIENT) as span:
+            span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.stream": True,
+                "ai.message_count": len(messages)
+            })
+            logger.debug(f"Starting stream chat response using {provider}")
         
         try:
             if provider == "azure":
@@ -1034,6 +1037,7 @@ class AIService:
                         }
             
             logger.debug(f"Stream completed successfully using {provider}")
+            span.set_status(Status(StatusCode.OK))
             yield {"type": "done"}
             
         except Exception as e:
@@ -1045,6 +1049,8 @@ class AIService:
             }
             
             logger.error(f"Error in stream chat response: {error_context}")
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
             yield {
                 "type": "error",
                 "error": {
@@ -1057,8 +1063,15 @@ class AIService:
 
     async def _get_chat_response(self, messages: List[Dict], model: Optional[str], 
                                temperature: float, provider: str) -> Dict:
-        """Get non-streaming chat response"""
-        logger.debug(f"Getting chat response using {provider}")
+        """Get non-streaming chat response with tracing"""
+        with tracer.start_as_current_span("ai_get_chat_response", kind=SpanKind.CLIENT) as span:
+            span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.stream": False,
+                "ai.message_count": len(messages)
+            })
+            logger.debug(f"Getting chat response using {provider}")
         
         try:
             if provider == "azure":
@@ -1081,6 +1094,7 @@ class AIService:
                 logger.warning(f"Empty response from {provider} API")
             
             logger.debug(f"Chat response completed successfully using {provider}")
+            span.set_status(Status(StatusCode.OK))
             
             return {
                 "text": text,
@@ -1096,6 +1110,8 @@ class AIService:
             }
             
             logger.error(f"Error getting chat response: {error_context}")
+            span.set_status(Status(StatusCode.ERROR))
+            span.record_exception(e)
             raise ValueError(f"Failed to get chat response using {provider}: {str(e)}") from e
 
     async def generate_elasticsearch_chat(self, messages: List[Dict], schema_context: Dict[str, Any],

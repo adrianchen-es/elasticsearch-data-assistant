@@ -39,8 +39,24 @@ async def lifespan(app: FastAPI):
         # Service initialization tracking
         service_timings = {}
         
-        try:
-            # Create services with lazy initialization and detailed logging
+        # Add retry logic for service initialization
+        async def retry_service_init(init_fn, name, max_attempts=3, delay=2):
+            last_exc = None
+            for attempt in range(1, max_attempts + 1):
+                with tracer.start_as_current_span(f"{name}_init_attempt", attributes={"attempt": attempt}):
+                    try:
+                        logger.info(f"🔄 Attempt {attempt}/{max_attempts} to initialize {name}...")
+                        result = await init_fn()
+                        logger.info(f"✅ {name} initialized successfully on attempt {attempt}")
+                        return result
+                    except Exception as e:
+                        logger.warning(f"⚠️ {name} initialization failed on attempt {attempt}: {e}")
+                        last_exc = e
+                        await asyncio.sleep(delay)
+            logger.error(f"❌ {name} failed to initialize after {max_attempts} attempts: {last_exc}")
+            raise last_exc
+
+        async def create_es_service():
             with tracer.start_as_current_span("elasticsearch_service_init") as es_span:
                 service_start_time = asyncio.get_event_loop().time()
                 logger.info("🔍 Creating Elasticsearch service...")
@@ -48,13 +64,9 @@ async def lifespan(app: FastAPI):
                 service_timings["elasticsearch_service"] = asyncio.get_event_loop().time() - service_start_time
                 es_span.set_attribute("initialization_time", service_timings["elasticsearch_service"])
                 logger.info(f"✅ Elasticsearch service created in {service_timings['elasticsearch_service']:.3f}s")
-        except Exception as e:
-            startup_span.record_exception(e)
-            startup_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-            logger.error(f"❌ Failed to create Elasticsearch service: {e}")
-            raise
-        
-        try:
+                return es_service
+
+        async def create_ai_service():
             with tracer.start_as_current_span("ai_service_init") as ai_span:
                 service_start_time = asyncio.get_event_loop().time()
                 logger.info("🤖 Creating AI service...")
@@ -62,19 +74,14 @@ async def lifespan(app: FastAPI):
                 service_timings["ai_service"] = asyncio.get_event_loop().time() - service_start_time
                 ai_span.set_attribute("initialization_time", service_timings["ai_service"])
                 logger.info(f"✅ AI service created in {service_timings['ai_service']:.3f}s")
-                
                 # Log AI service initialization status
                 init_status = ai_service.get_initialization_status()
                 ai_span.set_attribute("azure_configured", init_status['azure_configured'])
                 ai_span.set_attribute("openai_configured", init_status['openai_configured'])
                 logger.info(f"🧠 AI providers configured: Azure={init_status['azure_configured']}, OpenAI={init_status['openai_configured']}")
-        except Exception as e:
-            startup_span.record_exception(e)
-            startup_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-            logger.error(f"❌ Failed to create AI service: {e}")
-            raise
-        
-        try:
+                return ai_service
+
+        async def create_mapping_cache_service(es_service):
             with tracer.start_as_current_span("mapping_cache_service_init") as cache_span:
                 service_start_time = asyncio.get_event_loop().time()
                 logger.info("🗂️ Creating mapping cache service...")
@@ -82,11 +89,12 @@ async def lifespan(app: FastAPI):
                 service_timings["mapping_cache_service"] = asyncio.get_event_loop().time() - service_start_time
                 cache_span.set_attribute("initialization_time", service_timings["mapping_cache_service"])
                 logger.info(f"✅ Mapping cache service created in {service_timings['mapping_cache_service']:.3f}s")
-        except Exception as e:
-            startup_span.record_exception(e)
-            startup_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-            logger.error(f"❌ Failed to create mapping cache service: {e}")
-            raise
+                return mapping_cache_service
+
+        # Actually run the retries
+        es_service = await retry_service_init(create_es_service, "ElasticsearchService")
+        ai_service = await retry_service_init(create_ai_service, "AIService")
+        mapping_cache_service = await retry_service_init(lambda: create_mapping_cache_service(es_service), "MappingCacheService")
     
         
         # Store services in app state for efficient access
