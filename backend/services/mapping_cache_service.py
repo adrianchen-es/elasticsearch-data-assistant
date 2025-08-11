@@ -500,7 +500,7 @@ class MappingCacheService:
                 
                 logger.info(f"✅ Mapping cache service initialized in sync mode in {init_duration:.3f}s")
                 logger.warning("⚠️ Scheduler not started in sync mode - use async initialization for full functionality")
-                init_span.set_status(Status(StatusCode.OK, "Sync initialization completed (limited)"))
+                init_span.set_status(StatusCode.OK, "Sync initialization completed (limited)")
                 
                 return status
                 
