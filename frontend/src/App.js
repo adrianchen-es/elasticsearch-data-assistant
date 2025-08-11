@@ -139,8 +139,8 @@ function App() {
       content += `\n\n${systemName} Services:`;
       Object.entries(services).forEach(([service, serviceStatus]) => {
         const statusIcon = typeof serviceStatus === 'object' 
-          ? (serviceStatus.status === 'healthy' ? '✅' : '❌')
-          : (serviceStatus === 'healthy' ? '✅' : '❌');
+          ? (typeof serviceStatus.status === 'string' && serviceStatus.status.startsWith('healthy') ? '✅' : '❌')
+          : (typeof serviceStatus === 'string' && serviceStatus.startsWith('healthy') ? '✅' : '❌');
         const serviceMessage = typeof serviceStatus === 'object' 
           ? serviceStatus.message || service
           : service;
