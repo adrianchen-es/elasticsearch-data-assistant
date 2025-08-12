@@ -47,8 +47,39 @@ const IndexSelector = ({
   fetchIndicesOnMount = true
 }) => {
   const [availableIndices, setAvailableIndices] = useState([]);
+  const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
+  const [tierFilter, setTierFilter] = useState('all'); // 'all', 'hot', 'cold', 'frozen'
+  
+  // Categorize indices by tier based on prefixes
+  const categorizeIndices = (indices) => {
+    return indices.map(index => {
+      const indexName = typeof index === 'string' ? index : index.name || index.index;
+      let tier = 'hot'; // default tier
+      
+      if (indexName.startsWith('partial-')) {
+        tier = 'frozen';
+      } else if (indexName.startsWith('restored-')) {
+        tier = 'cold';
+      }
+      
+      return {
+        name: indexName,
+        tier: tier,
+        displayName: indexName,
+        originalData: index
+      };
+    });
+  };
+  
+  // Filter indices based on selected tier
+  const filterIndicesByTier = (categorizedIndices, filterValue) => {
+    if (filterValue === 'all') {
+      return categorizedIndices;
+    }
+    return categorizedIndices.filter(index => index.tier === filterValue);
+  };
 
   // Fetch available indices
   const fetchAvailableIndices = async () => {
@@ -60,9 +91,17 @@ const IndexSelector = ({
         const errorText = await response.text();
         throw new Error(`Failed to fetch indices (${response.status}): ${errorText || response.statusText}`);
       }
-  const data = await response.json();
-  // Support both array and object responses
-  setAvailableIndices(Array.isArray(data) ? data : (data.indices || []));
+      const data = await response.json();
+      // Support both array and object responses
+      const rawIndices = Array.isArray(data) ? data : (data.indices || []);
+      
+      // Categorize indices by tier
+      const categorizedIndices = categorizeIndices(rawIndices);
+      setAvailableIndices(categorizedIndices);
+      
+      // Apply initial filter
+      const filtered = filterIndicesByTier(categorizedIndices, tierFilter);
+      setFilteredIndices(filtered);
       
       // Clear any previous error state on successful fetch
       setIndicesError(null);
@@ -70,11 +109,18 @@ const IndexSelector = ({
       const errorMessage = err.message || 'Failed to fetch indices';
       setIndicesError(errorMessage);
       setAvailableIndices([]); // Clear indices on error
+      setFilteredIndices([]);
       console.error('Error fetching indices:', err);
     } finally {
       setIndicesLoading(false);
     }
   };
+  
+  // Update filtered indices when tier filter changes
+  useEffect(() => {
+    const filtered = filterIndicesByTier(availableIndices, tierFilter);
+    setFilteredIndices(filtered);
+  }, [availableIndices, tierFilter]);
 
   // Fetch indices on component mount if enabled
   useEffect(() => {
@@ -152,6 +198,24 @@ const IndexSelector = ({
           </div>
         </div>
         
+        {/* Tier Filter */}
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Data Tier Filter
+          </label>
+          <select
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value)}
+            className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={indicesLoading}
+          >
+            <option value="all">All Tiers ({availableIndices.length})</option>
+            <option value="hot">Hot Tier ({availableIndices.filter(i => i.tier === 'hot').length})</option>
+            <option value="cold">Cold Tier ({availableIndices.filter(i => i.tier === 'cold').length})</option>
+            <option value="frozen">Frozen Tier ({availableIndices.filter(i => i.tier === 'frozen').length})</option>
+          </select>
+        </div>
+        
         <div className="flex items-center space-x-3">
           <select
             className={style.select}
@@ -164,13 +228,13 @@ const IndexSelector = ({
                 ? "Fetching indices..." 
                 : indicesError 
                   ? "Error loading indices - click refresh to retry" 
-                  : availableIndices.length === 0
-                    ? "No indices available - click refresh to reload"
+                  : filteredIndices.length === 0
+                    ? "No indices available for selected tier"
                     : "Select an index..."}
             </option>
-            {availableIndices.map((index) => (
-              <option key={index} value={index}>
-                {index}
+            {filteredIndices.map((index) => (
+              <option key={index.name} value={index.name} title={`${index.tier} tier`}>
+                {index.displayName} {index.tier !== 'hot' && `(${index.tier})`}
               </option>
             ))}
           </select>
@@ -197,12 +261,18 @@ const IndexSelector = ({
         {showStatus && selectedIndex && !indicesError && (
           <div className={style.status}>
             ✓ Using index: <strong>{selectedIndex}</strong>
+            {availableIndices.find(i => i.name === selectedIndex)?.tier !== 'hot' && (
+              <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded">
+                {availableIndices.find(i => i.name === selectedIndex)?.tier} tier
+              </span>
+            )}
           </div>
         )}
         
         {showStatus && availableIndices.length > 0 && !indicesError && !indicesLoading && (
           <div className="mt-1 text-xs text-gray-500">
-            {availableIndices.length} {availableIndices.length === 1 ? 'index' : 'indices'} available
+            {filteredIndices.length} of {availableIndices.length} indices shown
+            {tierFilter !== 'all' && ` (${tierFilter} tier only)`}
           </div>
         )}
       </div>
@@ -232,8 +302,10 @@ const IndexSelector = ({
             ) : (
               <option value="">Select an index...</option>
             )}
-            {!indicesLoading && !indicesError && availableIndices.map(index => (
-              <option key={index} value={index}>{index}</option>
+            {!indicesLoading && !indicesError && filteredIndices.map(index => (
+              <option key={index.name} value={index.name}>
+                {index.displayName} {index.tier !== 'hot' && `(${index.tier})`}
+              </option>
             ))}
           </select>
           {indicesLoading && (
@@ -290,13 +362,13 @@ const IndexSelector = ({
               ? "Fetching indices..." 
               : indicesError 
                 ? "Error loading indices - click refresh to retry" 
-                : availableIndices.length === 0
-                  ? "No indices available - click refresh to reload"
+                : filteredIndices.length === 0
+                  ? "No indices available for selected tier"
                   : "Select an index..."}
           </option>
-          {availableIndices.map((index) => (
-            <option key={index} value={index}>
-              {index}
+          {filteredIndices.map((index) => (
+            <option key={index.name} value={index.name}>
+              {index.displayName} {index.tier !== 'hot' && `(${index.tier})`}
             </option>
           ))}
         </select>
@@ -323,7 +395,7 @@ const IndexSelector = ({
       
       {showStatus && availableIndices.length > 0 && !indicesError && !indicesLoading && (
         <div className="mt-1 text-xs text-gray-500">
-          {availableIndices.length} {availableIndices.length === 1 ? 'index' : 'indices'} available
+          {filteredIndices.length} of {availableIndices.length} indices available
         </div>
       )}
     </div>

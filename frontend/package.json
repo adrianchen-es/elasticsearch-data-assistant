@@ -60,8 +60,10 @@
   },
   "scripts": {
     "start": "GENERATE_SOURCEMAP=false react-app-rewired start",
-    "build": "GENERATE_SOURCEMAP=false react-app-rewired build",
-    "test": "react-app-rewired test",
+    "build": "GENERATE_SOURCEMAP=false react-app-rewired build", 
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
     "eject": "react-app-rewired eject"
   },
   "eslintConfig": {
@@ -84,7 +86,11 @@
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
-    "@types/react-dom": "^18.2.7"
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.2.0",
+    "jsdom": "^24.0.0",
+    "vitest": "^1.2.0"
   },
   "proxy": "http://backend:8000"
 }

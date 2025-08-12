@@ -10,6 +10,7 @@ import time
 import uuid
 import logging
 from services.ai_service import AIService, TokenLimitError
+from utils.mapping_utils import normalize_mapping_data, extract_mapping_info, format_mapping_summary
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -383,32 +384,19 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
 
                     # Fetch mapping directly from cache/service
                     mapping = await mapping_cache_service.get_mapping(index)
-                    # Normalize to dict for safe serialization
-                    if hasattr(mapping, "model_dump"):
-                        mapping_dict = mapping.model_dump()
-                    elif isinstance(mapping, dict):
-                        mapping_dict = mapping
-                    else:
-                        try:
-                            mapping_dict = json.loads(json.dumps(mapping, default=str))
-                        except Exception:
-                            mapping_dict = {"_raw": str(mapping)}
-
-                    # Ensure mapping_dict is always a dictionary
-                    if not isinstance(mapping_dict, dict):
-                        logger.warning(f"Unexpected mapping_dict type: {type(mapping_dict)}, value: {mapping_dict}")
-                        mapping_dict = {"_raw": str(mapping_dict)}
-
-                    # Build concise reply
-                    index_body = mapping_dict.get(index) or next(iter(mapping_dict.values()), {}) if mapping_dict else {}
-                    properties = (index_body.get("mappings") or {}).get("properties", {}) if isinstance(index_body, dict) else {}
-                    field_names = sorted(list(properties.keys())) if isinstance(properties, dict) else []
-                    preview = ", ".join(field_names[:50]) + (" …" if len(field_names) > 50 else "")
-                    reply = f"Index '{index}' has {len(field_names)} fields. Example fields: {preview}" if field_names else "No field properties found in mapping."
+                    
+                    # Normalize mapping data using utility function
+                    mapping_dict = normalize_mapping_data(mapping)
+                    
+                    # Extract flattened field information
+                    es_types, python_types, field_count = extract_mapping_info(mapping_dict, index)
+                    
+                    # Create user-friendly summary with Python types
+                    reply = format_mapping_summary(es_types, python_types)
 
                     mapping_span.set_attributes({
                         "mapping.index": index,
-                        "mapping.fields_count": len(field_names),
+                        "mapping.fields_count": field_count,
                         "mapping.bypassed_llm": True
                     })
 
@@ -417,13 +405,13 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                             # send one content chunk then done
                             yield (json.dumps({"type": "content", "delta": reply}) + "\n").encode("utf-8")
                             if debug_info is not None:
-                                yield (json.dumps({"type": "debug", "debug": {**debug_info, "mapping_fields_count": len(field_names)}}) + "\n").encode("utf-8")
+                                yield (json.dumps({"type": "debug", "debug": {**debug_info, "mapping_fields_count": field_count}}) + "\n").encode("utf-8")
                             yield (json.dumps({"type": "done"}) + "\n").encode("utf-8")
                         return StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
 
                     # Non-streaming mapping response
                     if debug_info is not None:
-                        debug_info.setdefault("mapping", {"index": index, "fields_count": len(field_names)})
+                        debug_info.setdefault("mapping", {"index": index, "fields_count": field_count})
                     return ChatResponse(response=reply, conversation_id=conversation_id, mode=req.mode, debug_info=debug_info)
 
             if req.stream:
