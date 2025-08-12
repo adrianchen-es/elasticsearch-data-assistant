@@ -44,49 +44,52 @@ ES_TO_PYTHON_TYPES = {
     'constant_keyword': 'str'
 }
 
-def normalize_mapping_data(mapping_data: Any) -> Dict[str, Any]:
+def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
     """
     Normalize mapping data to ensure it's a proper dictionary.
     Handles various formats that might be returned from Elasticsearch.
+    Returns None if normalization fails.
     """
     try:
+        logger.debug(f"Normalizing mapping data of type {type(mapping_data)}: {mapping_data}")
+
         if mapping_data is None:
+            logger.info("Mapping data is None. Returning empty dictionary.")
             return {}
-            
-        # If it has model_dump method (Pydantic model)
+
         if hasattr(mapping_data, "model_dump"):
+            logger.info("Mapping data has model_dump method. Using it to normalize.")
             return mapping_data.model_dump()
-            
-        # If it's already a dict, return as-is
+
         if isinstance(mapping_data, dict):
+            logger.info("Mapping data is already a dictionary. Returning as-is.")
             return mapping_data
-            
-        # If it's a string that looks like JSON, try to parse it
+
         if isinstance(mapping_data, str):
             try:
                 parsed = json.loads(mapping_data)
                 if isinstance(parsed, dict):
+                    logger.info("Mapping data is a valid JSON string. Parsed successfully.")
                     return parsed
             except json.JSONDecodeError:
-                pass
-            # If string parsing fails, wrap it
-            return {"_raw_string": mapping_data}
-            
-        # For other types, try JSON serialization round-trip
+                logger.warning("Mapping data is a string but not valid JSON.")
+            return None
+
         try:
             serialized = json.dumps(mapping_data, default=str)
             parsed = json.loads(serialized)
             if isinstance(parsed, dict):
+                logger.info("Mapping data serialized and parsed successfully.")
                 return parsed
         except (TypeError, json.JSONDecodeError):
-            pass
-            
-        # Final fallback - wrap the value
-        return {"_raw_value": str(mapping_data)}
-        
+            logger.warning("Mapping data could not be serialized and parsed.")
+
+        logger.warning("Mapping data could not be normalized to a dictionary.")
+        return None
+
     except Exception as e:
         logger.error(f"Error normalizing mapping data: {e}")
-        return {"_error": f"Failed to normalize: {str(e)}"}
+        return None
 
 def flatten_properties(properties: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
     """
@@ -124,56 +127,55 @@ def get_python_type(es_type: str) -> str:
     """Convert Elasticsearch type to Python type for display."""
     return ES_TO_PYTHON_TYPES.get(es_type, 'Any')
 
-def extract_mapping_info(mapping_dict: Dict[str, Any], index_name: str) -> Tuple[Dict[str, str], Dict[str, str], int]:
+def extract_mapping_info(mapping_dict: Any, index_name: str) -> Tuple[Dict[str, str], Dict[str, str], int]:
     """
     Extract and flatten mapping information from Elasticsearch mapping response.
-    
+
     Returns:
         - es_types: Dict with field names as keys and ES types as values
-        - python_types: Dict with field names as keys and Python types as values  
+        - python_types: Dict with field names as keys and Python types as values
         - field_count: Total number of fields
     """
     try:
-        # Normalize the mapping_dict first to handle unexpected types
+        logger.debug(f"Extracting mapping info for index: {index_name}")
         normalized_mapping = normalize_mapping_data(mapping_dict)
-        
-        if not isinstance(normalized_mapping, dict):
-            logger.warning(f"Mapping data for {index_name} is not a dictionary after normalization")
+
+        if not normalized_mapping:
+            logger.warning(f"Mapping data for {index_name} could not be normalized.")
             return {}, {}, 0
-        
-        # Get the index-specific mapping
+
+        if not isinstance(normalized_mapping, dict):
+            logger.warning(f"Mapping data for {index_name} is not a dictionary after normalization.")
+            return {}, {}, 0
+
         index_mapping = normalized_mapping.get(index_name, {})
         if not index_mapping and normalized_mapping:
-            # If no exact match, try to get the first mapping
-            index_mapping = next(iter(normalized_mapping.values()), {}) if normalized_mapping else {}
-        
-        # Ensure index_mapping is a dict
+            index_mapping = next(iter(normalized_mapping.values()), {})
+
         if not isinstance(index_mapping, dict):
             logger.warning(f"Index mapping for {index_name} is not a dictionary: {type(index_mapping)}")
-            logger.warning(f"Warning: mapping is {index_mapping}")
+            logger.debug(f"Index mapping content: {index_mapping}")
             return {}, {}, 0
-        
-        # Extract properties from mappings
+
         mappings = index_mapping.get('mappings', {})
         if not isinstance(mappings, dict):
             logger.warning(f"Mappings for {index_name} is not a dictionary: {type(mappings)}")
             return {}, {}, 0
-            
+
         properties = mappings.get('properties', {})
         if not isinstance(properties, dict):
             logger.warning(f"Properties for {index_name} is not a dictionary: {type(properties)}")
             return {}, {}, 0
-        
-        # Flatten the properties
+
+        logger.debug(f"Flattening properties for index: {index_name}")
         es_types = flatten_properties(properties)
-        
-        # Create Python type mapping
+
         python_types = {field: get_python_type(es_type) for field, es_type in es_types.items()}
-        
         field_count = len(es_types)
-        
+
+        logger.info(f"Extracted {field_count} fields for index: {index_name}")
         return es_types, python_types, field_count
-        
+
     except Exception as e:
         logger.error(f"Error extracting mapping info for {index_name}: {e}")
         return {}, {}, 0
