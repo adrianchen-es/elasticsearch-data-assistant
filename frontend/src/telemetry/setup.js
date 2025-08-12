@@ -93,22 +93,14 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            applyCustomAttributesOnSpan: (span, request) => {
-              const url = request.url || 'unknown';
-              span.updateName(`HTTP ${request.method} ${url}`);
-              span.setAttribute('http.url', url);
-              span.setAttribute('http.method', request.method);
+            applyCustomAttributesOnSpan: (span) => {
+              span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
+              span.setAttribute('frontend.environment', process.env.NODE_ENV);
             },
           },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            applyCustomAttributesOnSpan: (span, xhr) => {
-              const url = xhr.responseURL || 'unknown';
-              span.updateName(`HTTP ${xhr.method || 'UNKNOWN'} ${url}`);
-              span.setAttribute('http.url', url);
-              span.setAttribute('http.method', xhr.method || 'UNKNOWN');
-            },
           },
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
