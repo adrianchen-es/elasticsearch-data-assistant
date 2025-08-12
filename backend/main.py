@@ -13,6 +13,7 @@ from opentelemetry import trace
 from opentelemetry.trace.status import Status, StatusCode
 from contextlib import asynccontextmanager
 import logging
+from opentelemetry.context import set_value, get_current
 
 setup_telemetry()  # Initialize OpenTelemetry
 
@@ -285,32 +286,36 @@ async def _setup_background_tasks(mapping_cache_service, app_state):
 async def lifespan(app: FastAPI):
     """Application lifespan manager with improved traceability"""
     startup_start_time = asyncio.get_event_loop().time()
-    
+
     # Create the main application startup span
     with tracer.start_as_current_span("application_startup") as startup_span:
         logger.info("🚀 Starting up Elasticsearch Data Assistant...")
-        
+
         try:
+            # Ensure the context is properly set
+            current_context = get_current()
+            startup_context = set_value("startup_span", startup_span, current_context)
+
             # Initialize core services - separate span from application startup
-            with tracer.start_as_current_span("lifespan_service_initialization", context=startup_span) as services_init_span:
+            with tracer.start_as_current_span("lifespan_service_initialization", context=startup_context) as services_init_span:
                 services_result = await _initialize_core_services()
                 es_service = services_result["es_service"]
                 ai_service = services_result["ai_service"] 
                 mapping_cache_service = services_result["mapping_cache_service"]
                 service_timings = services_result["timings"]
-                
+
                 services_init_span.set_attributes({
                     "services_initialized": len(service_timings),
                     "total_services_time": sum(service_timings.values())
                 })
-            
+
             # Store services in app state - separate span
-            with tracer.start_as_current_span("lifespan_app_state_setup", context=startup_span) as state_span:
+            with tracer.start_as_current_span("lifespan_app_state_setup", context=startup_context) as state_span:
                 logger.info("🏪 Storing services in application state...")
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
                 app.state.mapping_cache_service = mapping_cache_service
-                
+
                 # Initialize health check cache
                 logger.info("🏥 Initializing health check cache...")
                 app.state.health_cache = {
@@ -319,25 +324,25 @@ async def lifespan(app: FastAPI):
                     "cache_ttl": 30  # 30 seconds TTL for health checks
                 }
                 logger.info("✅ Health check cache initialized with 30s TTL")
-                
+
                 state_span.set_attributes({
                     "app_state_components": 4,  # es_service, ai_service, mapping_cache_service, health_cache
                     "health_cache_ttl": 30
                 })
-            
+
             # Setup background tasks - separate span
-            with tracer.start_as_current_span("lifespan_background_tasks_setup", context=startup_span) as bg_span:
+            with tracer.start_as_current_span("lifespan_background_tasks_setup", context=startup_context) as bg_span:
                 background_tasks, bg_timings = await _setup_background_tasks(
                     mapping_cache_service, app.state
                 )
                 app.state.background_tasks = background_tasks
                 service_timings.update(bg_timings)
-                
+
                 bg_span.set_attributes({
                     "background_tasks_count": len(background_tasks),
                     "background_setup_time": bg_timings.get("scheduler_startup", 0)
                 })
-            
+
             # Calculate total startup time and log summary
             total_startup_time = asyncio.get_event_loop().time() - startup_start_time
             startup_span.set_attributes({
@@ -346,14 +351,14 @@ async def lifespan(app: FastAPI):
                 "background_tasks_count": len(background_tasks),
                 "success": True
             })
-            
+
             logger.info("📊 Startup Performance Summary:")
             for service_name, timing in service_timings.items():
                 logger.info(f"  • {service_name}: {timing:.3f}s")
-            
+
             logger.info(f"🎉 Startup complete in {total_startup_time:.3f}s - Server ready!")
             startup_span.set_status(trace.Status(trace.StatusCode.OK))
-            
+
         except Exception as e:
             total_startup_time = asyncio.get_event_loop().time() - startup_start_time
             startup_span.record_exception(e)
@@ -361,22 +366,22 @@ async def lifespan(app: FastAPI):
             startup_span.set_attribute("total_startup_time", total_startup_time)
             logger.error(f"❌ Startup failed after {total_startup_time:.3f}s: {e}")
             raise
-        
+
         yield
-    
+
     # Shutdown - Clean up resources with separate tracing context
     with tracer.start_as_current_span("application_shutdown") as shutdown_span:
         shutdown_start_time = asyncio.get_event_loop().time()
         logger.info("🛑 Shutting down Elasticsearch Data Assistant...")
-        
+
         shutdown_timings = {}
-    
+
         try:
             # Cancel background tasks - separate span
             with tracer.start_as_current_span("shutdown_background_tasks", context=shutdown_span) as bg_cleanup_span:
                 task_cleanup_start = asyncio.get_event_loop().time()
                 background_tasks = getattr(app.state, 'background_tasks', [])
-                
+
                 if background_tasks:
                     logger.info(f"🔄 Cancelling {len(background_tasks)} background tasks...")
                     for i, task in enumerate(background_tasks):
@@ -385,18 +390,18 @@ async def lifespan(app: FastAPI):
                             task.cancel()
                         else:
                             logger.debug(f"  • Task {i+1}/{len(background_tasks)} already completed")
-                
-                    # Wait for tasks to complete or timeout
-                    try:
-                        logger.info("⏳ Waiting for background tasks to complete (5s timeout)...")
-                        await asyncio.wait_for(
-                            asyncio.gather(*background_tasks, return_exceptions=True),
-                            timeout=5.0
-                        )
-                        logger.info("✅ Background tasks completed gracefully")
-                    except asyncio.TimeoutError:
-                        logger.warning("⚠️ Background tasks did not complete within 5s timeout")
-                
+
+                # Wait for tasks to complete or timeout
+                try:
+                    logger.info("⏳ Waiting for background tasks to complete (5s timeout)...")
+                    await asyncio.wait_for(
+                        asyncio.gather(*background_tasks, return_exceptions=True),
+                        timeout=5.0
+                    )
+                    logger.info("✅ Background tasks completed gracefully")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Background tasks did not complete within 5s timeout")
+
                 shutdown_timings["background_tasks"] = asyncio.get_event_loop().time() - task_cleanup_start
                 bg_cleanup_span.set_attributes({
                     "tasks_cancelled": len(background_tasks),
