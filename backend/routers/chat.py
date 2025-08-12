@@ -337,11 +337,11 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
         attributes={
             "chat.mode": req.mode,
             "chat.stream": req.stream,
-            "chat.model": req.model,
+            "chat.model": req.model or "auto",
             "chat.temperature": req.temperature,
             "chat.message_count": len(req.messages),
-            "chat.index_name": req.index_name,
-            "chat.conversation_id": req.conversation_id,
+            "chat.index_name": req.index_name or "none",
+            "chat.conversation_id": req.conversation_id or "none",
             "http.method": "POST",
             "http.route": "/chat"
         }
@@ -453,13 +453,14 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                                 yield (json.dumps(event) + "\n").encode("utf-8")
                         else:
                             # Free chat streaming
-                            async for event in ai_service.generate_chat(
+                            stream_generator = await ai_service.generate_chat(
                                 message_list,
                                 model=req.model,
                                 temperature=req.temperature,
                                 stream=True,
                                 conversation_id=conversation_id
-                            ):
+                            )
+                            async for event in stream_generator:
                                 # Add debug info to first content chunk
                                 if stream_debug_info is not None and event.get("type") == "content":
                                     event["debug"] = stream_debug_info
