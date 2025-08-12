@@ -394,9 +394,14 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                         except Exception:
                             mapping_dict = {"_raw": str(mapping)}
 
+                    # Ensure mapping_dict is always a dictionary
+                    if not isinstance(mapping_dict, dict):
+                        logger.warning(f"Unexpected mapping_dict type: {type(mapping_dict)}, value: {mapping_dict}")
+                        mapping_dict = {"_raw": str(mapping_dict)}
+
                     # Build concise reply
                     index_body = mapping_dict.get(index) or next(iter(mapping_dict.values()), {}) if mapping_dict else {}
-                    properties = (index_body.get("mappings") or {}).get("properties", {})
+                    properties = (index_body.get("mappings") or {}).get("properties", {}) if isinstance(index_body, dict) else {}
                     field_names = sorted(list(properties.keys())) if isinstance(properties, dict) else []
                     preview = ", ".join(field_names[:50]) + (" …" if len(field_names) > 50 else "")
                     reply = f"Index '{index}' has {len(field_names)} fields. Example fields: {preview}" if field_names else "No field properties found in mapping."
