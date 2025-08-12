@@ -75,6 +75,16 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
                 logger.warning("Mapping data is a string but not valid JSON.")
             return None
 
+        if isinstance(mapping_data, elastic_transport.ObjectApiResponse):
+            try:
+                parsed = json.loads(mapping_data.body)
+                if isinstance(parsed, dict):
+                    logger.info("Mapping data is a valid JSON string. Parsed successfully.")
+                    return parsed
+            except json.JSONDecodeError:
+                logger.warning("Mapping data is a string but not valid JSON.")
+            return None
+
         try:
             serialized = json.dumps(mapping_data, default=str)
             parsed = json.loads(serialized)
@@ -84,7 +94,6 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
         except (TypeError, json.JSONDecodeError):
             logger.warning("Mapping data could not be serialized and parsed.")
 
-        logger.warning(f"Normalizing mapping data of type {type(mapping_data)}: {mapping_data}")
         logger.warning("Mapping data could not be normalized to a dictionary.")
         return None
 
