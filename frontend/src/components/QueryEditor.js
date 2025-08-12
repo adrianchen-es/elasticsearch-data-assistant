@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Check, X, Copy, RefreshCw } from 'lucide-react';
 import ReactJson from 'react-json-view';
-import { IndexSelector } from './Selectors';
+import { IndexSelector, TierSelector } from './Selectors';
 
 const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [query, setQuery] = useState({
@@ -14,6 +14,7 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [validationStatus, setValidationStatus] = useState(null);
+  const [selectedTiers, setSelectedTiers] = useState(['hot']);
 
   const validateQuery = async () => {
     if (!selectedIndex) return;
@@ -84,9 +85,24 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
     navigator.clipboard.writeText(JSON.stringify(query, null, 2));
   };
 
+  const handleTierChange = (tiers) => {
+    setSelectedTiers(tiers);
+    // Update the selected index based on the selected tiers
+    if (tiers.length > 0) {
+      const newIndex = `${tiers[0]}-index`; // Example logic to derive index from tier
+      setSelectedIndex(newIndex);
+    }
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-200px)]">
-      {/* Index Selection */}
+      {/* Tier and Index Selection */}
+      <div className="mb-4">
+        <TierSelector
+          selectedTiers={selectedTiers}
+          onTierChange={handleTierChange}
+        />
+      </div>
       <IndexSelector
         selectedIndex={selectedIndex}
         onIndexChange={setSelectedIndex}

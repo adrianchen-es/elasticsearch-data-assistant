@@ -405,6 +405,15 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     saveSettings();
   }, [temperature, streamEnabled, showDebug]);
   
+  const handleTierChange = (tiers) => {
+    setSelectedTiers(tiers);
+    // Update the selected index based on the selected tiers
+    if (tiers.length > 0) {
+      const newIndex = `${tiers[0]}-index`; // Example logic to derive index from tier
+      setSelectedIndex(newIndex);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header with controls */}
@@ -437,7 +446,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                 />
                 <TierSelector
                   selectedTiers={selectedTiers}
-                  onTierChange={setSelectedTiers}
+                  onTierChange={handleTierChange}
                   variant="compact"
                   disabled={isStreaming}
                   showLabel={true}
