@@ -93,6 +93,7 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
+            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span) => {
               span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
               span.setAttribute('frontend.environment', process.env.NODE_ENV);
@@ -101,16 +102,19 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
+            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
           },
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
+            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span) => {
               span.updateName('Document Load');
             },
           },
           '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
-            eventNames: ['click', 'submit', 'change'],
+            eventNames: ['click', 'submit', 'change', 'input', 'focus', 'blur', 'scroll'],
+            semconvStabilityOptIn: 'http',
             applyCustomAttributesOnSpan: (span, event) => {
               span.updateName(`User Interaction: ${event.type}`);
               span.setAttribute('event.target', event.target?.tagName || 'unknown');

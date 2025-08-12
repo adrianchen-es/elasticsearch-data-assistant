@@ -27,6 +27,7 @@ services:
       - AZURE_AI_DEPLOYMENT=${AZURE_AI_DEPLOYMENT}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - OTEL_SERVICE_NAME=elasticsearch-ai-backend
+      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     ports:
       - "8000:8000"
     depends_on:
@@ -42,6 +43,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3100
+      - OTEL_SEMCONV_STABILITY_OPT_IN=http
       - BACKEND_BASE_URL=http://backend:8000
       - OTEL_SERVICE_NAME=es-data-assistant-gateway
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
