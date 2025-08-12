@@ -5,8 +5,6 @@ import json
 import logging
 from typing import Dict, Any, Tuple, Optional
 
-import elastic_transport
-
 logger = logging.getLogger(__name__)
 
 # Elasticsearch to Python type mapping
@@ -63,6 +61,10 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
             logger.info("Mapping data has model_dump method. Using it to normalize.")
             return mapping_data.model_dump()
 
+        if hasattr(mapping_data, "body"):
+            logger.info("Mapping data has body attribute. Using it to normalize.")
+            mapping_data = mapping_data.body
+
         if isinstance(mapping_data, dict):
             logger.info("Mapping data is already a dictionary. Returning as-is.")
             return mapping_data
@@ -70,16 +72,6 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
         if isinstance(mapping_data, str):
             try:
                 parsed = json.loads(mapping_data)
-                if isinstance(parsed, dict):
-                    logger.info("Mapping data is a valid JSON string. Parsed successfully.")
-                    return parsed
-            except json.JSONDecodeError:
-                logger.warning("Mapping data is a string but not valid JSON.")
-            return None
-
-        if isinstance(mapping_data, elastic_transport.ObjectApiResponse):
-            try:
-                parsed = json.loads(mapping_data.body)
                 if isinstance(parsed, dict):
                     logger.info("Mapping data is a valid JSON string. Parsed successfully.")
                     return parsed
