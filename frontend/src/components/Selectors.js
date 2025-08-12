@@ -51,8 +51,8 @@ const IndexSelector = ({
   const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
-  const [tierFilter, setTierFilter] = useState('all'); // 'all', 'hot', 'cold', 'frozen'
-  
+  const [tierFilter, setTierFilter] = useState('all'); // 'other', 'frozen', 'cold', 'system', 'other'
+
   // Categorize indices by tier based on prefixes
   const categorizeIndices = (indices) => {
     return indices.map(index => {
@@ -75,7 +75,7 @@ const IndexSelector = ({
       };
     });
   };
-  
+
   // Filter indices based on selected tier
   const filterIndicesByTier = (categorizedIndices, filterValue) => {
     if (filterValue === 'all') {
@@ -139,8 +139,7 @@ const IndexSelector = ({
       setIndicesLoading(false);
     }
   };
-  
-  // Update filtered indices when tier filter changes
+
   useEffect(() => {
     const filtered = filterIndicesByTier(availableIndices, tierFilter);
     setFilteredIndices(filtered);
