@@ -173,7 +173,7 @@ const IndexSelector = ({
                   : "Select an index..."}
           </option>
           {filteredIndices.map((index) => (
-            <option key={index.name} value={index.name} title={`${index.tier} tier`}>
+            <option key={index.name} value={index.name} title={index.name}>
               {index.displayName} {index.tier !== 'hot' && `(${index.tier})`}
             </option>
           ))}
