@@ -203,6 +203,11 @@ async def _initialize_core_services():
             )
             service_timings["ai_service"] = ai_time
             
+            # Ensure AI service clients are properly initialized
+            logger.info("🧠 Completing AI service client initialization...")
+            await ai_service.initialize_async()
+            logger.info("✅ AI service clients ready")
+            
             logger.info("🗂️ Initializing mapping cache service...")
             mapping_cache_service, cache_time = await _retry_service_init(
                 lambda: _create_mapping_cache_service(es_service), "MappingCacheService"

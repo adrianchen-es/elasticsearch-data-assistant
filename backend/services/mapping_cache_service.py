@@ -212,24 +212,55 @@ class MappingCacheService:
     async def _safe_refresh_all(self):
         """Wrapper for refresh_all with comprehensive error handling and tracing.
         Each scheduled refresh is a parent/root span (not a child of startup)."""
-        with tracer.start_as_current_span(
-            "mapping_cache_service.periodic_refresh",
-            kind=SpanKind.INTERNAL,
-            attributes={"refresh_type": "periodic"}
-        ) as periodic_span:
-            try:
-                logger.debug("🔄 Starting scheduled cache refresh (periodic)...")
-                await self.refresh_all()
-                periodic_span.set_status(StatusCode.OK)
-                logger.debug("✅ Scheduled cache refresh completed successfully")
-            except Exception as e:
-                error_msg = f"Scheduled cache refresh failed: {e}"
-                logger.error(f"❌ {error_msg}")
-                self._stats["refresh_errors"] = self._stats.get("refresh_errors", 0) + 1
-                self._initialization_status["errors"].append(error_msg)
-                periodic_span.set_status(Status(StatusCode.ERROR, error_msg))
-                periodic_span.record_exception(e)
-                # Don't re-raise to avoid stopping the scheduler
+        # Get current trace context
+        current_span = trace.get_current_span()
+        
+        # Check if we're in a startup context (application_startup span)
+        is_startup_refresh = (current_span and 
+                             current_span.get_span_context() and
+                             hasattr(current_span, 'name') and
+                             'startup' in str(current_span).lower())
+        
+        if is_startup_refresh:
+            # During startup, create as a child span of the startup process
+            with tracer.start_as_current_span(
+                "mapping_cache_service.startup_refresh",
+                kind=SpanKind.INTERNAL,
+                attributes={"refresh_type": "startup"}
+            ) as startup_span:
+                try:
+                    logger.debug("🔄 Starting cache refresh during startup...")
+                    await self.refresh_all()
+                    startup_span.set_status(StatusCode.OK)
+                    logger.debug("✅ Startup cache refresh completed successfully")
+                except Exception as e:
+                    error_msg = f"Startup cache refresh failed: {e}"
+                    logger.error(f"❌ {error_msg}")
+                    self._stats["refresh_errors"] = self._stats.get("refresh_errors", 0) + 1
+                    self._initialization_status["errors"].append(error_msg)
+                    startup_span.set_status(Status(StatusCode.ERROR, error_msg))
+                    startup_span.record_exception(e)
+                    # Don't re-raise to avoid stopping the scheduler
+        else:
+            # For periodic refreshes, create a new root span
+            with tracer.start_as_current_span(
+                "mapping_cache_service.periodic_refresh",
+                kind=SpanKind.INTERNAL,
+                attributes={"refresh_type": "periodic"}
+            ) as periodic_span:
+                try:
+                    logger.debug("🔄 Starting scheduled cache refresh (periodic)...")
+                    await self.refresh_all()
+                    periodic_span.set_status(StatusCode.OK)
+                    logger.debug("✅ Scheduled cache refresh completed successfully")
+                except Exception as e:
+                    error_msg = f"Scheduled cache refresh failed: {e}"
+                    logger.error(f"❌ {error_msg}")
+                    self._stats["refresh_errors"] = self._stats.get("refresh_errors", 0) + 1
+                    self._initialization_status["errors"].append(error_msg)
+                    periodic_span.set_status(Status(StatusCode.ERROR, error_msg))
+                    periodic_span.record_exception(e)
+                    # Don't re-raise to avoid stopping the scheduler
 
     async def stop_scheduler(self):
         """Stop the background scheduler"""

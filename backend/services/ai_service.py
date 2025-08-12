@@ -842,10 +842,10 @@ class AIService:
         """
         # Auto-select provider if not specified
         if provider == "auto":
-            provider = self._get_default_provider()
+            provider = await self._get_default_provider_async()
             
         # Validate provider availability
-        self._validate_provider(provider)
+        await self._validate_provider_async(provider)
         
         with tracer.start_as_current_span("ai_free_chat", kind=SpanKind.CLIENT):
             current_span = trace.get_current_span()
@@ -952,10 +952,10 @@ class AIService:
         """Generate chat response with optional streaming support"""
         # Auto-select provider if not specified
         if provider == "auto":
-            provider = self._get_default_provider()
+            provider = await self._get_default_provider_async()
             
         # Validate provider availability
-        self._validate_provider(provider)
+        await self._validate_provider_async(provider)
         
         with tracer.start_as_current_span("ai_generate_chat") as current_span:
             current_span.set_attributes({
@@ -1121,10 +1121,10 @@ class AIService:
         """Generate context-aware chat response with Elasticsearch schema"""
         # Auto-select provider if not specified
         if provider == "auto":
-            provider = self._get_default_provider()
+            provider = await self._get_default_provider_async()
             
         # Validate provider availability
-        self._validate_provider(provider)
+        await self._validate_provider_async(provider)
         
         with tracer.start_as_current_span("ai_elasticsearch_chat") as current_span:
             current_span.set_attributes({
@@ -1226,10 +1226,10 @@ Available capabilities:
         """Stream context-aware chat response with Elasticsearch schema"""
         # Auto-select provider if not specified
         if provider == "auto":
-            provider = self._get_default_provider()
+            provider = await self._get_default_provider_async()
             
         # Validate provider availability  
-        self._validate_provider(provider)
+        await self._validate_provider_async(provider)
         
         logger.debug(f"Starting Elasticsearch chat stream using {provider} provider")
         
