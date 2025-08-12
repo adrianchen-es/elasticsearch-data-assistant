@@ -37,6 +37,7 @@ def _is_mapping_request(messages: List[ChatMessage]) -> bool:
     lowered = text.lower()
     return any(k in lowered for k in MAPPING_KEYWORDS)
 
+# Updated ChatRequest to include the `include_context` field
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
     model: Optional[str] = None
@@ -46,6 +47,7 @@ class ChatRequest(BaseModel):
     index_name: Optional[str] = None
     conversation_id: Optional[str] = None
     debug: bool = False
+    include_context: bool = True  # New field to toggle context inclusion
 
 class ChatResponse(BaseModel):
     response: str
@@ -119,10 +121,15 @@ async def get_schema_context(mapping_cache_service, index_name: str, span: trace
         try:
             schema = await mapping_cache_service.get_schema(index_name)
             if schema:
-                schema_span.set_attribute("schema.fields_count", len(schema.get("properties", {})))
+                fields = schema.get("properties", {})
+                schema_span.set_attribute("schema.fields_count", len(fields))
                 schema_span.set_status(StatusCode.OK)
                 logger.debug(f"Retrieved schema for index {index_name}")
-                return {index_name: schema}
+                return {
+                    "index_name": index_name,
+                    "fields": fields,
+                    "is_long": len(fields) > 100  # Flag for long responses
+                }
             else:
                 schema_span.set_status(Status(StatusCode.ERROR, "Schema not found"))
                 logger.warning(f"No schema found for index {index_name}")
@@ -329,7 +336,7 @@ def create_streaming_response(
     
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
-@router.post("/chat")
+@router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest, app_request: Request):
     """Enhanced chat endpoint supporting both free chat and Elasticsearch-assisted modes"""
     with tracer.start_as_current_span(
@@ -414,129 +421,66 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                         debug_info.setdefault("mapping", {"index": index, "fields_count": field_count})
                     return ChatResponse(response=reply, conversation_id=conversation_id, mode=req.mode, debug_info=debug_info)
 
-            if req.stream:
-                chat_span.set_attribute("response.type", "streaming")
-                async def event_stream() -> AsyncGenerator[bytes, None]:
-                    # Capture debug_info in the outer scope to avoid UnboundLocalError
-                    stream_debug_info = debug_info
+            # Only streaming responses are supported
+            if not req.stream:
+                raise HTTPException(status_code=400, detail="Non-streaming options are no longer supported.")
+            
+            chat_span.set_attribute("response.type", "streaming")
+            async def event_stream() -> AsyncGenerator[bytes, None]:
+                # Capture debug_info in the outer scope to avoid UnboundLocalError
+                stream_debug_info = debug_info
+                
+                try:
+                    # Convert messages to the format expected by AI service
+                    message_list = [m.model_dump() for m in req.messages]
                     
-                    try:
-                        # Convert messages to the format expected by AI service
-                        message_list = [m.model_dump() for m in req.messages]
+                    if req.mode == "elasticsearch" and req.index_name:
+                        # Get schema for context-aware chat
+                        schema_start = time.time()
+                        schema = await mapping_cache_service.get_schema(req.index_name)
+                        if stream_debug_info is not None:
+                            stream_debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
                         
-                        if req.mode == "elasticsearch" and req.index_name:
-                            # Get schema for context-aware chat
-                            schema_start = time.time()
-                            schema = await mapping_cache_service.get_schema(req.index_name)
-                            if stream_debug_info is not None:
-                                stream_debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
+                        # Use context-aware streaming
+                        async for event in ai_service.generate_elasticsearch_chat_stream(
+                            message_list,
+                            schema_context={req.index_name: schema} if schema else {},
+                            model=req.model,
+                            temperature=req.temperature,
+                            conversation_id=conversation_id
+                        ):
+                            # Add debug info to first content chunk
+                            if stream_debug_info is not None and event.get("type") == "content":
+                                event["debug"] = stream_debug_info
+                                stream_debug_info = None  # Only send once
+                            yield (json.dumps(event) + "\n").encode("utf-8")
+                    else:
+                        # Free chat streaming
+                        stream_generator = await ai_service.generate_chat(
+                            message_list,
+                            model=req.model,
+                            temperature=req.temperature,
+                            stream=True,
+                            conversation_id=conversation_id
+                        )
+                        async for event in stream_generator:
+                            # Add debug info to first content chunk
+                            if stream_debug_info is not None and event.get("type") == "content":
+                                event["debug"] = stream_debug_info
+                                stream_debug_info = None  # Only send once
+                            yield (json.dumps(event) + "\n").encode("utf-8")
                             
-                            # Use context-aware streaming
-                            async for event in ai_service.generate_elasticsearch_chat_stream(
-                                message_list,
-                                schema_context={req.index_name: schema} if schema else {},
-                                model=req.model,
-                                temperature=req.temperature,
-                                conversation_id=conversation_id
-                            ):
-                                # Add debug info to first content chunk
-                                if stream_debug_info is not None and event.get("type") == "content":
-                                    event["debug"] = stream_debug_info
-                                    stream_debug_info = None  # Only send once
-                                yield (json.dumps(event) + "\n").encode("utf-8")
-                        else:
-                            # Free chat streaming
-                            stream_generator = await ai_service.generate_chat(
-                                message_list,
-                                model=req.model,
-                                temperature=req.temperature,
-                                stream=True,
-                                conversation_id=conversation_id
-                            )
-                            async for event in stream_generator:
-                                # Add debug info to first content chunk
-                                if stream_debug_info is not None and event.get("type") == "content":
-                                    event["debug"] = stream_debug_info
-                                    stream_debug_info = None  # Only send once
-                                yield (json.dumps(event) + "\n").encode("utf-8")
-                                
-                    except TokenLimitError as te:
-                        yield (json.dumps(te.to_dict()) + "\n").encode("utf-8")
-                    except Exception as e:
-                        error_event = {
-                            "type": "error",
-                            "error": {"code": "chat_failed", "message": str(e)},
-                            "debug": stream_debug_info if req.debug else None
-                        }
-                        yield (json.dumps(error_event) + "\n").encode("utf-8")
+                except TokenLimitError as te:
+                    yield (json.dumps(te.to_dict()) + "\n").encode("utf-8")
+                except Exception as e:
+                    error_event = {
+                        "type": "error",
+                        "error": {"code": "chat_failed", "message": str(e)},
+                        "debug": stream_debug_info if req.debug else None
+                    }
+                    yield (json.dumps(error_event) + "\n").encode("utf-8")
 
-                return StreamingResponse(event_stream(), media_type="application/x-ndjson")
-            else:
-                chat_span.set_attribute("response.type", "non_streaming")
-                # Non-streaming response
-                message_list = [m.model_dump() for m in req.messages]
-                
-                if req.mode == "elasticsearch" and req.index_name:
-                    # Context-aware chat
-                    schema_start = time.time()
-                    schema = await mapping_cache_service.get_schema(req.index_name)
-                    if debug_info is not None:
-                        debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
-                    
-                    chat_start = time.time()
-                    result = await ai_service.generate_elasticsearch_chat(
-                        message_list,
-                        schema_context={req.index_name: schema} if schema else {},
-                        model=req.model,
-                        temperature=req.temperature,
-                        conversation_id=conversation_id,
-                        return_debug=req.debug
-                    )
-                    if debug_info is not None:
-                        debug_info["timings"]["chat_ms"] = int((time.time() - chat_start) * 1000)
-                    
-                    if req.debug and isinstance(result, tuple):
-                        response_text, model_debug = result
-                        if debug_info is not None:
-                            debug_info["model_info"] = model_debug
-                    else:
-                        response_text = result
-                        
-                else:
-                    # Free chat
-                    chat_start = time.time()
-                    result = await ai_service.free_chat(
-                        req.messages[-1].content if req.messages else "",
-                        provider=req.model or "azure",
-                        conversation_id=conversation_id,
-                        return_debug=req.debug
-                    )
-                    if debug_info is not None:
-                        debug_info["timings"]["chat_ms"] = int((time.time() - chat_start) * 1000)
-                    
-                    if req.debug and isinstance(result, tuple):
-                        response_text, model_debug = result
-                        if debug_info is not None:
-                            debug_info["model_info"] = model_debug
-                    else:
-                        response_text = result
-                
-                # Final timing
-                if debug_info is not None:
-                    debug_info["timings"]["total_ms"] = int((time.time() - start_time) * 1000)
-                
-                chat_span.set_attributes({
-                    "chat.response_length": len(response_text) if isinstance(response_text, str) else 0,
-                    "chat.total_time_ms": int((time.time() - start_time) * 1000)
-                })
-                chat_span.set_status(StatusCode.OK)
-                
-                return ChatResponse(
-                    response=response_text,
-                    conversation_id=conversation_id,
-                    mode=req.mode,
-                    debug_info=debug_info
-                )
+            return StreamingResponse(event_stream(), media_type="application/x-ndjson")
                 
         except TokenLimitError as te:
             chat_span.set_status(Status(StatusCode.ERROR, "Token limit exceeded"))

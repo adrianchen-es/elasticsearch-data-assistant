@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IndexSelector, TierSelector } from './Selectors';
+import CollapsibleList from './CollapsibleList';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
@@ -20,6 +21,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
   const [selectedTiers, setSelectedTiers] = useState(['hot']); // Default to hot tier
+  const [includeContext, setIncludeContext] = useState(true); // Default to include context
   
   // UI state
   const [showSettings, setShowSettings] = useState(false);
@@ -414,6 +416,22 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     }
   };
 
+  const toggleIncludeContext = () => {
+    setIncludeContext((prev) => !prev);
+  };
+
+  const renderMappingResponse = (mappingResponse) => {
+    if (!mappingResponse) return null;
+
+    const { fields, is_long } = mappingResponse;
+    return (
+      <div className="mapping-response">
+        <h3 className="text-lg font-semibold">Mapping Response</h3>
+        <CollapsibleList items={fields} isLong={is_long} />
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header with controls */}
@@ -514,6 +532,15 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   Show Debug Info
                 </label>
               </div>
+            </div>
+            <div className="flex items-center space-x-2 mb-4">
+              <label className="text-sm font-medium text-gray-700">Include Context:</label>
+              <input
+                type="checkbox"
+                checked={includeContext}
+                onChange={toggleIncludeContext}
+                className="form-checkbox h-4 w-4 text-blue-600"
+              />
             </div>
           </div>
         )}
@@ -616,6 +643,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
             </div>
           </div>
         )}
+        
+        {renderMappingResponse(debugInfo?.mapping_response)}
         
         <div ref={messagesEndRef} />
       </div>

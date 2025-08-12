@@ -93,21 +93,36 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            applyCustomAttributesOnSpan: (span) => {
-              span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
-              span.setAttribute('frontend.environment', process.env.NODE_ENV);
+            applyCustomAttributesOnSpan: (span, request) => {
+              const url = request.url || 'unknown';
+              span.updateName(`HTTP ${request.method} ${url}`);
+              span.setAttribute('http.url', url);
+              span.setAttribute('http.method', request.method);
             },
           },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
+            applyCustomAttributesOnSpan: (span, xhr) => {
+              const url = xhr.responseURL || 'unknown';
+              span.updateName(`HTTP ${xhr.method || 'UNKNOWN'} ${url}`);
+              span.setAttribute('http.url', url);
+              span.setAttribute('http.method', xhr.method || 'UNKNOWN');
+            },
           },
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
+            applyCustomAttributesOnSpan: (span) => {
+              span.updateName('Document Load');
+            },
           },
           '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
-            eventNames: ['click', 'submit', 'change'], // Track user interactions
+            eventNames: ['click', 'submit', 'change'],
+            applyCustomAttributesOnSpan: (span, event) => {
+              span.updateName(`User Interaction: ${event.type}`);
+              span.setAttribute('event.target', event.target?.tagName || 'unknown');
+            },
           },
         }),
       ],
