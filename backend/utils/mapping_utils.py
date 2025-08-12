@@ -150,6 +150,7 @@ def extract_mapping_info(mapping_dict: Dict[str, Any], index_name: str) -> Tuple
         # Ensure index_mapping is a dict
         if not isinstance(index_mapping, dict):
             logger.warning(f"Index mapping for {index_name} is not a dictionary: {type(index_mapping)}")
+            logger.warning(f"Warning: mapping is {index_mapping}")
             return {}, {}, 0
         
         # Extract properties from mappings
