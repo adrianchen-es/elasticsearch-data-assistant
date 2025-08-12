@@ -288,7 +288,6 @@ async def _setup_background_tasks(mapping_cache_service, app_state):
 async def lifespan(app: FastAPI):
     """Application lifespan manager with improved traceability"""
     startup_start_time = asyncio.get_event_loop().time()
-
     # Create the main application startup span
     with tracer.start_as_current_span("application_startup") as startup_span:
         logger.info("🚀 Starting up Elasticsearch Data Assistant...")
@@ -305,7 +304,6 @@ async def lifespan(app: FastAPI):
                 ai_service = services_result["ai_service"] 
                 mapping_cache_service = services_result["mapping_cache_service"]
                 service_timings = services_result["timings"]
-
                 services_init_span.set_attributes({
                     "services_initialized": len(service_timings),
                     "total_services_time": sum(service_timings.values())
@@ -317,7 +315,6 @@ async def lifespan(app: FastAPI):
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
                 app.state.mapping_cache_service = mapping_cache_service
-
                 # Initialize health check cache
                 logger.info("🏥 Initializing health check cache...")
                 app.state.health_cache = {
@@ -326,7 +323,6 @@ async def lifespan(app: FastAPI):
                     "cache_ttl": 30  # 30 seconds TTL for health checks
                 }
                 logger.info("✅ Health check cache initialized with 30s TTL")
-
                 state_span.set_attributes({
                     "app_state_components": 4,  # es_service, ai_service, mapping_cache_service, health_cache
                     "health_cache_ttl": 30
@@ -339,12 +335,10 @@ async def lifespan(app: FastAPI):
                 )
                 app.state.background_tasks = background_tasks
                 service_timings.update(bg_timings)
-
                 bg_span.set_attributes({
                     "background_tasks_count": len(background_tasks),
                     "background_setup_time": bg_timings.get("scheduler_startup", 0)
                 })
-
             # Calculate total startup time and log summary
             total_startup_time = asyncio.get_event_loop().time() - startup_start_time
             startup_span.set_attributes({
@@ -370,7 +364,6 @@ async def lifespan(app: FastAPI):
             raise
 
         yield
-
     # Shutdown - Clean up resources with separate tracing context
     with tracer.start_as_current_span("application_shutdown") as shutdown_span:
         shutdown_start_time = asyncio.get_event_loop().time()
