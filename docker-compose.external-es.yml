@@ -29,6 +29,7 @@ services:
       - NODE_ENV=production
       - PORT=3100
       - BACKEND_BASE_URL=http://backend:8000
+      - OTEL_SEMCONV_STABILITY_OPT_IN=http
       - OTEL_SERVICE_NAME=es-data-assistant-gateway
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
     ports:
