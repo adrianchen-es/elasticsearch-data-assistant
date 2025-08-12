@@ -5,6 +5,8 @@ import json
 import logging
 from typing import Dict, Any, Tuple, Optional
 
+import elastic_transport
+
 logger = logging.getLogger(__name__)
 
 # Elasticsearch to Python type mapping
