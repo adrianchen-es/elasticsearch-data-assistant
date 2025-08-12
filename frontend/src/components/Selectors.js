@@ -44,13 +44,13 @@ const IndexSelector = ({
   showLabel = true,
   showStatus = true,
   className = '',
-  fetchIndicesOnMount = true
+  fetchIndicesOnMount = true,
+  selectedTiers = [] // Added selectedTiers prop to filter indices based on tiers
 }) => {
   const [availableIndices, setAvailableIndices] = useState([]);
   const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
-  const [tierFilter, setTierFilter] = useState('all'); // 'other', 'frozen', 'cold', 'system', 'other'
 
   // Categorize indices by tier based on prefixes
   const categorizeIndices = (indices) => {
@@ -69,18 +69,18 @@ const IndexSelector = ({
       return {
         name: indexName,
         tier: tier,
-        displayName: indexName,
+        displayName: indexName.length > 20 ? `${indexName.slice(0, 17)}...` : indexName, // Truncate long names
         originalData: index
       };
     });
   };
 
-  // Filter indices based on selected tier
-  const filterIndicesByTier = (categorizedIndices, filterValue) => {
-    if (filterValue === 'all') {
+  // Filter indices based on selected tiers
+  const filterIndicesByTiers = (categorizedIndices, tiers) => {
+    if (tiers.length === 0) {
       return categorizedIndices;
     }
-    return categorizedIndices.filter(index => index.tier === filterValue);
+    return categorizedIndices.filter(index => tiers.includes(index.tier));
   };
 
   // Fetch available indices
@@ -97,7 +97,7 @@ const IndexSelector = ({
       const rawIndices = Array.isArray(data) ? data : (data.indices || []);
       const categorizedIndices = categorizeIndices(rawIndices);
       setAvailableIndices(categorizedIndices);
-      const filtered = filterIndicesByTier(categorizedIndices, tierFilter);
+      const filtered = filterIndicesByTiers(categorizedIndices, selectedTiers);
       setFilteredIndices(filtered);
     } catch (err) {
       setIndicesError(err.message || 'Failed to fetch indices');
@@ -109,9 +109,9 @@ const IndexSelector = ({
   };
 
   useEffect(() => {
-    const filtered = filterIndicesByTier(availableIndices, tierFilter);
+    const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
     setFilteredIndices(filtered);
-  }, [availableIndices, tierFilter]);
+  }, [availableIndices, selectedTiers]);
 
   useEffect(() => {
     if (fetchIndicesOnMount) {
@@ -169,7 +169,7 @@ const IndexSelector = ({
               : indicesError 
                 ? "Error loading indices - click refresh to retry" 
                 : filteredIndices.length === 0
-                  ? "No indices available for selected tier"
+                  ? "No indices available for selected tiers"
                   : "Select an index..."}
           </option>
           {filteredIndices.map((index) => (
