@@ -51,6 +51,36 @@ const IndexSelector = ({
   const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
+  const [tierFilter, setTierFilter] = useState('all'); // 'all', 'hot', 'cold', 'frozen'
+  
+  // Categorize indices by tier based on prefixes
+  const categorizeIndices = (indices) => {
+    return indices.map(index => {
+      const indexName = typeof index === 'string' ? index : index.name || index.index;
+      let tier = 'hot'; // default tier
+      
+      if (indexName.startsWith('partial-')) {
+        tier = 'frozen';
+      } else if (indexName.startsWith('restored-')) {
+        tier = 'cold';
+      }
+      
+      return {
+        name: indexName,
+        tier: tier,
+        displayName: indexName,
+        originalData: index
+      };
+    });
+  };
+  
+  // Filter indices based on selected tier
+  const filterIndicesByTier = (categorizedIndices, filterValue) => {
+    if (filterValue === 'all') {
+      return categorizedIndices;
+    }
+    return categorizedIndices.filter(index => index.tier === filterValue);
+  };
 
   // Categorize indices by tier based on prefixes
   const categorizeIndices = (indices) => {
@@ -107,6 +137,12 @@ const IndexSelector = ({
       setIndicesLoading(false);
     }
   };
+  
+  // Update filtered indices when tier filter changes
+  useEffect(() => {
+    const filtered = filterIndicesByTier(availableIndices, tierFilter);
+    setFilteredIndices(filtered);
+  }, [availableIndices, tierFilter]);
 
   useEffect(() => {
     const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
