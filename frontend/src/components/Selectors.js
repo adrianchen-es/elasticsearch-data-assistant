@@ -51,7 +51,6 @@ const IndexSelector = ({
   const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
-  const [tierFilter, setTierFilter] = useState('all'); // 'other', 'frozen', 'cold', 'system', 'other'
 
   // Categorize indices by tier based on prefixes
   const categorizeIndices = (indices) => {
@@ -70,18 +69,18 @@ const IndexSelector = ({
       return {
         name: indexName,
         tier: tier,
-        displayName: indexName,
+        displayName: indexName.length > 20 ? `${indexName.slice(0, 17)}...` : indexName, // Truncate long names
         originalData: index
       };
     });
   };
 
-  // Filter indices based on selected tier
-  const filterIndicesByTier = (categorizedIndices, filterValue) => {
-    if (filterValue === 'all') {
+  // Filter indices based on selected tiers
+  const filterIndicesByTiers = (categorizedIndices, tiers) => {
+    if (tiers.length === 0) {
       return categorizedIndices;
     }
-    return categorizedIndices.filter(index => index.tier === filterValue);
+    return categorizedIndices.filter(index => tiers.includes(index.tier));
   };
 
   // Categorize indices by tier based on prefixes
@@ -141,9 +140,9 @@ const IndexSelector = ({
   };
 
   useEffect(() => {
-    const filtered = filterIndicesByTier(availableIndices, tierFilter);
+    const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
     setFilteredIndices(filtered);
-  }, [availableIndices, tierFilter]);
+  }, [availableIndices, selectedTiers]);
 
   useEffect(() => {
     const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
