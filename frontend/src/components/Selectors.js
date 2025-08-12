@@ -57,14 +57,16 @@ const IndexSelector = ({
   const categorizeIndices = (indices) => {
     return indices.map(index => {
       const indexName = typeof index === 'string' ? index : index.name || index.index;
-      let tier = 'hot'; // default tier
-      
+      let tier = 'other'; // default tier for uncategorized indices
+
       if (indexName.startsWith('partial-')) {
         tier = 'frozen';
       } else if (indexName.startsWith('restored-')) {
         tier = 'cold';
+      } else if (indexName.startsWith('.')) {
+        tier = 'system';
       }
-      
+
       return {
         name: indexName,
         tier: tier,
