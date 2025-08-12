@@ -949,7 +949,7 @@ class AIService:
     async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None, 
                           temperature: float = 0.2, stream: bool = False, 
                           conversation_id: Optional[str] = None, provider: str = "auto"):
-        """Generate chat response with optional streaming support"""
+        """Generate chat response - returns different types based on stream parameter"""
         # Auto-select provider if not specified
         if provider == "auto":
             provider = await self._get_default_provider_async()
@@ -970,8 +970,10 @@ class AIService:
             
             try:
                 if stream:
+                    # For streaming, return the async generator
                     return self._stream_chat_response(messages, model, temperature, provider)
                 else:
+                    # For non-streaming, return the response directly
                     return await self._get_chat_response(messages, model, temperature, provider)
                     
             except Exception as e:
@@ -989,7 +991,20 @@ class AIService:
                 }
                 
                 logger.error(f"Error in generate_chat: {error_context}")
-                raise ValueError(f"Failed to generate chat response using {provider}: {str(e)}") from e
+                if stream:
+                    # For streaming, create a generator that yields error
+                    async def error_generator():
+                        yield {
+                            "type": "error",
+                            "error": {
+                                "code": "chat_failed",
+                                "message": str(e),
+                                "provider": provider
+                            }
+                        }
+                    return error_generator()
+                else:
+                    raise ValueError(f"Failed to generate chat response using {provider}: {str(e)}") from e
 
     async def _stream_chat_response(self, messages: List[Dict], model: Optional[str], 
                                   temperature: float, provider: str):
