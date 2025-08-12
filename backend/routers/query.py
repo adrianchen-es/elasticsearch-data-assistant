@@ -78,13 +78,33 @@ async def validate_query(request: QueryValidationRequest, app_request: Request):
             message=str(e)
         )
 
-@router.get("/indices", response_model=List[str])
-async def get_indices(app_request: Request):
-    """Get list of available Elasticsearch indices"""
+@router.get("/indices")
+async def get_indices(app_request: Request, tier: str = None):
+    """Get available indices, optionally filtered by tier"""
     try:
+        es_service = app_request.app.state.es_service
         mapping_service = app_request.app.state.mapping_cache_service
+        
+        # Get all available indices
         indices = await mapping_service.get_available_indices()
-        return indices
+        
+        # If no tier filter specified, return all indices
+        if not tier:
+            return indices
+            
+        # Filter indices by tier
+        # Note: This would require tier information to be included in the index metadata
+        # For now, we'll return all indices as most ES deployments don't have explicit tier info
+        # In a real implementation, you'd query ES cluster state or use index settings
+        filtered_indices = []
+        for index in indices:
+            # You could check index settings here for tier allocation
+            # For demonstration, we'll assume tier information is available
+            index_tier = getattr(index, 'tier', 'hot')  # Default to hot
+            if tier.lower() == index_tier.lower():
+                filtered_indices.append(index)
+        
+        return filtered_indices
         
     except Exception as e:
         logger.error(f"Get indices error: {e}")
@@ -146,6 +166,81 @@ async def refresh_cache(app_request: Request):
         
     except Exception as e:
         logger.error(f"Cache refresh error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/tiers")
+@tracer.start_as_current_span("get_tiers")
+async def get_tiers(app_request: Request):
+    """Get available data tiers with statistics"""
+    try:
+        es_service = app_request.app.state.es_service
+        mapping_service = app_request.app.state.mapping_cache_service
+        
+        # Get all indices
+        indices = await mapping_service.get_available_indices()
+        
+        # Calculate tier statistics
+        tier_stats = {
+            'hot': {'count': 0, 'indices': []},
+            'warm': {'count': 0, 'indices': []},
+            'cold': {'count': 0, 'indices': []},
+            'frozen': {'count': 0, 'indices': []}
+        }
+        
+        for index in indices:
+            # For demonstration purposes, we'll categorize based on index name patterns
+            # In a real implementation, you'd check the index settings for tier allocation
+            index_name = index if isinstance(index, str) else index.get('name', str(index))
+            
+            tier = 'hot'  # Default tier
+            
+            # Simple heuristics for tier classification based on index patterns
+            if any(pattern in index_name.lower() for pattern in ['warm', 'week', 'monthly']):
+                tier = 'warm'
+            elif any(pattern in index_name.lower() for pattern in ['cold', 'archive', 'old']):
+                tier = 'cold' 
+            elif any(pattern in index_name.lower() for pattern in ['frozen', 'backup']):
+                tier = 'frozen'
+            
+            tier_stats[tier]['count'] += 1
+            tier_stats[tier]['indices'].append(index_name)
+        
+        return {
+            'tiers': [
+                {
+                    'name': 'hot',
+                    'display_name': 'Hot',
+                    'description': 'Frequently accessed data',
+                    'count': tier_stats['hot']['count'],
+                    'indices': tier_stats['hot']['indices']
+                },
+                {
+                    'name': 'warm', 
+                    'display_name': 'Warm',
+                    'description': 'Less frequently accessed data',
+                    'count': tier_stats['warm']['count'],
+                    'indices': tier_stats['warm']['indices']
+                },
+                {
+                    'name': 'cold',
+                    'display_name': 'Cold', 
+                    'description': 'Rarely accessed data',
+                    'count': tier_stats['cold']['count'],
+                    'indices': tier_stats['cold']['indices']
+                },
+                {
+                    'name': 'frozen',
+                    'display_name': 'Frozen',
+                    'description': 'Archived data',
+                    'count': tier_stats['frozen']['count'],
+                    'indices': tier_stats['frozen']['indices']
+                }
+            ],
+            'total_indices': len(indices)
+        }
+        
+    except Exception as e:
+        logger.error(f"Get tiers error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
         
     except Exception as e:

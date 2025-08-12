@@ -134,19 +134,33 @@ def extract_mapping_info(mapping_dict: Dict[str, Any], index_name: str) -> Tuple
         - field_count: Total number of fields
     """
     try:
+        # Normalize the mapping_dict first to handle unexpected types
+        normalized_mapping = normalize_mapping_data(mapping_dict)
+        
+        if not isinstance(normalized_mapping, dict):
+            logger.warning(f"Mapping data for {index_name} is not a dictionary after normalization")
+            return {}, {}, 0
+        
         # Get the index-specific mapping
-        index_mapping = mapping_dict.get(index_name, {})
-        if not index_mapping and mapping_dict:
+        index_mapping = normalized_mapping.get(index_name, {})
+        if not index_mapping and normalized_mapping:
             # If no exact match, try to get the first mapping
-            index_mapping = next(iter(mapping_dict.values()), {})
+            index_mapping = next(iter(normalized_mapping.values()), {}) if normalized_mapping else {}
+        
+        # Ensure index_mapping is a dict
+        if not isinstance(index_mapping, dict):
+            logger.warning(f"Index mapping for {index_name} is not a dictionary: {type(index_mapping)}")
+            return {}, {}, 0
         
         # Extract properties from mappings
         mappings = index_mapping.get('mappings', {})
         if not isinstance(mappings, dict):
+            logger.warning(f"Mappings for {index_name} is not a dictionary: {type(mappings)}")
             return {}, {}, 0
             
         properties = mappings.get('properties', {})
         if not isinstance(properties, dict):
+            logger.warning(f"Properties for {index_name} is not a dictionary: {type(properties)}")
             return {}, {}, 0
         
         # Flatten the properties

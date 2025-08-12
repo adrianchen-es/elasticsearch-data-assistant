@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { IndexSelector } from './Selectors';
+import { IndexSelector, TierSelector } from './Selectors';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
@@ -19,6 +19,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [conversationId, setConversationId] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
+  const [selectedTiers, setSelectedTiers] = useState(['hot']); // Default to hot tier
   
   // UI state
   const [showSettings, setShowSettings] = useState(false);
@@ -425,14 +426,23 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
             </div>
             
             {chatMode === "elasticsearch" && (
-              <IndexSelector
-                selectedIndex={selectedIndex}
-                onIndexChange={setSelectedIndex}
-                variant="compact"
-                disabled={isStreaming}
-                showLabel={true}
-                showStatus={false}
-              />
+              <div className="space-y-3">
+                <IndexSelector
+                  selectedIndex={selectedIndex}
+                  onIndexChange={setSelectedIndex}
+                  variant="compact"
+                  disabled={isStreaming}
+                  showLabel={true}
+                  showStatus={false}
+                />
+                <TierSelector
+                  selectedTiers={selectedTiers}
+                  onTierChange={setSelectedTiers}
+                  variant="compact"
+                  disabled={isStreaming}
+                  showLabel={true}
+                />
+              </div>
             )}
           </div>
           
