@@ -210,25 +210,25 @@ class MappingCacheService:
                 raise
 
     async def _safe_refresh_all(self):
-        """Wrapper for refresh_all with comprehensive error handling and tracing"""
+        """Wrapper for refresh_all with comprehensive error handling and tracing.
+        Each scheduled refresh is a parent/root span (not a child of startup)."""
         with tracer.start_as_current_span(
-            "mapping_cache_service.safe_refresh",
-            kind=SpanKind.INTERNAL
-        ) as refresh_span:
+            "mapping_cache_service.periodic_refresh",
+            kind=SpanKind.INTERNAL,
+            attributes={"refresh_type": "periodic"}
+        ) as periodic_span:
             try:
-                logger.debug("🔄 Starting scheduled cache refresh...")
+                logger.debug("🔄 Starting scheduled cache refresh (periodic)...")
                 await self.refresh_all()
-                refresh_span.set_status(StatusCode.OK)
+                periodic_span.set_status(StatusCode.OK)
                 logger.debug("✅ Scheduled cache refresh completed successfully")
-                
             except Exception as e:
                 error_msg = f"Scheduled cache refresh failed: {e}"
                 logger.error(f"❌ {error_msg}")
                 self._stats["refresh_errors"] = self._stats.get("refresh_errors", 0) + 1
                 self._initialization_status["errors"].append(error_msg)
-                
-                refresh_span.set_status(Status(StatusCode.ERROR, error_msg))
-                refresh_span.record_exception(e)
+                periodic_span.set_status(Status(StatusCode.ERROR, error_msg))
+                periodic_span.record_exception(e)
                 # Don't re-raise to avoid stopping the scheduler
 
     async def stop_scheduler(self):
@@ -749,3 +749,12 @@ class MappingCacheService:
                 sub[f"{subname}"] = ({ 'type': jsubtype, **({ 'format': subfmt } if subfmt else {}) })
             node['x-multi-fields'] = sub
         return node
+
+    async def _periodic_refresh(self):
+        while True:
+            with tracer.start_as_current_span("mapping_cache.refresh", kind=SpanKind.INTERNAL):
+                try:
+                    await self.refresh_all()
+                except Exception as e:
+                    logger.error(f"Error during periodic refresh: {e}")
+            await asyncio.sleep(self._min_refresh_interval)
