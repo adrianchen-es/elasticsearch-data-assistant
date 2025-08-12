@@ -292,7 +292,7 @@ async def lifespan(app: FastAPI):
         
         try:
             # Initialize core services - separate span from application startup
-            with tracer.start_as_current_span("lifespan_service_initialization", parent=startup_span) as services_init_span:
+            with tracer.start_as_current_span("lifespan_service_initialization", context=startup_span) as services_init_span:
                 services_result = await _initialize_core_services()
                 es_service = services_result["es_service"]
                 ai_service = services_result["ai_service"] 
@@ -305,7 +305,7 @@ async def lifespan(app: FastAPI):
                 })
             
             # Store services in app state - separate span
-            with tracer.start_as_current_span("lifespan_app_state_setup", parent=startup_span) as state_span:
+            with tracer.start_as_current_span("lifespan_app_state_setup", context=startup_span) as state_span:
                 logger.info("🏪 Storing services in application state...")
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
@@ -326,7 +326,7 @@ async def lifespan(app: FastAPI):
                 })
             
             # Setup background tasks - separate span
-            with tracer.start_as_current_span("lifespan_background_tasks_setup", parent=startup_span) as bg_span:
+            with tracer.start_as_current_span("lifespan_background_tasks_setup", context=startup_span) as bg_span:
                 background_tasks, bg_timings = await _setup_background_tasks(
                     mapping_cache_service, app.state
                 )
@@ -373,7 +373,7 @@ async def lifespan(app: FastAPI):
     
         try:
             # Cancel background tasks - separate span
-            with tracer.start_as_current_span("shutdown_background_tasks", parent=shutdown_span) as bg_cleanup_span:
+            with tracer.start_as_current_span("shutdown_background_tasks", context=shutdown_span) as bg_cleanup_span:
                 task_cleanup_start = asyncio.get_event_loop().time()
                 background_tasks = getattr(app.state, 'background_tasks', [])
                 
@@ -404,7 +404,7 @@ async def lifespan(app: FastAPI):
                 })
             
             # Clean up services - separate span
-            with tracer.start_as_current_span("shutdown_services_cleanup", parent=shutdown_span) as services_cleanup_span:
+            with tracer.start_as_current_span("shutdown_services_cleanup", context=shutdown_span) as services_cleanup_span:
                 services_cleanup_start = asyncio.get_event_loop().time()
                 
                 logger.info("🗂️ Stopping mapping cache scheduler...")
@@ -443,7 +443,7 @@ async def lifespan(app: FastAPI):
             logger.info("🔄 Attempting force cleanup...")
             
             # Force cleanup attempt - separate span
-            with tracer.start_as_current_span("shutdown_force_cleanup", parent=shutdown_span) as force_cleanup_span:
+            with tracer.start_as_current_span("shutdown_force_cleanup", context=shutdown_span) as force_cleanup_span:
                 try:
                     if hasattr(mapping_cache_service, 'stop_scheduler'):
                         await mapping_cache_service.stop_scheduler()
