@@ -88,6 +88,7 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
         except (TypeError, json.JSONDecodeError):
             logger.warning("Mapping data could not be serialized and parsed.")
 
+        logger.warning(f"Normalizing mapping data of type {type(mapping_data)}: {mapping_data}")
         logger.warning("Mapping data could not be normalized to a dictionary.")
         return None
 
