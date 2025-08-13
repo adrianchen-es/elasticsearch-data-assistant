@@ -473,9 +473,10 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                 except TokenLimitError as te:
                     yield (json.dumps(te.to_dict()) + "\n").encode("utf-8")
                 except Exception as e:
+                    logger.error(f"Exception in chat event_stream: {e}", exc_info=True)
                     error_event = {
                         "type": "error",
-                        "error": {"code": "chat_failed", "message": str(e)},
+                        "error": {"code": "chat_failed", "message": "An internal error has occurred."},
                         "debug": stream_debug_info if req.debug else None
                     }
                     yield (json.dumps(error_event) + "\n").encode("utf-8")
