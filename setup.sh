@@ -20,14 +20,14 @@ fi
 
 # Build and start services
 echo "🏗️  Building and starting services..."
-docker-compose -f docker-compose.yml up --build -d
+docker compose -f docker-compose.yml up --build -d
 
 echo "⏳ Waiting for services to be ready..."
 sleep 30
 
 # Check service health
 echo "🏥 Checking service health..."
-docker-compose -f docker-compose.yml ps
+docker compose -f docker-compose.yml ps
 
 # Show access URLs
 echo ""

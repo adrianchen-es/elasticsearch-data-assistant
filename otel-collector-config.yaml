@@ -10,22 +10,26 @@ processors:
   batch:
 
 exporters:
-  logging:
-    loglevel: debug
   prometheus:
     endpoint: "0.0.0.0:8889"
+  otlp:
+    # Elastic APM server https endpoint without the "https://" prefix
+    endpoint: "${env:OTEL_COLLECTOR_EXPORTER_OTLP}"
+    headers:
+      # Elastic APM Server secret token
+      Authorization: "Bearer ${env:ELASTIC_APM_SECRET_TOKEN}"
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging]
+      exporters: [otlp]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, prometheus]
+      exporters: [otlp, prometheus]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging]
+      exporters: [otlp]

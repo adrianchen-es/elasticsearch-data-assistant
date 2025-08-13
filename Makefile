@@ -13,26 +13,26 @@ setup-external: ## Setup with external Elasticsearch
 	@./setup-external-es.sh
 
 build: ## Build all services
-	@docker-compose build
+	@docker compose build
 
 up: ## Start all services
-	@docker-compose up -d
+	@docker compose up -d
 
 up-external: ## Start services with external ES
-	@docker-compose -f docker-compose.external-es.yml up -d
+	@docker compose -f docker-compose.external-es.yml up -d
 
 down: ## Stop all services
-	@docker-compose down
-	@docker-compose -f docker-compose.external-es.yml down
+	@docker compose down
+	@docker compose -f docker-compose.external-es.yml down
 
 logs: ## Show logs for all services
-	@docker-compose logs -f
+	@docker compose logs -f
 
 logs-backend: ## Show backend logs
-	@docker-compose logs -f backend
+	@docker compose logs -f backend
 
 logs-frontend: ## Show frontend logs
-	@docker-compose logs -f frontend
+	@docker compose logs -f frontend
 
 health: ## Check service health
 	@echo "Checking service health..."
@@ -40,8 +40,8 @@ health: ## Check service health
 	@curl -s http://localhost:3000 > /dev/null && echo "Frontend: OK" || echo "Frontend: Not responding"
 
 clean: ## Clean up containers and volumes
-	@docker-compose down -v
-	@docker-compose -f docker-compose.external-es.yml down -v
+	@docker compose down -v
+	@docker compose -f docker-compose.external-es.yml down -v
 	@docker system prune -f
 
 test-backend: ## Run backend tests

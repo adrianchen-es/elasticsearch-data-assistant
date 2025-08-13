@@ -1,10 +1,12 @@
-FROM node:18-alpine as builder
+## Frontend
+FROM node:20-alpine as builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-RUN npm install
+#RUN npm install -D compression-webpack-plugin terser-webpack-plugin
+RUN npm install -D compression-webpack-plugin
 
 # Copy source code
 COPY . .

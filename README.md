@@ -102,9 +102,9 @@ elasticsearch-ai-assistant/
 │       ├── App.js                     # Main application component
 │       │
 │       ├── components/                # React components
-│       │   ├── chat_interface.js       # AI chat interface component
-│       │   ├── query_editor.js         # Manual query editor component
-│       │   └── selectors.js           # Index and provider selector components
+│       │   ├── ChatInterface.js       # AI chat interface component
+│       │   ├── QueryEditor.js         # Manual query editor component
+│       │   └── Selectors.js           # Index and provider selector components
 │       │
 │       └── telemetry/                 # Frontend telemetry
 │           └── setup.js               # OpenTelemetry browser instrumentation
@@ -196,19 +196,19 @@ MAPPING_CACHE_INTERVAL_MINUTES=30      # How often to refresh mappings
 - Service initialization (telemetry)
 - State management for global settings
 
-#### `frontend/src/components/chat_interface.js`
+#### `frontend/src/components/ChatInterface.js`
 - Real-time chat interface
 - Message history management
 - Query and result visualization
 - Copy/export functionality
 
-#### `frontend/src/components/query_editor.js`
+#### `frontend/src/components/QueryEditor.js`
 - Manual Elasticsearch query editor
 - JSON syntax highlighting and validation
 - Real-time query execution
 - Result formatting and display
 
-#### `frontend/src/components/selectors.js`
+#### `frontend/src/components/Selectors.js`
 - Index selection dropdown
 - AI provider selection
 - Dynamic option loading
@@ -491,3 +491,112 @@ For issues and questions:
 - Review service logs with `make logs`
 - Test individual components with debug commands
 - Verify environment configuration
+
+# Consolidated Documentation
+
+## AIService Improvements
+
+### Overview
+The AIService has been significantly enhanced with comprehensive initialization logging, better error handling, and improved debugging capabilities.
+
+#### Key Improvements
+- **Enhanced Initialization**: Added detailed logging, configuration validation, and graceful failure handling.
+- **Improved Error Handling**: Includes provider validation, auto-provider selection, and structured logging.
+- **Debugging Capabilities**: Provides initialization diagnostics and detailed error context.
+
+#### New Features
+- `_mask_sensitive_data()`: Safely logs configuration without exposing sensitive information.
+- `get_initialization_status()`: Returns detailed initialization diagnostics.
+- `_get_available_providers()`: Lists all configured AI providers.
+- `_validate_provider()`: Validates provider availability before API calls.
+- `_get_default_provider()`: Automatically selects the best available provider.
+
+---
+
+## Backend Fixes Summary
+
+### Overview
+This document summarizes all the backend fixes implemented to resolve tracing, AI service initialization, and chat streaming issues.
+
+#### Key Fixes
+1. **AI Service Initialization**: Ensures AI clients are fully ready before the API starts accepting requests.
+2. **Tracing Hierarchy**: Maintains proper parent-child relationships during startup and periodic refreshes.
+3. **Chat Streaming**: Fixed async generator handling and variable scoping issues.
+4. **Comprehensive Tracing**: Added OpenTelemetry spans to all major service methods.
+
+---
+
+## Chat Enhancements
+
+### Overview
+Enhanced chat functionality with streaming responses, free chat vs context-aware modes, and improved diagnostics.
+
+#### Key Features
+- **Dual Chat Modes**: Supports both "free" chat and "elasticsearch" context-aware chat.
+- **Streaming Support**: Real-time response streaming with proper NDJSON format.
+- **Debug Mode**: Comprehensive request/response diagnostics.
+- **Conversation Management**: Persistent conversation IDs for tracking.
+
+---
+
+## Health Monitoring
+
+### Overview
+Enhanced the health monitoring system to separately track backend and proxy health with dedicated endpoints and visual indicators.
+
+#### Key Features
+- **Two-Tier Health Monitoring**: Tracks both backend and proxy health.
+- **Real-Time Updates**: UI updates automatically when status changes.
+- **Detailed Tooltip**: Provides individual service status with icons.
+
+---
+
+## Frontend Improvements
+
+### Overview
+Improved user experience for loading Elasticsearch indices, including proper loading states, error handling, and retry functionality.
+
+#### Key Features
+- **Enhanced Index Dropdown**: Includes loading, error, and empty states.
+- **Improved Status Indicators**: Real-time feedback on indices loading state.
+- **Automatic Retry Logic**: Auto-fetches indices when switching to Elasticsearch mode.
+
+---
+
+## Health Cache Fix
+
+### Overview
+Fixed a potential bug in the health check endpoint to ensure proper cache validation.
+
+#### Key Fixes
+- **Explicit None Checks**: Validates that all required cache data is present and valid.
+- **Safe Cache Access**: Prevents accessing undefined or invalid cached data.
+
+---
+
+## System Health Status
+
+### Overview
+Added a real-time system health status indicator to the application header.
+
+#### Key Features
+- **Health Status Icons**: Visual feedback for system availability.
+- **Status Monitoring**: Automatic and manual health checks.
+- **Detailed Tooltip**: Provides current system status and individual service health.
+
+---
+
+## Consolidated API Endpoints
+
+### Chat Interface
+- `POST /api/chat` - AI-powered natural language queries.
+- `POST /api/query/regenerate` - Modify and re-execute queries.
+
+### Query Management
+- `POST /api/query/execute` - Execute custom queries.
+- `POST /api/query/validate` - Validate queries without execution.
+- `GET /api/indices` - List available indices.
+- `GET /api/mapping/{index_name}` - Get index mapping.
+
+### System
+- `GET /api/health` - Service health check.
