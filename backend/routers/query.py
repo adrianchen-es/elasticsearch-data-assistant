@@ -245,7 +245,6 @@ async def get_tiers(app_request: Request):
         
     except Exception as e:
         logger.error(f"Get mapping error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/query/regenerate", response_model=ChatResponse)
 @tracer.start_as_current_span("regenerate_query")
