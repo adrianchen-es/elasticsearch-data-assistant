@@ -98,12 +98,12 @@ class ChatError:
     
     @staticmethod
     def create_error_response(error: Exception, error_code: str, include_debug: bool = False) -> Dict:
-        """Create standardized error response"""
+        """Create standardized error response. Never expose exception details to the client."""
+        # Log the error details for server-side debugging
+        logger.error("Error occurred: %s", str(error), exc_info=True)
         return {
             "code": error_code,
-            "message": ChatError.sanitize_error_message(error, include_debug),
-            "type": type(error).__name__ if include_debug else None,
-            "debug_message": str(error)[:200] if include_debug else None
+            "message": "An unexpected error occurred. Please try again."
         }
 
 
@@ -330,7 +330,7 @@ def create_streaming_response(
                 
                 error_event = {
                     "type": "error",
-                    "error": ChatError.create_error_response(e, "streaming_failed", req.debug)
+                    "error": ChatError.create_error_response(e, "streaming_failed", False)
                 }
                 yield (json.dumps(error_event) + "\n").encode("utf-8")
     
