@@ -243,8 +243,6 @@ const IndexSelector = ({
   );
 };
 
-export { ProviderSelector, IndexSelector, TierSelector };
-
 // Component to select data tiers
 const TierSelector = ({ 
   selectedTiers, 

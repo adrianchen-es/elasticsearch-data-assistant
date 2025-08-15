@@ -539,7 +539,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                 type="checkbox"
                 checked={includeContext}
                 onChange={toggleIncludeContext}
-                className="form-checkbox h-4 w-4 text-blue-600"
+                className="h-4 w-4 text-blue-600"
               />
             </div>
           </div>
