@@ -139,9 +139,9 @@ export const setupTelemetryWeb = () => {
                 const method = (request && request.method) || span.attributes['http.method'] || 'GET';
                 const rawUrl = request && (request.url || request.input) || span.attributes['http.url'] || '';
                 const safeUrl = sanitizeUrlForSpan(rawUrl);
-                span.updateName(`HTTP ${method} ${safeUrl}`);
+                //span.updateName(`HTTP ${method} ${safeUrl}`);
+                //span.setAttribute('http.url', safeUrl);
                 span.setAttribute('http.method', method);
-                span.setAttribute('http.url', safeUrl);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
               } catch (e) {
@@ -159,7 +159,7 @@ export const setupTelemetryWeb = () => {
             semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
-              span.updateName('Document Load');
+              //span.updateName('Document Load');
               try {
                 const loadEvent = (performance && performance.timing) || {};
                 // record a coarse load indicator (not granular timings here)
@@ -183,7 +183,7 @@ export const setupTelemetryWeb = () => {
                 const tag = target && (target.tagName || target.nodeName) ? (target.tagName || target.nodeName) : 'unknown';
                 const id = target && target.id ? String(target.id).slice(0, 128) : undefined;
                 const classes = target && target.className ? String(target.className).slice(0, 256) : undefined;
-                span.updateName(`User Interaction: ${event.type}`);
+                //span.updateName(`User Interaction: ${event.type}`);
                 span.setAttribute('user.interaction.type', event.type);
                 span.setAttribute('user.interaction.target.tag', tag);
                 if (id) span.setAttribute('user.interaction.target.id', id);
