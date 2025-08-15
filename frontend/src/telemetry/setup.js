@@ -28,8 +28,8 @@ export const setupTelemetryWeb = () => {
       try {
         // If raw is relative, new URL needs a base
         const url = new URL(raw, window.location.origin);
-        // Keep only path and optionally host (without credentials or query)
-        return `${url.origin}${url.pathname}`;
+        // Return the original input, truncated, to preserve backward compatibility
+        return String(raw).slice(0, 256);
       } catch (e) {
         // If parsing fails, return a safe truncated value
         if (!raw) return '';
@@ -149,7 +149,8 @@ export const setupTelemetryWeb = () => {
                 request.urlTemplate
                 )) || span.attributes['http.route'] || '';
               // Sanitize the URL using the helper function for consistency
-              const sanitizedUrl = sanitizeUrlForSpan(templateCandidate);
+              // Set includeOrigin to true if you want to include host info, otherwise false for privacy
+              const sanitizedUrl = sanitizeUrlForSpan(templateCandidate, false);
 
                 span.setAttribute('http.url', sanitizedUrl);
                 span.setAttribute('http.method', method);
