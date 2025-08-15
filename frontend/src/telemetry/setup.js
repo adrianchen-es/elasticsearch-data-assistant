@@ -125,15 +125,25 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
+            //semconvStabilityOptIn: 'http/dup', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
             semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
             applyCustomAttributesOnSpan: (span, request) => {
               // Better span naming and sanitized attributes for HTTP requests
               try {
-                const method = (request && request.method) || span.attributes['http.method'] || 'GET';
-                const rawUrl = request && (request.url || request.input) || span.attributes['http.url'] || '';
-                const safeUrl = sanitizeUrlForSpan(rawUrl);
-                //span.updateName(`HTTP ${method} ${safeUrl}`);
-                //span.setAttribute('http.url', safeUrl);
+              const method = (request && request.method) || span.attributes['http.method'] || 'GET';
+
+              // Prefer any available url.template (from instrumentation) for stable span names.
+              // Fall back to request.url/request.input or span attribute if template is not available.
+              const templateCandidate =
+                (request && (
+                // common shapes: request.url.template, request.input.template, or direct urlTemplate prop
+                (request.url && request.url.template) ||
+                (request.input && request.input.template) ||
+                request.urlTemplate
+                )) || span.attributes['http.route'] || '';
+
+              // Ensure we have a string
+                span.setAttribute('http.url', safeUrl);
                 span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
@@ -145,11 +155,11 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
+            semconvStabilityOptIn: 'http/dup',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
           },
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
-            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
+            semconvStabilityOptIn: 'http/dup',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
               //span.updateName('Document Load');
@@ -168,7 +178,7 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
             eventNames: ['click', 'submit', 'change', 'input', 'focus', 'blur', 'scroll'],
-            semconvStabilityOptIn: 'http',
+            semconvStabilityOptIn: 'http/dup',
             // Keep interaction spans small and focused; avoid capturing user input values.
             applyCustomAttributesOnSpan: (span, event) => {
               try {
@@ -176,7 +186,7 @@ export const setupTelemetryWeb = () => {
                 const tag = target && (target.tagName || target.nodeName) ? (target.tagName || target.nodeName) : 'unknown';
                 const id = target && target.id ? String(target.id).slice(0, 128) : undefined;
                 const classes = target && target.className ? String(target.className).slice(0, 256) : undefined;
-                //span.updateName(`User Interaction: ${event.type}`);
+                span.updateName(`User Interaction: ${event.type}`);
                 span.setAttribute('user.interaction.type', event.type);
                 span.setAttribute('user.interaction.target.tag', tag);
                 if (id) span.setAttribute('user.interaction.target.id', id);
