@@ -1,6 +1,6 @@
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
 import { BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_INSTANCE_ID, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE, ATTR_HTTP_REQUEST_METHOD } from '@opentelemetry/semantic-conventions';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE, ATTR_HTTP_REQUEST_METHOD } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
@@ -23,7 +23,7 @@ export const setupTelemetryWeb = () => {
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
       [ATTR_SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
-      [ATTR_SERVICE_INSTANCE_ID]: process.env.REACT_APP_INSTANCE_ID || '1',
+      'service.instance.id': process.env.REACT_APP_INSTANCE_ID || '1',
       'deployment.environment': process.env.NODE_ENV || 'development',
       'browser.brands': navigator.userAgent,
       'browser.language': navigator.language,
