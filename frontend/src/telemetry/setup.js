@@ -22,14 +22,21 @@ export const setupTelemetryWeb = () => {
     // Helper: sanitize URLs for span attributes (strip querystring and fragment)
     const sanitizeUrlForSpan = (raw) => {
       try {
-        // If raw is relative, new URL needs a base
-        const url = new URL(raw, window.location.origin);
-        // Return the original input, truncated, to preserve backward compatibility
-        return String(raw).slice(0, 256);
-      } catch (e) {
-        // If parsing fails, return a safe truncated value
         if (!raw) return '';
-        return String(raw).split('?')[0].split('#')[0].slice(0, 256);
+        const s = String(raw);
+        // If the string looks like an OTEL url.template or http.route (contains braces or ':' placeholders), keep it
+        if (s.includes('{') || s.includes('}') || s.includes(':')) {
+          return s.slice(0, 256);
+        }
+        // If it looks like an absolute URL, return only the pathname (no origin, no query)
+        if (s.includes('://') || s.startsWith('http')) {
+          const url = new URL(s, window.location.origin);
+          return (url.pathname || '/').slice(0, 256);
+        }
+        // If it looks like a path or template, strip query/fragment and truncate
+        return s.split('?')[0].split('#')[0].slice(0, 256);
+      } catch (e) {
+        return '';
       }
     };
 
@@ -134,18 +141,20 @@ export const setupTelemetryWeb = () => {
 
                 // Prefer any available url.template (from instrumentation) for stable span names.
                 // Fall back to request.url/request.input or span attribute if template is not available.
+                // Prefer OTEL semantic url.template/http.route if provided by instrumentation
                 const templateCandidate =
                   (request && (
-                  // common shapes: request.url.template, request.input.template, or direct urlTemplate prop
-                  request.url && (request.url.template || request.url.path) ||
-                  (request.input && request.input.template) ||
-                  request.urlTemplate
-                  )) || span.attributes['http.route'] || span.attributes['url.path'] || '';
-                // Sanitize the URL using the helper function for consistency
-                // Set includeOrigin to true if you want to include host info, otherwise false for privacy
+                    (request.url && (request.url.template || request.url.path)) ||
+                    (request.input && request.input.template) ||
+                    request.urlTemplate
+                  )) || span.attributes['http.route'] || span.attributes['http.target'] || span.attributes['http.path'] || span.attributes['url.path'] || '';
+
+                // Sanitize and normalize the candidate. If it's a full URL, this will reduce it to path only.
                 const sanitizedUrl = sanitizeUrlForSpan(templateCandidate);
 
-                span.updateName(`${method} ${sanitizedUrl}`);
+                // Update span name using method + template/path. Avoid including origin or querystring.
+                const spanName = sanitizedUrl ? `${method} ${sanitizedUrl}` : method;
+                span.updateName(spanName);
                 span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
