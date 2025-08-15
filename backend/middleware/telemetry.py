@@ -2,12 +2,10 @@
 import os
 from opentelemetry import trace, metrics
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.semconv.resource import ResourceAttributes
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as OTLPHttpSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPGrpcSpanExporter
-from opentelemetry.sdk.trace.sampling import TraceIdRatioBasedSampler
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -22,6 +20,12 @@ from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumento
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from config.settings import settings
 import logging
+try:
+    # Newer semantic conventions expose SemanticResourceAttributes
+    from opentelemetry.semconv.resource import SemanticResourceAttributes as SemanticResourceAttrs
+except Exception:
+    # Fallback to older ResourceAttributes for compatibility with older opentelemetry versions
+    from opentelemetry.semconv.resource import ResourceAttributes as SemanticResourceAttrs
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +40,11 @@ def setup_telemetry():
         os.environ.setdefault('OTEL_PROPAGATORS', 'tracecontext,b3')
         # Create enhanced resource with service information
         _resource = Resource.create({
-            ResourceAttributes.SERVICE_NAME: settings.otel_service_name,
-            ResourceAttributes.SERVICE_VERSION: settings.version,
-            ResourceAttributes.DEPLOYMENT_ENVIRONMENT: settings.environment,
-            ResourceAttributes.HOST_NAME: settings.host_name,
-            ResourceAttributes.CONTAINER_NAME: settings.container_name,
+            SemanticResourceAttrs.SERVICE_NAME: settings.otel_service_name,
+            SemanticResourceAttrs.SERVICE_VERSION: settings.version,
+            SemanticResourceAttrs.DEPLOYMENT_ENVIRONMENT: settings.environment,
+            SemanticResourceAttrs.HOST_NAME: settings.host_name,
+            SemanticResourceAttrs.CONTAINER_NAME: settings.container_name,
         })
         
         # --- Tracing ---
@@ -57,19 +61,7 @@ def setup_telemetry():
                 #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
-        # Env-driven sampling ratio (OTEL_SAMPLING_RATIO) default to 1.0 (100%)
-        ratio_env = os.getenv('OTEL_SAMPLING_RATIO', os.getenv('OTEL_SAMPLER_RATIO', '1.0'))
-        try:
-            ratio = float(ratio_env)
-        except Exception:
-            ratio = 1.0
-        # clamp to [0.0, 1.0]
-        if ratio < 0.0:
-            ratio = 0.0
-        if ratio > 1.0:
-            ratio = 1.0
-        logger.info(f"Telemetry sampling ratio set to {ratio}")
-        trace_provider = TracerProvider(resource=_resource, sampler=TraceIdRatioBasedSampler(ratio))
+        trace_provider = TracerProvider(resource=_resource)
         # Tune BatchSpanProcessor for higher throughput with reasonable latency
         trace_provider.add_span_processor(
             BatchSpanProcessor(
