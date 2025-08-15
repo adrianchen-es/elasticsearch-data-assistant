@@ -11,6 +11,7 @@ import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/c
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { trace, context } from '@opentelemetry/api';
 
 
 // Enable debug logging
@@ -118,18 +119,11 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            //semconvStabilityOptIn: 'http/dup', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
             semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
+            //semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
             applyCustomAttributesOnSpan: (span, request) => {
               // Better span naming and sanitized attributes for HTTP requests
               try {
-                const method = (request && request.method) || [ATTR_HTTP_REQUEST_METHOD] || 'GET';
-
-                const route = [ATTR_HTTP_ROUTE];
-                if (route) {
-                  span.updateName(`${method || 'GET'} ${route}`);
-                }
-                span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
               } catch (e) {
@@ -140,24 +134,11 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            semconvStabilityOptIn: 'http/dup',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
-            applyCustomAttributesOnSpan: (span, request) => {
-              // Better span naming and sanitized attributes for HTTP requests
-              try {
-                const method = (request && request.method) || [ATTR_HTTP_REQUEST_METHOD] || 'GET';
-
-                const route = [ATTR_HTTP_ROUTE];
-                if (route) {
-                  span.updateName(`${method || 'GET'} ${route}`);
-                }
-              } catch (e) {
-                // Best-effort only
-              }
-            },
+            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
           },
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
-            semconvStabilityOptIn: 'http/dup',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
+            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
               //span.updateName('Document Load');
@@ -176,7 +157,7 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
             eventNames: ['click', 'submit', 'change', 'input', 'focus', 'blur', 'scroll'],
-            semconvStabilityOptIn: 'http/dup',
+            semconvStabilityOptIn: 'http',
             // Keep interaction spans small and focused; avoid capturing user input values.
             applyCustomAttributesOnSpan: (span, event) => {
               try {
@@ -202,6 +183,28 @@ export const setupTelemetryWeb = () => {
       tracerProvider: tracerProvider,
       meterProvider: meterProvider,
     });
+
+    // Wrap global fetch to propagate X-Http-Route header into active span as ATTR_HTTP_ROUTE
+    try {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const resp = await nativeFetch(...args);
+        try {
+          const route = resp.headers.get('x-http-route') || resp.headers.get('X-Http-Route');
+          if (route) {
+            const span = trace.getSpan(context.active());
+            if (span) {
+              try { span.setAttribute(ATTR_HTTP_ROUTE, route); } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // best-effort
+        }
+        return resp;
+      };
+    } catch (e) {
+      // ignore if fetch cannot be wrapped in some environments
+    }
 
     console.log('OpenTelemetry initialized for frontend');
   } catch (error) {

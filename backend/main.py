@@ -595,7 +595,30 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=['X-Http-Route'],
 )
+
+
+# Middleware to automatically add X-Http-Route header to all responses.
+# This uses the matched route object from the request scope to extract the
+# path template (e.g. "/api/chat" or "/api/items/{item_id}") and sets it
+# on the response so browser clients can use it for stable span naming.
+@app.middleware("http")
+async def add_route_header_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        route = request.scope.get('route')
+        if route:
+            # APIRoute / Route objects expose path or path_format on different versions
+            route_path = getattr(route, 'path', None) or getattr(route, 'path_format', None) or getattr(route, 'name', None)
+            if route_path:
+                # Only set header if not already present
+                if 'X-Http-Route' not in response.headers:
+                    response.headers['X-Http-Route'] = route_path
+    except Exception:
+        # Best-effort: don't break responses if header cannot be set
+        pass
+    return response
 
 # Register routers
 app.include_router(health.router, prefix="/api", tags=["health"])
