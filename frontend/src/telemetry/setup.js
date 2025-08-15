@@ -53,22 +53,27 @@ export const setupTelemetryWeb = () => {
     });
 
     // Setup WebTracerProvider with 100% sampling (adjust in prod)
-    const tracerProvider = new WebTracerProvider({
-      resource: resource,
-      sampler: new TraceIdRatioBasedSampler(1.0),
-    });
-    // Tune BatchSpanProcessor for throughput/latency tradeoffs
-    tracerProvider.addSpanProcessor(new BatchSpanProcessor(otlpTraceExporter, {
-      maxQueueSize: 2048,
-      scheduledDelayMillis: 5000,
-      maxExportBatchSize: 512,
-      exportTimeoutMillis: 30000,
-    }));
-  
+    // Prepare span processors first so we don't need to call addSpanProcessor on the provider
+    const spanProcessors = [
+      // Tune BatchSpanProcessor for throughput/latency tradeoffs
+      new BatchSpanProcessor(otlpTraceExporter, {
+        maxQueueSize: 2048,
+        scheduledDelayMillis: 5000,
+        maxExportBatchSize: 512,
+        exportTimeoutMillis: 30000,
+      }),
+    ];
+
     // Add ConsoleSpanExporter for development
     if (process.env.NODE_ENV === 'development') {
-      tracerProvider.addSpanProcessor(new BatchSpanProcessor(new ConsoleSpanExporter()));
+      spanProcessors.push(new BatchSpanProcessor(new ConsoleSpanExporter()));
     }
+
+    const tracerProvider = new WebTracerProvider({
+      resource: resource,
+      spanProcessors: spanProcessors,
+      sampler: new TraceIdRatioBasedSampler(1.0),
+    });
 
   // Setup MeterProvider for metrics
   const meterProvider = new MeterProvider({
