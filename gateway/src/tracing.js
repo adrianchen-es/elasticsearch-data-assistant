@@ -1,7 +1,10 @@
 import 'dotenv/config';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Resource } from '@opentelemetry/resources';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import * as SemanticConventions from '@opentelemetry/semantic-conventions';
+// Support multiple OpenTelemetry package versions: prefer SemanticResourceAttributes,
+// fall back to ResourceAttributes (older versions) if available.
+const SemanticResourceAttributes = SemanticConventions.SemanticResourceAttributes || SemanticConventions.ResourceAttributes || {};
 import { OTLPTraceExporter as OTLPHttpExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPTraceExporter as OTLPGrpcExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
