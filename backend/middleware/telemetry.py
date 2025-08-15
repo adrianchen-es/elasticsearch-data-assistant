@@ -7,7 +7,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as OTLPHttpSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPGrpcSpanExporter
-from opentelemetry.sdk.trace.sampling import AlwaysOnSampler
+from opentelemetry.sdk.trace.sampling import TraceIdRatioBasedSampler
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -57,8 +57,19 @@ def setup_telemetry():
                 #headers=settings.otel_exporter_otlp_headers if settings.otel_exporter_otlp_headers else None,
             )
 
-        # Set up tracer provider with resource and explicit 100% sampling for now
-        trace_provider = TracerProvider(resource=_resource, sampler=AlwaysOnSampler())
+        # Env-driven sampling ratio (OTEL_SAMPLING_RATIO) default to 1.0 (100%)
+        ratio_env = os.getenv('OTEL_SAMPLING_RATIO', os.getenv('OTEL_SAMPLER_RATIO', '1.0'))
+        try:
+            ratio = float(ratio_env)
+        except Exception:
+            ratio = 1.0
+        # clamp to [0.0, 1.0]
+        if ratio < 0.0:
+            ratio = 0.0
+        if ratio > 1.0:
+            ratio = 1.0
+        logger.info(f"Telemetry sampling ratio set to {ratio}")
+        trace_provider = TracerProvider(resource=_resource, sampler=TraceIdRatioBasedSampler(ratio))
         # Tune BatchSpanProcessor for higher throughput with reasonable latency
         trace_provider.add_span_processor(
             BatchSpanProcessor(

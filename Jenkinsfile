@@ -28,18 +28,16 @@ pipeline {
             steps {
                 echo '🔍 Setting up external Elasticsearch...'
                 sh 'make setup-external'
-            }
-        }
+                    # Run telemetry smoke test (strict)
+                    docker compose exec -T backend python -m pytest test/test_consolidated_smoke.py -q --junitxml=test_results_smoke.xml
 
-        stage('Start Services') {
-            steps {
-                echo '🚀 Starting application services...'
-                sh 'make up-external'
-                
-                echo '⏳ Waiting for services to be ready...'
+
+                    docker compose exec -T backend python -m pytest test/ --junitxml=test_results.xml -v --tb=short
+
                 sh '''
-                    echo "Waiting for backend to start..."
-                    for i in {1..30}; do
+                    docker compose cp backend:/app/test_results_smoke.xml ./test_results_smoke.xml
+                    docker compose cp backend:/app/test_results.xml ./test_results.xml
+
                         if curl -s http://localhost:8000/api/health > /dev/null; then
                             echo "Backend is ready"
                             break
@@ -80,6 +78,22 @@ pipeline {
                 sh '''
                     # Install test dependencies in backend container
                     docker compose exec -T backend pip install pytest pytest-asyncio pytest-html
+                    
+                    # Validate OpenTelemetry package versions inside backend container
+                    echo '🔎 Validating OpenTelemetry package versions...'
+                    docker compose exec -T backend python - <<'PY'
+import pkg_resources, sys
+packages = ['opentelemetry-api','opentelemetry-sdk','opentelemetry-exporter-otlp']
+for p in packages:
+    try:
+        v = pkg_resources.get_distribution(p).version
+        print(f'{p}=={v}')
+    except Exception as e:
+        print(f'{p} not installed: {e}')
+PY
+
+                    # Run telemetry smoke test specifically
+                    docker compose exec -T backend python -m pytest test/test_consolidated_smoke.py -q || true
                     
                     # Run the tests and capture output
                     docker compose exec -T backend python -m pytest test/ \
@@ -144,10 +158,19 @@ pipeline {
                 if (fileExists('test_summary.txt')) {
                     archiveArtifacts artifacts: 'test_summary.txt', fingerprint: true
                 }
+                // Archive backend logs if captured
+                if (fileExists('backend_full_logs.txt')) {
+                    archiveArtifacts artifacts: 'backend_full_logs.txt', fingerprint: true
+                }
             }
             
-            // Clean up
+            // Clean up and capture logs/artifacts
             sh '''
+                echo "Capturing backend logs to backend_full_logs.txt..."
+                docker compose logs backend > backend_full_logs.txt 2>&1 || true
+                echo "Attempting to copy test result artifacts from backend container..."
+                docker compose cp backend:/app/test_results_smoke.xml ./test_results_smoke.xml || true
+                docker compose cp backend:/app/test_results.xml ./test_results.xml || true
                 echo "Stopping services..."
                 make down || true
                 echo "Cleanup completed"

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
+import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
 import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
@@ -29,58 +30,92 @@ function App() {
   });
 
   // Check backend health status
-  const checkBackendHealth = async () => {
+  const HEALTH_CACHE_KEYS = {
+    backend: 'health_backend',
+    proxy: 'health_proxy'
+  };
+
+  const HEALTH_TTLS = {
+    success: 15 * 60 * 1000, // 15 minutes
+    error: 2 * 60 * 1000, // 2 minutes
+  };
+
+  // health cache helpers now live in ./utils/healthCache and use sessionStorage
+
+  const checkBackendHealth = async (force = false) => {
+    // If cached and not forced, use cache
+    if (!force) {
+      const cached = readCachedHealth(HEALTH_CACHE_KEYS.backend);
+      if (cached) {
+        setBackendHealth(cached);
+        return;
+      }
+    }
     try {
       setBackendHealth(prev => ({ ...prev, status: 'checking', message: 'Checking backend status...' }));
-      
       const response = await fetch('/api/health');
       const data = await response.json();
-      
       if (response.ok) {
-        setBackendHealth({
+        const computed = {
           status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
           message: data.message || (data.status === 'healthy' ? 'Backend operational' : 'Backend issues detected'),
           lastChecked: new Date().toISOString(),
           services: data.services || {}
-        });
+        };
+        // Cache based on success/error
+        const ttl = computed.status === 'healthy' ? HEALTH_TTLS.success : HEALTH_TTLS.error;
+        writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, ttl);
+        setBackendHealth(computed);
       } else {
         throw new Error(data.message || 'Backend health check failed');
       }
     } catch (error) {
-      setBackendHealth({
+      const computed = {
         status: 'error',
         message: `Backend unreachable: ${error.message}`,
         lastChecked: new Date().toISOString(),
         services: {}
-      });
+      };
+      writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, HEALTH_TTLS.error);
+      setBackendHealth(computed);
     }
   };
 
   // Check proxy health status
-  const checkProxyHealth = async () => {
+  const checkProxyHealth = async (force = false) => {
+    if (!force) {
+      const cached = readCachedHealth(HEALTH_CACHE_KEYS.proxy);
+      if (cached) {
+        setProxyHealth(cached);
+        return;
+      }
+    }
     try {
       setProxyHealth(prev => ({ ...prev, status: 'checking', message: 'Checking proxy status...' }));
-      
       const response = await fetch('/api/healthz');
       const data = await response.json();
-      
       if (response.ok) {
-        setProxyHealth({
+        const computed = {
           status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
           message: data.message || (data.status === 'healthy' ? 'Proxy operational' : 'Proxy issues detected'),
           lastChecked: new Date().toISOString(),
           services: data.services || {}
-        });
+        };
+        const ttl = computed.status === 'healthy' ? HEALTH_TTLS.success : HEALTH_TTLS.error;
+        writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, ttl);
+        setProxyHealth(computed);
       } else {
         throw new Error(data.message || 'Proxy health check failed');
       }
     } catch (error) {
-      setProxyHealth({
+      const computed = {
         status: 'error',
         message: `Proxy unreachable: ${error.message}`,
         lastChecked: new Date().toISOString(),
         services: {}
-      });
+      };
+      writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, HEALTH_TTLS.error);
+      setProxyHealth(computed);
     }
   };
 
@@ -96,8 +131,8 @@ function App() {
     // Setup telemetry
     setupTelemetryWeb();
     
-    // Initial health checks
-    checkAllHealth();
+  // Initial health checks (will use cache if available)
+  checkAllHealth();
     
     // Set up periodic health checks every 30 seconds
     const healthCheckInterval = setInterval(checkAllHealth, 30000);
@@ -167,7 +202,7 @@ function App() {
               {/* Backend Health Status */}
               <div className="relative group">
                 <button
-                  onClick={checkBackendHealth}
+                  onClick={() => checkBackendHealth(true)}
                   className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
                   title={getTooltipContent(backendHealth, 'Backend')}
                 >
@@ -192,7 +227,7 @@ function App() {
               {/* Proxy Health Status */}
               <div className="relative group">
                 <button
-                  onClick={checkProxyHealth}
+                  onClick={() => checkProxyHealth(true)}
                   className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
                   title={getTooltipContent(proxyHealth, 'Proxy')}
                 >
