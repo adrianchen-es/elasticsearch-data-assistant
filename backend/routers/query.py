@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 import logging
 import uuid
 
@@ -111,17 +112,26 @@ async def get_indices(app_request: Request, tier: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/mapping/{index_name}")
-@tracer.start_as_current_span("get_mapping")
 async def get_mapping(index_name: str, app_request: Request):
     """Get mapping for a specific index"""
-    try:
-        mapping_service = app_request.app.state.mapping_cache_service
-        mapping = await mapping_service.get_mapping(index_name)
-        return mapping
-        
-    except Exception as e:
-        logger.error(f"Get mapping error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    with tracer.start_as_current_span("get_mapping_api"):
+        try:
+            mapping_service = app_request.app.state.mapping_cache_service
+            mapping = await mapping_service.get_mapping(index_name)
+            # Also provide JSON schema (properties) for easier UI rendering
+            schema = await mapping_service.get_schema(index_name)
+            fields = schema.get('properties', {}) if schema else {}
+            is_long = len(fields) > 100
+            return {
+                'index_name': index_name,
+                'fields': fields,
+                'is_long': is_long,
+                'raw_mapping': mapping
+            }
+
+        except Exception as e:
+            logger.error(f"Get mapping error: {e}")
+            raise HTTPException(status_code=500, detail="Failed to retrieve mapping")
 
 @router.get("/cache/stats")
 async def get_cache_stats(app_request: Request):
@@ -247,44 +257,60 @@ async def get_tiers(app_request: Request):
         logger.error(f"Get mapping error: {e}")
 
 @router.post("/query/regenerate", response_model=ChatResponse)
-@tracer.start_as_current_span("regenerate_query")
 async def regenerate_query(request: ChatRequest, app_request: Request):
     """Regenerate and execute query with modified prompt"""
-    try:
-        es_service = app_request.app.state.es_service
-        ai_service = app_request.app.state.ai_service
-        mapping_service = app_request.app.state.mapping_cache_service
-        
-        # Get mapping for the specified index
-        mapping_info = await mapping_service.get_mapping(request.index_name)
-        
-        # Generate new query using AI
-        query = await ai_service.generate_elasticsearch_query(
-            request.message, 
-            mapping_info,
-            request.provider
-        )
-        
-        # Execute query
-        results = await es_service.execute_query(request.index_name, query)
-        
-        # Summarize results using AI
-        summary = await ai_service.summarize_results(
-            results, 
-            request.message,
-            request.provider
-        )
-        
-        # Generate query ID for reference
-        query_id = str(uuid.uuid4())
-        
-        return ChatResponse(
-            response=summary,
-            query=query,
-            raw_results=results,
-            query_id=query_id
-        )
-        
-    except Exception as e:
-        logger.error(f"Query regeneration error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    with tracer.start_as_current_span("regenerate_query_api") as span:
+        try:
+            es_service = app_request.app.state.es_service
+            ai_service = app_request.app.state.ai_service
+            mapping_service = app_request.app.state.mapping_cache_service
+            
+            # Get mapping/schema for the specified index
+            schema = await mapping_service.get_schema(request.index_name)
+            if not schema or not schema.get('properties'):
+                # No fields to build RaG on
+                message = "Selected index has no available fields suitable for RaG. Skipping RaG generation."
+                logger.info(message)
+                return ChatResponse(response=message, query={}, raw_results={}, query_id=str(uuid.uuid4()))
+            
+            # Check for usable fields for RaG (text, keyword, dense_vector)
+            props = schema.get('properties', {})
+            usable = [f for f, spec in props.items() if spec.get('type') in ('text', 'keyword', 'dense_vector')]
+            if not usable:
+                message = "No usable fields (text/keyword/vector) found on the selected index for RaG. Please choose a different index."
+                logger.info(message)
+                return ChatResponse(response=message, query={}, raw_results={}, query_id=str(uuid.uuid4()))
+
+            # Generate new query using AI (pass schema as mapping_info)
+            mapping_info = schema
+            query = await ai_service.generate_elasticsearch_query(
+                request.message,
+                mapping_info,
+                request.provider,
+                return_debug=False
+            )
+            
+            # Execute query
+            results = await es_service.execute_query(request.index_name, query)
+            
+            # Summarize results using AI
+            summary = await ai_service.summarize_results(
+                results, 
+                request.message,
+                request.provider
+            )
+            
+            # Generate query ID for reference
+            query_id = str(uuid.uuid4())
+            
+            return ChatResponse(
+                response=summary,
+                query=query,
+                raw_results=results,
+                query_id=query_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Query regeneration error: {e}")
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            raise HTTPException(status_code=500, detail="Failed to regenerate query")

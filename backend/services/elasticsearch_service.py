@@ -7,9 +7,26 @@ import logging
 import os  # Import os to read environment variables
 import asyncio
 import time
+import re
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Sanitization helper used for logging/tracing
+def _sanitize_for_logging(obj) -> str:
+    try:
+        s = json.dumps(obj) if not isinstance(obj, str) else obj
+    except Exception:
+        s = str(obj)
+    # mask IPv4 addresses
+    s = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "***.***.***.***", s)
+    # mask common API key patterns (short heuristic)
+    s = re.sub(r"(?i)(api_key|apikey|authorization\s*[:=]\s*)(['\"]?)[A-Za-z0-9\-_.=+/]{10,}\2", r"\1***", s)
+    # truncate long strings
+    max_len = 1000
+    if len(s) > max_len:
+        s = s[:max_len] + "..."
+    return s
 
 class ElasticsearchService:
     def __init__(self, url: str, api_key: Optional[str] = None):
@@ -209,7 +226,16 @@ class ElasticsearchService:
     async def execute_query(self, index_name: str, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a search query with timeout handling"""
         with tracer.start_as_current_span("elasticsearch.execute_query", attributes={"db.operation": "search", "db.elasticsearch.index": index_name}):
+            span = trace.get_current_span()
             try:
+                # Add sanitized query as db.statement (per semantic conventions)
+                try:
+                    sanitized_query = _sanitize_for_logging(query)
+                    span.set_attribute("db.statement", sanitized_query)
+                    span.add_event("db.query", {"query": sanitized_query})
+                except Exception:
+                    span.set_attribute("db.statement", "<unavailable>")
+
                 # Add timeout for search queries
                 search_timeout = float(os.getenv("ELASTICSEARCH_SEARCH_TIMEOUT", "30"))
                 response = await asyncio.wait_for(
@@ -219,11 +245,12 @@ class ElasticsearchService:
                 return response
             except asyncio.TimeoutError:
                 logger.error(f"Timeout executing query on index {index_name}")
-                logger.error(f"Query: {json.dumps(query, indent=2)}")
+                logger.error(f"Query timeout executing query on index {index_name}")
+                logger.debug(f"Sanitized query: {_sanitize_for_logging(query)}")
                 raise ConnectionTimeout(f"Timeout executing query on index {index_name}")
             except Exception as e:
                 logger.error(f"Error executing query on index {index_name}: {e}")
-                logger.error(f"Query: {json.dumps(query, indent=2)}")
+                logger.debug(f"Sanitized query: {_sanitize_for_logging(query)}")
                 raise
 
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
