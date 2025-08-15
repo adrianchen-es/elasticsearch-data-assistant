@@ -1,6 +1,6 @@
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
 import { BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_INSTANCE_ID, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE, ATTR_HTTP_REQUEST_METHOD } from '@opentelemetry/semantic-conventions';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE, ATTR_HTTP_REQUEST_METHOD } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
