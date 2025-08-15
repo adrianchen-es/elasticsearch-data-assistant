@@ -44,11 +44,11 @@ ES_TO_PYTHON_TYPES = {
     'constant_keyword': 'str'
 }
 
-def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
+def normalize_mapping_data(mapping_data: Any) -> Dict[str, Any]:
     """
     Normalize mapping data to ensure it's a proper dictionary.
     Handles various formats that might be returned from Elasticsearch.
-    Returns None if normalization fails.
+    Always returns a dictionary (empty on failure).
     """
     try:
         logger.debug(f"Normalizing mapping data of type {type(mapping_data)}: {mapping_data}")
@@ -59,7 +59,12 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
 
         if hasattr(mapping_data, "model_dump"):
             logger.info("Mapping data has model_dump method. Using it to normalize.")
-            return mapping_data.model_dump()
+            try:
+                parsed = mapping_data.model_dump()
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                logger.warning("model_dump failed to produce a dict. Returning empty dict.")
+                return {}
 
         if hasattr(mapping_data, "body"):
             logger.info("Mapping data has body attribute. Using it to normalize.")
@@ -77,7 +82,18 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
                     return parsed
             except json.JSONDecodeError:
                 logger.warning("Mapping data is a string but not valid JSON.")
-            return None
+            # Preserve the original string input for debugging/inspection in a
+            # deterministic wrapper so callers/tests can detect raw string inputs.
+            return {"_raw_string": mapping_data}
+
+        if isinstance(mapping_data, (int, float, bool)):
+            # Numeric or boolean values should be wrapped so callers can
+            # understand that the mapping was not a dict.
+            return {"_raw_value": mapping_data}
+
+        if isinstance(mapping_data, list):
+            # Lists are not expected mapping shapes; wrap them for inspection.
+            return {"_raw_list": mapping_data}
 
         try:
             serialized = json.dumps(mapping_data, default=str)
@@ -88,12 +104,12 @@ def normalize_mapping_data(mapping_data: Any) -> Optional[Dict[str, Any]]:
         except (TypeError, json.JSONDecodeError):
             logger.warning("Mapping data could not be serialized and parsed.")
 
-        logger.warning("Mapping data could not be normalized to a dictionary.")
-        return None
+        logger.warning("Mapping data could not be normalized to a dictionary. Returning empty dict.")
+        return {}
 
     except Exception as e:
         logger.error(f"Error normalizing mapping data: {e}")
-        return None
+        return {}
 
 def flatten_properties(properties: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
     """
@@ -127,9 +143,13 @@ def flatten_properties(properties: Dict[str, Any], prefix: str = "") -> Dict[str
     
     return flattened
 
+
 def get_python_type(es_type: str) -> str:
     """Convert Elasticsearch type to Python type for display."""
     return ES_TO_PYTHON_TYPES.get(es_type, 'Any')
+
+# Alias for backward compatibility with tests
+convert_es_type_to_python = get_python_type
 
 def extract_mapping_info(mapping_dict: Any, index_name: str) -> Tuple[Dict[str, str], Dict[str, str], int]:
     """

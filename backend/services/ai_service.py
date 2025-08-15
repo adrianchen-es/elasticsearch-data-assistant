@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
-import asyncio, json, logging, math, os, time
+import asyncio, json, logging, math, os, re, time
 
 try:
     import tiktoken  # robust token counting when available
@@ -705,10 +705,18 @@ class AIService:
                 query_text = response.choices[0].message.content
                 if not query_text:
                     raise ValueError(f"Empty response from {provider} API")
-                
+
                 try:
                     query_json = json.loads(query_text)
                     logger.debug(f"Successfully generated Elasticsearch query using {provider}")
+                    # Add sanitized debug events to current span if available
+                    current_span = trace.get_current_span()
+                    if return_debug and current_span is not None:
+                        try:
+                            current_span.add_event("ai.input", {"prompt": _sanitize_for_debug(messages)})
+                            current_span.add_event("ai.response", {"response": _sanitize_for_debug(query_text)})
+                        except Exception:
+                            pass
                     return query_json
                 except json.JSONDecodeError as json_err:
                     error_msg = f"Invalid JSON response from {provider}: {query_text[:200]}..."
@@ -916,7 +924,15 @@ class AIService:
                             'usage': getattr(response, 'usage', {})
                         }
                     }
-                
+                    # add sanitized events
+                    current_span = trace.get_current_span()
+                    if current_span is not None:
+                        try:
+                            current_span.add_event("ai.input", {"prompt": _sanitize_for_debug(messages)})
+                            current_span.add_event("ai.response", {"response": _sanitize_for_debug(text)})
+                        except Exception:
+                            pass
+
                 return text, debug_info
                 
             except Exception as e:
@@ -1190,6 +1206,14 @@ class AIService:
                         "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
                         "initialization_status": self.get_initialization_status()
                     }
+                    # add sanitized events
+                    current_span = trace.get_current_span()
+                    if current_span is not None:
+                        try:
+                            current_span.add_event("ai.input", {"prompt": _sanitize_for_debug(enhanced_messages)})
+                            current_span.add_event("ai.response", {"response": _sanitize_for_debug(response.choices[0].message.content if response and response.choices else str(response))})
+                        except Exception:
+                            pass
                     return text, debug_info
                 else:
                     return text
@@ -1258,3 +1282,18 @@ Available capabilities:
         # Use the streaming method with enhanced messages
         async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
             yield chunk
+
+def _sanitize_for_debug(obj) -> str:
+    """Sanitize input/response for debug events: mask IPs and API-key like tokens and truncate."""
+    try:
+        s = json.dumps(obj) if not isinstance(obj, str) else obj
+    except Exception:
+        s = str(obj)
+    # mask IPv4
+    s = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "***.***.***.***", s)
+    # mask potential keys (heuristic)
+    s = re.sub(r"(?i)(api_key|apikey|authorization\s*[:=]\s*)(['\"]?)[A-Za-z0-9\-_.=+/]{10,}\2", r"\1***", s)
+    # truncate
+    if len(s) > 2000:
+        s = s[:2000] + "..."
+    return s
