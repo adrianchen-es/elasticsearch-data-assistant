@@ -1,5 +1,5 @@
 # backend/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Generator, List, Optional, Tuple, AsyncGenerator
@@ -337,7 +337,7 @@ def create_streaming_response(
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, app_request: Request):
+async def chat_endpoint(req: ChatRequest, app_request: Request, response: Response):
     """Enhanced chat endpoint supporting both free chat and Elasticsearch-assisted modes"""
     with tracer.start_as_current_span(
         "chat_endpoint",
@@ -354,6 +354,11 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
             "http.route": "/chat"
         }
     ) as chat_span:
+        # Expose route template to client for better span naming on frontend
+        try:
+            response.headers['X-Http-Route'] = '/chat'
+        except Exception:
+            pass
         try:
             # Get services from app.state
             ai_service = app_request.app.state.ai_service
@@ -414,7 +419,13 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                             if debug_info is not None:
                                 yield (json.dumps({"type": "debug", "debug": {**debug_info, "mapping_fields_count": field_count}}) + "\n").encode("utf-8")
                             yield (json.dumps({"type": "done"}) + "\n").encode("utf-8")
-                        return StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
+                        # Attach header to streaming response if possible
+                        streaming_resp = StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
+                        try:
+                            streaming_resp.headers['X-Http-Route'] = '/chat'
+                        except Exception:
+                            pass
+                        return streaming_resp
 
                     # Non-streaming mapping response
                     if debug_info is not None:
@@ -481,7 +492,12 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     }
                     yield (json.dumps(error_event) + "\n").encode("utf-8")
 
-            return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+            streaming = StreamingResponse(event_stream(), media_type="application/x-ndjson")
+            try:
+                streaming.headers['X-Http-Route'] = '/chat'
+            except Exception:
+                pass
+            return streaming
                 
         except TokenLimitError as te:
             chat_span.set_status(Status(StatusCode.ERROR, "Token limit exceeded"))

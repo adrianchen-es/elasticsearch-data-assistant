@@ -6,7 +6,8 @@ import http from 'http';
 import compression from 'compression';
 
 const app = express();
-app.use(cors());
+// Expose X-Http-Route header so browser clients can read it (required for fetch response header access)
+app.use(cors({ exposedHeaders: ['X-Http-Route'] }));
 app.use(express.json());
 
 // If compression is used, skip compressing NDJSON streams
@@ -121,6 +122,11 @@ app.post('/api/chat', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Connection', 'keep-alive');
+    // Propagate route header from upstream if present
+    try {
+      const upstreamRoute = upstream.headers.get('x-http-route');
+      if (upstreamRoute) res.setHeader('X-Http-Route', upstreamRoute);
+    } catch (e) {}
 
     // Flush headers so clients render immediately
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
@@ -170,6 +176,12 @@ app.use('/api/chat', createProxyMiddleware({
       if (req.headers[h]) proxyReq.setHeader(h, req.headers[h]);
     });
   },
+  onProxyRes: (proxyRes, req, res) => {
+    try {
+      const upstreamRoute = proxyRes.headers['x-http-route'] || proxyRes.headers['X-Http-Route'];
+      if (upstreamRoute) res.setHeader('X-Http-Route', upstreamRoute);
+    } catch (e) {}
+  },
   onError: (err, req, res) => {
     console.error('Chat proxy error:', err.message);
     if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
@@ -200,6 +212,12 @@ app.use('/api/health', createProxyMiddleware({
       if (req.headers[h]) proxyReq.setHeader(h, req.headers[h]);
     });
   }
+  , onProxyRes: (proxyRes, req, res) => {
+    try {
+      const upstreamRoute = proxyRes.headers['x-http-route'] || proxyRes.headers['X-Http-Route'];
+      if (upstreamRoute) res.setHeader('X-Http-Route', upstreamRoute);
+    } catch (e) {}
+  }
 }));
 
 app.use('/api', createProxyMiddleware({
@@ -216,6 +234,12 @@ app.use('/api', createProxyMiddleware({
     headersToPass.forEach((h) => {
       if (req.headers[h]) proxyReq.setHeader(h, req.headers[h]);
     });
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    try {
+      const upstreamRoute = proxyRes.headers['x-http-route'] || proxyRes.headers['X-Http-Route'];
+      if (upstreamRoute) res.setHeader('X-Http-Route', upstreamRoute);
+    } catch (e) {}
   },
   onError: (err, req, res) => {
     console.error('API proxy error:', err.message);
