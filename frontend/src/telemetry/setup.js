@@ -135,17 +135,17 @@ export const setupTelemetryWeb = () => {
                 // Prefer any available url.template (from instrumentation) for stable span names.
                 // Fall back to request.url/request.input or span attribute if template is not available.
                 const templateCandidate =
-                  (url) && (url.template || url.path) ||
                   (request && (
                   // common shapes: request.url.template, request.input.template, or direct urlTemplate prop
+                  request.url && (request.url.template || request.url.path) ||
                   (request.input && request.input.template) ||
                   request.urlTemplate
-                  )) || span.attributes['http.route'] || '';
+                  )) || span.attributes['http.route'] || span.attributes['url.path'] || '';
                 // Sanitize the URL using the helper function for consistency
                 // Set includeOrigin to true if you want to include host info, otherwise false for privacy
                 const sanitizedUrl = sanitizeUrlForSpan(templateCandidate);
 
-                span.updateName(`${method} ${(request.url && request.url.template) || sanitizedUrl}`);
+                span.updateName(`${method} ${sanitizedUrl}`);
                 span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
