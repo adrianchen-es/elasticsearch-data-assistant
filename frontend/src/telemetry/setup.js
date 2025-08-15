@@ -141,11 +141,10 @@ export const setupTelemetryWeb = () => {
                 (request.input && request.input.template) ||
                 request.urlTemplate
                 )) || span.attributes['http.route'] || '';
-              // Ensure we have a string
-              const safeUrl = String(templateCandidate).slice(0, 256);
-              
+              // Sanitize the URL using the helper function for consistency
+              const sanitizedUrl = sanitizeUrlForSpan(templateCandidate);
 
-                span.setAttribute('http.url', safeUrl);
+                span.setAttribute('http.url', sanitizedUrl);
                 span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
