@@ -15,6 +15,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - OTEL_SERVICE_NAME=elasticsearch-ai-backend
       - OTEL_SEMCONV_STABILITY_OPT_IN=http
+      - DEPLOYMENT_ENV=${DEPLOYMENT_ENV:-development}
     ports:
       - "8000:8000"
     networks:
