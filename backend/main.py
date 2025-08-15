@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 # init OTel early
 from middleware.telemetry import setup_telemetry
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
