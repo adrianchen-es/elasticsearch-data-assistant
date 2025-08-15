@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     otel_exporter_grpc_traces_endpoint: Optional[str] = os.getenv("OTEL_EXPORTER_GRPC_TRACES_ENDPOINT", "http://otel-collector:4317")
     otel_exporter_grpc_metrics_endpoint: Optional[str] = os.getenv("OTEL_EXPORTER_GRPC_METRICS_ENDPOINT", "http://otel-collector:4317")
     otel_exporter_otlp_headers: Optional[str] = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
-    environment: str = os.getenv('NODE_ENV', 'development')
+    environment: str = os.getenv('DEPLOYMENT_ENV', 'development')
     version: str = "1.0.0"
     host_name: str = socket.gethostname()
     container_name: str = os.environ.get("CONTAINER_NAME", "unknown")
