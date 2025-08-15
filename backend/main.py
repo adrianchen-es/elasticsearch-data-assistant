@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 # init OTel early
 from middleware.telemetry import setup_telemetry
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -530,18 +530,14 @@ async def _warm_up_health_check(state, task_start_times):
                 def __init__(self, app_state):
                     self.app = MockApp(app_state)
             
-            # Minimal mock response object with headers dict to satisfy health_check
-            class MockResponse:
-                def __init__(self):
-                    self.headers = {}
-                    self.status_code = 200
             
             # Import the health check function and call it properly
             from routers.health import health_check
             
             logger.info(f"💊 [{task_id.upper()}] Running initial health check...")
             mock_request = MockRequest(state)
-            mock_response = MockResponse()
+            # Use a real Starlette/FastAPI Response for greater fidelity
+            mock_response = Response()
             # Call health_check with both request and response to match its signature
             health_response = await health_check(mock_request, mock_response)
             
