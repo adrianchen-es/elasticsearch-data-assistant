@@ -130,22 +130,22 @@ export const setupTelemetryWeb = () => {
             applyCustomAttributesOnSpan: (span, request) => {
               // Better span naming and sanitized attributes for HTTP requests
               try {
-              const method = (request && request.method) || span.attributes['http.method'] || 'GET';
+                const method = (request && request.method) || span.attributes['http.method'] || 'GET';
 
-              // Prefer any available url.template (from instrumentation) for stable span names.
-              // Fall back to request.url/request.input or span attribute if template is not available.
-              const templateCandidate =
-                (request && (
-                // common shapes: request.url.template, request.input.template, or direct urlTemplate prop
-                (request.url && request.url.template) ||
-                (request.input && request.input.template) ||
-                request.urlTemplate
-                )) || span.attributes['http.route'] || '';
-              // Sanitize the URL using the helper function for consistency
-              // Set includeOrigin to true if you want to include host info, otherwise false for privacy
-              const sanitizedUrl = sanitizeUrlForSpan(templateCandidate, false);
+                // Prefer any available url.template (from instrumentation) for stable span names.
+                // Fall back to request.url/request.input or span attribute if template is not available.
+                const templateCandidate =
+                  (url) && (url.template || url.path) ||
+                  (request && (
+                  // common shapes: request.url.template, request.input.template, or direct urlTemplate prop
+                  (request.input && request.input.template) ||
+                  request.urlTemplate
+                  )) || span.attributes['http.route'] || '';
+                // Sanitize the URL using the helper function for consistency
+                // Set includeOrigin to true if you want to include host info, otherwise false for privacy
+                const sanitizedUrl = sanitizeUrlForSpan(templateCandidate);
 
-                span.setAttribute('http.url', sanitizedUrl);
+                span.updateName(`${method} ${(request.url && request.url.template) || sanitizedUrl}`);
                 span.setAttribute('http.method', method);
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
