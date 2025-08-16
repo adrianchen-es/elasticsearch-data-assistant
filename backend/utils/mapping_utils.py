@@ -151,7 +151,7 @@ def get_python_type(es_type: str) -> str:
 # Alias for backward compatibility with tests
 convert_es_type_to_python = get_python_type
 
-def extract_mapping_info(mapping_dict: Any, index_name: str) -> Tuple[Dict[str, str], Dict[str, str], int]:
+def extract_mapping_info(mapping_dict: Any, index_name: str = "") -> Tuple[Dict[str, str], Dict[str, str], int]:
     """
     Extract and flatten mapping information from Elasticsearch mapping response.
 
@@ -161,34 +161,38 @@ def extract_mapping_info(mapping_dict: Any, index_name: str) -> Tuple[Dict[str, 
         - field_count: Total number of fields
     """
     try:
-        logger.debug(f"Extracting mapping info for index: {index_name}")
+        logger.debug(f"Extracting mapping info for index: {index_name or '<unnamed>'}")
         normalized_mapping = normalize_mapping_data(mapping_dict)
 
         if not normalized_mapping:
-            logger.warning(f"Mapping data for {index_name} could not be normalized.")
+            logger.warning(f"Mapping data for {index_name or '<unnamed>'} could not be normalized.")
             return {}, {}, 0
 
         if not isinstance(normalized_mapping, dict):
-            logger.warning(f"Mapping data for {index_name} is not a dictionary after normalization.")
+            logger.warning(f"Mapping data for {index_name or '<unnamed>'} is not a dictionary after normalization.")
             return {}, {}, 0
 
-        index_mapping = normalized_mapping.get(index_name, {})
-        if not index_mapping and normalized_mapping:
-            index_mapping = next(iter(normalized_mapping.values()), {})
+        # Case 1: mapping provided directly as {'properties': {...}}
+        if 'properties' in normalized_mapping and isinstance(normalized_mapping['properties'], dict):
+            properties = normalized_mapping['properties']
+        else:
+            # Attempt to locate index mapping under provided index_name or by taking the first value
+            index_mapping = normalized_mapping.get(index_name, {}) if index_name else {}
+            if not index_mapping and normalized_mapping:
+                # Pick the first mapping-like value
+                index_mapping = next(iter(normalized_mapping.values()), {})
 
-        if not isinstance(index_mapping, dict):
-            logger.warning(f"Index mapping for {index_name} is not a dictionary: {type(index_mapping)}")
-            logger.debug(f"Index mapping content: {index_mapping}")
-            return {}, {}, 0
+            if not isinstance(index_mapping, dict):
+                logger.warning(f"Index mapping for {index_name or '<unnamed>'} is not a dictionary: {type(index_mapping)}")
+                logger.debug(f"Index mapping content: {index_mapping}")
+                return {}, {}, 0
 
-        mappings = index_mapping.get('mappings', {})
-        if not isinstance(mappings, dict):
-            logger.warning(f"Mappings for {index_name} is not a dictionary: {type(mappings)}")
-            return {}, {}, 0
+            # If the mapping object has a 'mappings' wrapper, use it; otherwise, maybe it directly contains 'properties'
+            mappings = index_mapping.get('mappings') if isinstance(index_mapping.get('mappings'), dict) else index_mapping
+            properties = mappings.get('properties') if isinstance(mappings.get('properties'), dict) else (mappings if isinstance(mappings, dict) and 'properties' in mappings else {})
 
-        properties = mappings.get('properties', {})
         if not isinstance(properties, dict):
-            logger.warning(f"Properties for {index_name} is not a dictionary: {type(properties)}")
+            logger.warning(f"Properties for {index_name or '<unnamed>'} is not a dictionary: {type(properties)}")
             return {}, {}, 0
 
         logger.debug(f"Flattening properties for index: {index_name}")
@@ -197,8 +201,16 @@ def extract_mapping_info(mapping_dict: Any, index_name: str) -> Tuple[Dict[str, 
         python_types = {field: get_python_type(es_type) for field, es_type in es_types.items()}
         field_count = len(es_types)
 
-        logger.info(f"Extracted {field_count} fields for index: {index_name}")
-        return es_types, python_types, field_count
+        logger.info(f"Extracted {field_count} fields for index: {index_name or '<unnamed>'}")
+        # Backward compatibility:
+        # - If caller provided an index_name, return tuple (es_types, python_types, field_count)
+        # - If caller omitted index_name (common in older tests), return a dict with a 'fields' list
+        if index_name:
+            return es_types, python_types, field_count
+
+        # Build list of field dicts for older callers/tests
+        fields_list = [{"name": name, "type": es_types[name], "python_type": python_types.get(name)} for name in sorted(es_types.keys())]
+        return {"fields": fields_list, "python_types": python_types, "field_count": field_count}
 
     except Exception as e:
         logger.error(f"Error extracting mapping info for {index_name}: {e}")

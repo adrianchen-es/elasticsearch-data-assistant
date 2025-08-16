@@ -45,7 +45,7 @@ describe('IndexSelector', () => {
 
       // Wait for indices to load
       await waitFor(() => {
-        expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
+  expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
       });
 
       // Check tier filter options with counts

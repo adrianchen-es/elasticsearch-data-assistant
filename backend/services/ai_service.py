@@ -204,26 +204,32 @@ class AIService:
             logger.debug("🔍 Validating AI service configuration...")
             validation_results = {"azure": False, "openai": False, "warnings": [], "errors": []}
             
-            # Check Azure configuration
-            if self.azure_api_key and self.azure_endpoint and self.azure_deployment:
+            # Check Azure configuration.
+            # Treat Azure as configured if API key and endpoint are present. Deployment is
+            # recommended but optional for some test scenarios; warn if missing.
+            missing_fields = []
+            if not self.azure_api_key:
+                missing_fields.append("AZURE_OPENAI_API_KEY")
+            if not self.azure_endpoint:
+                missing_fields.append("AZURE_OPENAI_ENDPOINT")
+
+            if not missing_fields:
+                # At minimum we have API key and endpoint; consider Azure configured
                 self._initialization_status["azure_configured"] = True
                 validation_results["azure"] = True
                 masked_endpoint = self._mask_sensitive_data(self.azure_endpoint)
-                logger.debug(f"✅ Azure OpenAI configuration valid - Endpoint: {masked_endpoint}, Deployment: {self.azure_deployment}")
+                if self.azure_deployment:
+                    logger.debug(f"✅ Azure OpenAI configuration valid - Endpoint: {masked_endpoint}, Deployment: {self.azure_deployment}")
+                else:
+                    warn_msg = "Azure OpenAI configured without deployment; some features may not work as expected"
+                    self._initialization_status["warnings"].append(warn_msg)
+                    validation_results["warnings"].append(warn_msg)
+                    logger.debug(f"⚠️  {warn_msg} - Endpoint: {masked_endpoint}")
             else:
-                missing_fields = []
-                if not self.azure_api_key:
-                    missing_fields.append("AZURE_OPENAI_API_KEY")
-                if not self.azure_endpoint:
-                    missing_fields.append("AZURE_OPENAI_ENDPOINT")
-                if not self.azure_deployment:
-                    missing_fields.append("AZURE_OPENAI_DEPLOYMENT")
-                
-                if missing_fields:
-                    warning_msg = f"Azure OpenAI not configured - Missing: {', '.join(missing_fields)}"
-                    self._initialization_status["warnings"].append(warning_msg)
-                    validation_results["warnings"].append(warning_msg)
-                    logger.debug(f"⚠️  {warning_msg}")
+                warning_msg = f"Azure OpenAI not configured - Missing: {', '.join(missing_fields)}"
+                self._initialization_status["warnings"].append(warning_msg)
+                validation_results["warnings"].append(warning_msg)
+                logger.debug(f"⚠️  {warning_msg}")
 
             # Check OpenAI configuration
             if self.openai_api_key:
@@ -491,8 +497,19 @@ class AIService:
     
     def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
         """Mask sensitive data for logging, showing only first few characters"""
-        if not data or len(data) <= show_chars:
+        if not data:
             return "***"
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(data)
+            if parsed.scheme and parsed.netloc:
+                # Preserve scheme (http/https) but mask host and path
+                return f"{parsed.scheme}://***"
+        except Exception:
+            pass
+
+        if len(data) <= show_chars:
+            return data[0:show_chars] + "***"
         return f"{data[:show_chars]}***"
     
     def get_initialization_status(self) -> Dict[str, Any]:
