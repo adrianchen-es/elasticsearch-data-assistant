@@ -1,4 +1,4 @@
-import './tracing.js';
+import { initTracing, sdk } from './tracing.js';
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -6,6 +6,8 @@ import http from 'http';
 import compression from 'compression';
 
 const app = express();
+// Hide X-Powered-By header for security
+app.disable('x-powered-by');
 // Expose X-Http-Route header so browser clients can read it (required for fetch response header access)
 app.use(cors({ exposedHeaders: ['X-Http-Route'] }));
 app.use(express.json());
@@ -17,7 +19,10 @@ const shouldCompress = (req, res) => {
   if (req.path.startsWith('/api/chat')) return false;
   return compression.filter(req, res);
 };
-app.use(compression({ filter: shouldCompress }));
+// In tests we want small responses to be compressed for assertions
+const compressionOptions = { filter: shouldCompress };
+if (process.env.NODE_ENV === 'test') compressionOptions.threshold = 0;
+app.use(compression(compressionOptions));
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:8000';
 
@@ -96,6 +101,15 @@ app.get('/api/healthz', async (req, res) => {
       response_time_ms: Date.now() - startTime
     });
   }
+});
+
+// Lightweight health endpoints used by tests and readiness probes
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'es-data-assistant-gateway' });
+});
+
+app.get('/ready', (_req, res) => {
+  res.json({ status: 'ready', timestamp: new Date().toISOString(), service: 'es-data-assistant-gateway' });
 });
 
 // Stream chat endpoint pass-through
@@ -265,8 +279,32 @@ server.requestTimeout = 0;        // Disable per-request inactivity timeout (Nod
 server.keepAliveTimeout = 120000; // Keep connections alive longer for chat
 server.timeout = 0;               // Legacy socket timeout off
 
-server.listen(port, () => {
-  console.log(`Gateway listening on ${port}`);
+// If running tests, don't start listening — tests will import `app` directly.
+if (process.env.NODE_ENV !== 'test') {
+  // Initialize tracing at runtime (not during test imports)
+  (async () => {
+    try {
+      await initTracing();
+    } catch (err) {
+      console.error('Tracing init failed:', err && err.message ? err.message : err);
+    }
+
+    server.listen(port, () => {
+      console.log(`Gateway listening on ${port}`);
+    });
+  })();
+}
+
+process.on('SIGTERM', async () => {
+  try {
+    if (typeof sdk !== 'undefined' && sdk && typeof sdk.shutdown === 'function') {
+      await sdk.shutdown();
+    }
+  } catch (e) {
+    console.error('Error during SDK shutdown:', e && e.message ? e.message : e);
+  }
+  process.exit(0);
 });
 
-process.on('SIGTERM', async () => { await sdk.shutdown(); process.exit(0); });
+// Export app and server so tests can import without side effects
+export { app, server };

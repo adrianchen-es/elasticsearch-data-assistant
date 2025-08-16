@@ -65,6 +65,9 @@ class ChatRequest(BaseModel):
     index_name: Optional[str] = None
     conversation_id: Optional[str] = None
     debug: bool = False
+    # Controls what mapping payload the server should include in responses for mapping fast-path
+    # Options: 'both' (structured dict + json block), 'dict' (structured dict only), 'json' (json only)
+    mapping_response_format: Optional[str] = "both"
 
 
     es = app_request.app.state.es_service
@@ -429,6 +432,33 @@ async def chat_endpoint(req: ChatRequest, app_request: Request, response: Respon
                     
                     # Create user-friendly summary with Python types
                     reply = format_mapping_summary(es_types, python_types)
+
+                    # Build structured mapping response for frontend consumption
+                    sorted_fields = sorted(es_types.keys())
+                    structured_fields = [
+                        {"name": name, "es_type": str(es_types[name]), "python_type": python_types.get(name)}
+                        for name in sorted_fields
+                    ]
+                    structured_mapping = {
+                        "fields": structured_fields,
+                        "flat": {name: python_types.get(name) for name in sorted_fields},
+                        "field_count": field_count,
+                        "is_long": field_count > 40
+                    }
+
+                    # Attach mapping response into debug_info so frontend can render it without parsing markers
+                    if debug_info is not None:
+                        # Respect client's requested format
+                        fmt = getattr(req, 'mapping_response_format', 'both') or 'both'
+                        debug_info["mapping_response"] = structured_mapping if fmt in ("both", "dict") else None
+                        # Include the normalized original mapping dict when requested
+                        debug_info["mapping_original"] = mapping_dict if fmt in ("both", "dict") else None
+                        # Extract raw JSON block from the human reply if frontend prefers json or both
+                        if fmt in ("both", "json"):
+                            # format_mapping_summary already embeds the JSON block between markers
+                            debug_info["mapping_raw_reply"] = reply
+                        else:
+                            debug_info["mapping_raw_reply"] = None
 
                     mapping_span.set_attributes({
                         "mapping.index": index,

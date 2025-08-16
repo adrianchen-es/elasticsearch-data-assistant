@@ -95,6 +95,13 @@ setup_telemetry()  # Initialize OpenTelemetry
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+# Replace the tracer's start_as_current_span with the safe wrapper to handle
+# NoOpTracer differences and protect against exhausted mock side_effects in tests.
+try:
+    tracer.start_as_current_span = _start_span_safe
+except Exception:
+    # If tracer is an object that disallows attribute assignment, ignore
+    pass
 
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService

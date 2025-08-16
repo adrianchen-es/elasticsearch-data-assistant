@@ -260,6 +260,19 @@ def flatten_properties(properties: Dict[str, Any], prefix: str = "") -> Dict[str
     return flattened
 
 
+    def flattened_mapping_dict(mapping: Any) -> dict:
+        """Return the flattened mapping as a dict name->type for programmatic consumption.
+
+        This complements format_mapping_summary which returns a human preview + embedded JSON block.
+        """
+        normalized = normalize_mapping_data(mapping)
+        props = normalized.get("properties") or {}
+        flat = flatten_properties(props)
+        # convert FieldType wrappers to simple strings
+        out = {k: str(v) for k, v in flat.items()}
+        return out
+
+
 def get_python_type(es_type: str) -> str:
     """Convert Elasticsearch type to Python type for display."""
     return ES_TO_PYTHON_TYPES.get(es_type, 'Any')
@@ -346,24 +359,48 @@ def format_mapping_summary(es_types: Dict[str, str], python_types: Dict[str, str
         return "No field properties found in mapping."
     
     field_count = len(es_types)
-    
+
     # Sort fields for consistent display
     sorted_fields = sorted(es_types.keys())
-    preview_fields = sorted_fields[:max_fields]
-    
-    # Create preview with types for first few fields
+
+    # Decide collapse threshold (use 40 as requested)
+    collapse_threshold = 40
+
+    # Build a human-readable preview: include types for first 10 fields, then names up to threshold
+    preview_limit_with_types = 10
+    preview_limit_total = min(max_fields, collapse_threshold)
+
     preview_parts = []
-    for field in preview_fields[:10]:  # Show types for first 10 fields
+    for field in sorted_fields[:preview_limit_with_types]:
         python_type = python_types.get(field, 'Any')
         preview_parts.append(f"{field} ({python_type})")
-    
-    # Add remaining field names without types
-    if len(preview_fields) > 10:
-        remaining = [f for f in preview_fields[10:]]
+
+    # Add field names (without types) up to the preview total
+    if len(sorted_fields) > preview_limit_with_types:
+        remaining = [f for f in sorted_fields[preview_limit_with_types:preview_limit_total]]
         preview_parts.extend(remaining)
-    
+
     preview = ", ".join(preview_parts)
-    if field_count > max_fields:
-        preview += f" ... ({field_count - max_fields} more fields)"
-    
-    return f"Index has {field_count} fields. Fields: {preview}"
+
+    # If there are more fields than the collapse threshold, indicate collapsed state
+    collapsed = field_count > collapse_threshold
+    if collapsed:
+        preview_note = f"Index has {field_count} fields. Showing first {preview_limit_total} fields (collapsed)."
+    else:
+        preview_note = f"Index has {field_count} fields. Fields: {preview}"
+
+    # Always append a machine-readable full mapping block that UI consumers can parse and render
+    # Use a clear delimiter so frontends can detect and render a collapsible component
+    try:
+        import json as _json
+        full_flattened = {f: python_types.get(f, es_types.get(f, 'Any')) for f in sorted_fields}
+        full_block = _json.dumps(full_flattened, indent=2, ensure_ascii=False)
+    except Exception:
+        # Fallback to a simple representation
+        full_block = "{}"
+
+    collapsed_marker_start = "\n\n[COLLAPSED_MAPPING_JSON]\n"
+    collapsed_marker_end = "\n[/COLLAPSED_MAPPING_JSON]\n"
+
+    # Combine the human preview with the hidden full mapping block
+    return preview_note + collapsed_marker_start + full_block + collapsed_marker_end
