@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 
 if (process.argv.length < 3) {
@@ -19,7 +19,18 @@ function runTemp(linesToWrite) {
   fs.writeFileSync(tempName, linesToWrite.join('\n'));
   try {
     // run vitest for this single file
-    execSync(`npm --prefix frontend test --silent -- --run ${path.relative(process.cwd(), tempName)} --reporter verbose`, { stdio: 'pipe', timeout: 20000 });
+    execFileSync(
+      'npm',
+      [
+        '--prefix', 'frontend',
+        'test',
+        '--silent',
+        '--',
+        '--run', path.relative(process.cwd(), tempName),
+        '--reporter', 'verbose'
+      ],
+      { stdio: 'pipe', timeout: 20000 }
+    );
     return { ok: true };
   } catch (e) {
     return { ok: false, out: e.stdout ? e.stdout.toString() : '', err: e.stderr ? e.stderr.toString() : e.toString() };
