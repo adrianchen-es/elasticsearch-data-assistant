@@ -90,8 +90,26 @@ async def get_query_attempt(query_id: str, app_request: Request):
     server exceptions.
     """
     attempts = getattr(app_request.app.state, 'query_attempts', {})
-    attempt = attempts.get(query_id)
+    attempt = None
+    # Check Redis first
+    redis = getattr(app_request.app.state, 'redis', None)
+    if redis:
+        try:
+            with tracer.start_as_current_span("redis.get_query_attempt", attributes={"redis.key": f"query_attempt:{query_id}"}) as redis_span:
+                key = f"query_attempt:{query_id}"
+                exists = await redis.exists(key)
+                redis_span.set_attribute("redis.exists", bool(exists))
+                if exists:
+                    raw = await redis.hgetall(key)
+                    # convert string values back if needed
+                    attempt = {k: raw.get(k) for k in raw}
+                    redis_span.set_attribute("redis.fetched_fields", len(attempt))
+        except Exception as re:
+            logger.warning(f"Redis read failed for key {key}: {re}")
+            attempt = None
     if not attempt:
+        attempts = getattr(app_request.app.state, 'query_attempts', {})
+        attempt = attempts.get(query_id)
         raise HTTPException(status_code=404, detail="Query attempt not found")
 
     # Provide only safe fields back to caller
@@ -338,15 +356,40 @@ async def regenerate_query(request: ChatRequest, app_request: Request):
                 # Ensure the cache structure exists on app state
                 attempts = getattr(app_request.app.state, 'query_attempts', None)
                 if attempts is None:
-                    app_request.app.state.query_attempts = {}
-                    attempts = app_request.app.state.query_attempts
-
-                attempts[query_id] = {
-                    'index': request.index_name,
-                    'query': generated_query,
-                    'error': sanitized,
-                    'timestamp': time.time()
-                }
+                    # If Redis is configured, persist the attempt there, otherwise keep in-memory
+                    if getattr(app_request.app.state, 'redis', None):
+                        try:
+                            redis = app_request.app.state.redis
+                            key = f"query_attempt:{query_id}"
+                            payload = {
+                                'index': request.index_name,
+                                'query': generated_query,
+                                'error': sanitized,
+                                'timestamp': time.time()
+                            }
+                            with tracer.start_as_current_span("redis.save_query_attempt", attributes={"redis.key": key}) as redis_span:
+                                await redis.hset(key, mapping={k: str(v) for k, v in payload.items()})
+                                # set TTL to 7 days
+                                await redis.expire(key, 60 * 60 * 24 * 7)
+                                redis_span.set_attribute("redis.saved_fields", len(payload))
+                        except Exception as re:
+                            logger.warning(f"Redis write failed for key {key}: {re}. Falling back to in-memory cache.")
+                            # Fall back to in-memory if Redis write fails
+                            app_request.app.state.query_attempts = app_request.app.state.query_attempts or {}
+                            app_request.app.state.query_attempts[query_id] = {
+                                'index': request.index_name,
+                                'query': generated_query,
+                                'error': sanitized,
+                                'timestamp': time.time()
+                            }
+                    else:
+                        app_request.app.state.query_attempts = app_request.app.state.query_attempts or {}
+                        app_request.app.state.query_attempts[query_id] = {
+                            'index': request.index_name,
+                            'query': generated_query,
+                            'error': sanitized,
+                            'timestamp': time.time()
+                        }
 
                 # Return a helpful response to the user but avoid raw exception details
                 user_message = (

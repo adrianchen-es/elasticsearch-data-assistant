@@ -19,6 +19,7 @@ tracer = trace.get_tracer(__name__)
 class ChatMessage(BaseModel):
     role: str
     content: Any
+    meta: Optional[Dict[str, Any]] = None
 
 # Heuristic keywords to detect mapping/schema requests
 MAPPING_KEYWORDS = [
@@ -37,6 +38,23 @@ def _is_mapping_request(messages: List[ChatMessage]) -> bool:
     lowered = text.lower()
     return any(k in lowered for k in MAPPING_KEYWORDS)
 
+
+def _filter_messages_for_context(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
+    """Filter messages for LLM context building.
+
+    Messages with meta.include_context explicitly set to False will be excluded.
+    """
+    filtered: List[Dict[str, Any]] = []
+    for m in messages:
+        try:
+            meta = m.meta or {}
+            include = meta.get('include_context', True)
+        except Exception:
+            include = True
+        if include:
+            filtered.append(m.model_dump())
+    return filtered
+
 # Updated ChatRequest to include the `include_context` field
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
@@ -47,7 +65,7 @@ class ChatRequest(BaseModel):
     index_name: Optional[str] = None
     conversation_id: Optional[str] = None
     debug: bool = False
-    include_context: bool = True  # New field to toggle context inclusion
+
 
     es = app_request.app.state.es_service
     ai = app_request.app.state.ai_service
@@ -186,7 +204,8 @@ async def handle_elasticsearch_chat(
         })
         
         try:
-            message_list = [m.model_dump() for m in req.messages]
+            # Respect per-message include_context flags when building the LLM input
+            message_list = _filter_messages_for_context(req.messages)
             chat_start = time.time()
             
             result = await ai_service.generate_elasticsearch_chat(
@@ -287,7 +306,8 @@ def create_streaming_response(
             })
             
             try:
-                message_list = [m.model_dump() for m in req.messages]
+                # Respect per-message include_context flags when building the LLM input
+                message_list = _filter_messages_for_context(req.messages)
                 
                 if req.mode == "elasticsearch" and schema_context:
                     # Elasticsearch streaming
@@ -447,7 +467,8 @@ async def chat_endpoint(req: ChatRequest, app_request: Request, response: Respon
                 
                 try:
                     # Convert messages to the format expected by AI service
-                    message_list = [m.model_dump() for m in req.messages]
+                    # Respect per-message include_context flags when building the LLM input
+                    message_list = _filter_messages_for_context(req.messages)
                     
                     if req.mode == "elasticsearch" and req.index_name:
                         # Get schema for context-aware chat
