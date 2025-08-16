@@ -31,6 +31,13 @@ fetch_error_counter = None
 def setup_telemetry():
     """Setup OpenTelemetry instrumentation"""
     try:
+        # If running under unit tests, avoid creating real OTLP exporters which
+        # may attempt network I/O (DNS resolution to 'otel-collector'). Respect
+        # an explicit environment flag or the app environment setting.
+        # Also detect if running under pytest to avoid exporter network activity
+        if os.getenv('OTEL_TEST_MODE', '').lower() in ('1', 'true', 'yes') or getattr(settings, 'environment', '').lower() == 'test' or os.getenv('PYTEST_CURRENT_TEST'):
+            logger.info("Telemetry setup skipped because OTEL_TEST_MODE is enabled or environment is 'test'. Using noop instrumentation.")
+            return
         # Ensure propagators include W3C TraceContext and B3 for cross-service compatibility
         os.environ.setdefault('OTEL_PROPAGATORS', 'tracecontext,b3')
         # Create enhanced resource with service information

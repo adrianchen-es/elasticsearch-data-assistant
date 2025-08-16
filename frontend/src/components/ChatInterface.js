@@ -21,7 +21,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
   const [selectedTiers, setSelectedTiers] = useState(['hot']); // Default to hot tier
-  const [includeContext, setIncludeContext] = useState(true); // Default to include context
+  // include_context is now a per-message setting stored on message.meta.include_context
   
   // UI state
   const [showSettings, setShowSettings] = useState(false);
@@ -285,7 +285,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     setError(null);
     setDebugInfo(null);
     
-    const userMessage = { role: "user", content: input.trim() };
+  const userMessage = { role: "user", content: input.trim(), meta: { include_context: true } };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
@@ -296,7 +296,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     
     try {
       const requestBody = {
-        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        messages: newMessages.map(m => ({ role: m.role, content: m.content, meta: m.meta || {} })),
         stream: streamEnabled,
         mode: chatMode,
         temperature,
@@ -460,9 +460,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     }
   };
 
-  const toggleIncludeContext = () => {
-    setIncludeContext((prev) => !prev);
-  };
+  // include_context is handled per-message via message.meta.include_context
 
   const renderMappingResponse = (mappingResponse) => {
     if (!mappingResponse) return null;
@@ -488,7 +486,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <select 
                 value={chatMode}
                 onChange={(e) => setChatMode(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                className="w-40 px-3 py-1 border border-gray-300 rounded-md text-sm"
                 disabled={isStreaming}
               >
                 <option value="free">Free Chat</option>
@@ -589,15 +587,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                 Auto-run generated queries
               </label>
             </div>
-            <div className="flex items-center space-x-2 mb-4">
-              <label className="text-sm font-medium text-gray-700">Include Context:</label>
-              <input
-                type="checkbox"
-                checked={includeContext}
-                onChange={toggleIncludeContext}
-                className="h-4 w-4 text-blue-600"
-              />
-            </div>
+            {/* Per-message Include Context toggles are available on each user message; removed global setting */}
           </div>
         )}
         
@@ -659,6 +649,31 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <div className="whitespace-pre-wrap">
                 {message.content}
               </div>
+              {message.role === 'user' && (
+                <div className="mt-2 flex items-center space-x-2 text-xs text-gray-700">
+                  <label className="flex items-center space-x-1">
+                    <input
+                      type="checkbox"
+                      checked={message.meta?.include_context !== false}
+                      onChange={() => {
+                        // Toggle include_context for this message
+                        setMessages(prev => {
+                          const copy = [...prev];
+                          const idx = copy.indexOf(message);
+                          if (idx >= 0) {
+                            const m = { ...copy[idx] };
+                            m.meta = { ...(m.meta || {}), include_context: !(m.meta?.include_context !== false) };
+                            copy[idx] = m;
+                          }
+                          return copy;
+                        });
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span>Include Context</span>
+                  </label>
+                </div>
+              )}
               {message.meta && message.meta.query_id && (
                 <div className="mt-2">
                   <button

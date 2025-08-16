@@ -18,6 +18,8 @@ services:
       - DEPLOYMENT_ENV=${DEPLOYMENT_ENV:-development}
     ports:
       - "8000:8000"
+    depends_on:
+      - redis
     networks:
       - app-network
 
@@ -68,6 +70,15 @@ services:
       - "4317:4317"   # OTLP gRPC receiver
       - "4318:4318"   # OTLP HTTP receiver
       - "8889:8889"   # Prometheus metrics
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
     networks:
       - app-network
 
