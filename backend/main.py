@@ -24,7 +24,7 @@ from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
 from services.ai_service import AIService
 from config.settings import settings
-from routers import chat, query, health
+from routers import chat, query, health, providers
 import logging
 
 async def _retry_service_init(init_fn, name, max_attempts=3, delay=2):
@@ -631,6 +631,7 @@ async def add_route_header_middleware(request: Request, call_next):
 
 # Register routers
 app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(query.router, prefix="/api", tags=["query"])
 
