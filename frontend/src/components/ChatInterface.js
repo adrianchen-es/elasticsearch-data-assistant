@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IndexSelector, TierSelector } from './Selectors';
 import CollapsibleList from './CollapsibleList';
+import MappingDisplay from './MappingDisplay';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
@@ -28,6 +29,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [temperature, setTemperature] = useState(0.7);
   const [streamEnabled, setStreamEnabled] = useState(true);
   const [autoRunGeneratedQueries, setAutoRunGeneratedQueries] = useState(false);
+  const [mappingResponseFormat, setMappingResponseFormat] = useState('both');
   const [showAttemptModal, setShowAttemptModal] = useState(false);
   const [attemptModalData, setAttemptModalData] = useState(null);
   
@@ -170,6 +172,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setStreamEnabled(settings.streamEnabled !== false);
       setShowDebug(settings.showDebug || false);
       setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
+  setMappingResponseFormat(settings.mappingResponseFormat || 'both');
     } catch (error) {
       console.error('Error loading settings:', error);
     }
@@ -182,6 +185,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         streamEnabled,
         showDebug,
         autoRunGeneratedQueries
+  ,mappingResponseFormat
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
@@ -303,6 +307,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         debug: showDebug,
         conversation_id: conversationId
       };
+  // Include client's preferred mapping response format for mapping fast-path
+  requestBody.mapping_response_format = mappingResponseFormat;
       
       if (chatMode === "elasticsearch") {
         requestBody.index_name = selectedIndex;
@@ -474,6 +480,50 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     );
   };
 
+
+// Parse the collapsed JSON block emitted by the backend between
+// [COLLAPSED_MAPPING_JSON] and [/COLLAPSED_MAPPING_JSON]
+function parsedCollapsedJsonFromString(text) {
+  if (!text || typeof text !== 'string') return null;
+  const start = text.indexOf('[COLLAPSED_MAPPING_JSON]');
+  const end = text.indexOf('[/COLLAPSED_MAPPING_JSON]');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const jsonText = text.substring(start + '[COLLAPSED_MAPPING_JSON]'.length, end).trim();
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.fields) return parsed;
+      // If it's a flat mapping dict, convert to {fields: [...]}
+      const fields = Object.keys(parsed).map(k => ({ name: k, es_type: parsed[k] }));
+      return { fields, is_long: Object.keys(parsed).length > 40 };
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+function MappingToggleSection({ mapping }) {
+  const [visible, setVisible] = React.useState(false);
+  return (
+    <div className="mt-4">
+      <button className="text-sm underline" onClick={() => setVisible(v => !v)}>
+        {visible ? 'Hide full mapping' : 'Show full mapping'}
+      </button>
+      {visible && (
+        <div className="mt-2">
+          {/* If mapping contains fields array (structured), use CollapsibleList for a compact view */}
+          {mapping.fields ? (
+            <div className="mapping-response"><CollapsibleList items={mapping.fields} isLong={mapping.is_long} /></div>
+          ) : (
+            <MappingDisplay mapping={mapping} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header with controls */}
@@ -562,18 +612,30 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   Enable Streaming
                 </label>
               </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="showDebug"
-                  checked={showDebug}
-                  onChange={(e) => setShowDebug(e.target.checked)}
-                  className="mr-2"
-                />
-                <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
-                  Show Debug Info
-                </label>
-              </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showDebug"
+                    checked={showDebug}
+                    onChange={(e) => setShowDebug(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
+                    Show Debug Info
+                  </label>
+                </div>
+                <div className="flex items-center">
+                  <label className="text-sm font-medium text-gray-700 mr-2">Mapping response:</label>
+                  <select
+                    value={mappingResponseFormat}
+                    onChange={(e) => setMappingResponseFormat(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  >
+                    <option value="both">Both (dict + JSON)</option>
+                    <option value="dict">Dict only</option>
+                    <option value="json">JSON only</option>
+                  </select>
+                </div>
             </div>
             <div className="flex items-center">
               <input
@@ -731,7 +793,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           </div>
         )}
         
-        {debugInfo && showDebug && (
+  {debugInfo && showDebug && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <div className="text-gray-800 font-medium mb-2">Debug Information</div>
             <div className="text-xs font-mono text-gray-600">
@@ -761,7 +823,16 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           </div>
         )}
         
-        {renderMappingResponse(debugInfo?.mapping_response)}
+        {/* Mapping display: prefer structured debug mapping, otherwise try to parse embedded JSON markers */}
+        {(() => {
+          const structured = debugInfo?.mapping_response;
+          const rawReply = debugInfo?.mapping_raw_reply || (messages.length ? messages[messages.length-1]?.content : null);
+          const parsed = structured || parsedCollapsedJsonFromString(rawReply);
+          if (parsed) {
+            return <MappingToggleSection mapping={parsed} />;
+          }
+          return null;
+        })()}
         
         <div ref={messagesEndRef} />
       </div>

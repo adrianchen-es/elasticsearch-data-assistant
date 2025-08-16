@@ -94,10 +94,15 @@ jobs:
 
       - name: Run frontend tests
         run: |
-          npm test --silent || true
+          CI=true npm test --silent || true
 
       - name: Upload frontend test artifacts
+        if: always()
         uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: |
+            frontend
 
       - name: Print OpenTelemetry package versions and enforce minimums
         run: |
@@ -141,10 +146,42 @@ jobs:
             telemetry_smoke_results.xml
             test_results.xml
 
+  gateway-tests:
+    name: Gateway tests
+    runs-on: ubuntu-latest
+    needs: frontend-tests
+    defaults:
+      run:
+        working-directory: ./gateway
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install gateway deps
+        run: |
+          npm ci
+
+      - name: Run gateway tests
+        run: |
+          CI=true npm test --silent || true
+
+      - name: Upload gateway test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-test-results
+          path: |
+            gateway
+
   run-all-tests:
     name: Run combined test script
     runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests]
+    needs: [backend-tests, frontend-tests, gateway-tests]
     defaults:
       run:
         working-directory: ./

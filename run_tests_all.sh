@@ -14,7 +14,7 @@ FAIL_SUMMARY=()
 run_frontend() {
   if [ -f frontend/package.json ]; then
     echo "==> Running frontend tests (frontend)..."
-    if (cd frontend && npm test --silent); then
+    if (cd frontend && CI=true npm test --silent); then
       echo "frontend: OK"
       return 0
     else
@@ -30,7 +30,8 @@ run_frontend() {
 run_gateway() {
   if [ -f gateway/package.json ]; then
     echo "==> Running gateway tests (gateway)..."
-    if (cd gateway && npm test --silent); then
+  # ensure dependencies are installed and run tests in CI mode for consistent behavior
+  if (cd gateway && npm ci --silent && CI=true npm test --silent); then
       echo "gateway: OK"
       return 0
     else

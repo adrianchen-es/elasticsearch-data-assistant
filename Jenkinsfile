@@ -259,6 +259,21 @@ PY
                         '''
                     }
                 }
+                
+                stage('Gateway Unit Tests') {
+                    steps {
+                        echo '🛰️ Running gateway unit tests...'
+                        sh '''
+                            if [ -f gateway/package.json ]; then
+                                cd gateway
+                                npm ci --silent
+                                CI=true npm test --silent || true
+                            else
+                                echo "gateway: SKIPPED (no gateway/package.json)"
+                            fi
+                        '''
+                    }
+                }
 
                 // Run combined repository test script stage
                 stage('Run combined tests script') {

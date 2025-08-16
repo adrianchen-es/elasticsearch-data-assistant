@@ -10,23 +10,29 @@ vi.mock('@opentelemetry/sdk-node', () => ({
 }));
 
 vi.mock('@opentelemetry/resources', () => ({
-  Resource: {
-    default: vi.fn().mockReturnValue({}),
-    merge: vi.fn().mockReturnValue({})
+  Resource: class {
+    constructor(obj) { this._obj = obj; }
+    static default() { return {}; }
+    static merge() { return {}; }
   }
 }));
 
 vi.mock('@opentelemetry/semantic-conventions', () => ({
-  SEMRESATTRS_SERVICE_NAME: 'service.name',
-  SEMRESATTRS_SERVICE_VERSION: 'service.version',
-  SEMRESATTRS_DEPLOYMENT_ENVIRONMENT: 'deployment.environment',
-  SEMRESATTRS_HOST_NAME: 'host.name',
-  SEMRESATTRS_HOST_ARCH: 'host.arch',
-  SEMRESATTRS_OS_TYPE: 'os.type',
-  SEMRESATTRS_CONTAINER_NAME: 'container.name',
-  SEMRESATTRS_CONTAINER_ID: 'container.id',
-  SEMRESATTRS_K8S_POD_NAME: 'k8s.pod.name',
-  SEMRESATTRS_K8S_NAMESPACE_NAME: 'k8s.namespace.name'
+  SemanticResourceAttributes: {
+    SERVICE_NAME: 'service.name',
+    SERVICE_VERSION: 'service.version',
+    DEPLOYMENT_ENVIRONMENT: 'deployment.environment',
+    HOST_NAME: 'host.name',
+    HOST_ARCH: 'host.arch',
+    OS_TYPE: 'os.type',
+    CONTAINER_NAME: 'container.name',
+    CONTAINER_ID: 'container.id',
+    K8S_POD_NAME: 'k8s.pod.name',
+    K8S_NAMESPACE_NAME: 'k8s.namespace.name',
+    PROCESS_PID: 'process.pid',
+    PROCESS_RUNTIME_NAME: 'process.runtime.name',
+    PROCESS_RUNTIME_VERSION: 'process.runtime.version'
+  }
 }));
 
 vi.mock('@opentelemetry/auto-instrumentations-node', () => ({
@@ -37,29 +43,47 @@ vi.mock('@opentelemetry/exporter-jaeger', () => ({
   JaegerExporter: vi.fn().mockImplementation(() => ({}))
 }));
 
-vi.mock('fs', () => ({
-  readFileSync: vi.fn(),
-  existsSync: vi.fn()
-}));
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    readFileSync: vi.fn(),
+    existsSync: vi.fn()
+  };
+});
 
-vi.mock('os', () => ({
-  hostname: vi.fn().mockReturnValue('test-hostname'),
-  arch: vi.fn().mockReturnValue('x64'),
-  type: vi.fn().mockReturnValue('Linux'),
-  totalmem: vi.fn().mockReturnValue(8589934592), // 8GB
-  freemem: vi.fn().mockReturnValue(4294967296), // 4GB
-  cpus: vi.fn().mockReturnValue([
-    { model: 'Test CPU', speed: 2400 },
-    { model: 'Test CPU', speed: 2400 }
-  ])
-}));
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    hostname: vi.fn().mockReturnValue('test-hostname'),
+    arch: vi.fn().mockReturnValue('x64'),
+    type: vi.fn().mockReturnValue('Linux'),
+    totalmem: vi.fn().mockReturnValue(8589934592), // 8GB
+    freemem: vi.fn().mockReturnValue(4294967296), // 4GB
+    cpus: vi.fn().mockReturnValue([
+      { model: 'Test CPU', speed: 2400 },
+      { model: 'Test CPU', speed: 2400 }
+    ])
+  };
+});
 
 describe('Tracing Configuration', () => {
   let tracing;
   let mockFs;
   
   beforeEach(async () => {
-    vi.clearAllMocks();
+  vi.clearAllMocks();
+  // Ensure no leftover modules or envs affect detection
+  vi.resetModules();
+  delete process.env.KUBERNETES_SERVICE_HOST;
+  delete process.env.K8S_CLUSTER_NAME;
+  delete process.env.K8S_NAMESPACE;
+  delete process.env.K8S_POD_NAME;
+  delete process.env.POD_NAME;
+  delete process.env.POD_NAMESPACE;
+  delete process.env.K8S_DEPLOYMENT_NAME;
+  delete process.env.K8S_NODE_NAME;
     mockFs = await import('fs');
     
     // Mock container detection
@@ -78,7 +102,8 @@ describe('Tracing Configuration', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+  vi.clearAllMocks();
+  vi.resetModules();
   });
 
   describe('Container Detection', () => {
@@ -151,46 +176,45 @@ describe('Tracing Configuration', () => {
     });
   });
 
-  describe('SDK Initialization', () => {
-    it('should initialize NodeSDK with correct configuration', async () => {
-      // Import tracing module to trigger initialization
-      await import('../tracing.js');
-      
-      expect(NodeSDK).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resource: expect.any(Object),
-          instrumentations: expect.any(Array)
-        })
-      );
-    });
+    describe('SDK Initialization', () => {
+      it('should initialize NodeSDK with correct configuration', async () => {
+        const { initTracing } = await import('../tracing.js');
+        await initTracing();
 
-    it('should handle initialization errors gracefully', async () => {
-      const mockSdk = {
-        start: vi.fn().mockImplementation(() => {
-          throw new Error('SDK initialization failed');
-        }),
-        shutdown: vi.fn()
-      };
+        expect(NodeSDK).toHaveBeenCalledWith(
+          expect.objectContaining({
+            resource: expect.any(Object),
+            instrumentations: expect.any(Array)
+          })
+        );
+      });
+
+      it('should handle initialization errors gracefully', async () => {
+        const mockSdk = {
+          start: vi.fn().mockImplementation(() => {
+            throw new Error('SDK initialization failed');
+          }),
+          shutdown: vi.fn()
+        };
       
-      NodeSDK.mockImplementation(() => mockSdk);
+        NodeSDK.mockImplementation(() => mockSdk);
       
-      // Should not throw error during import
-      expect(async () => {
-        await import('../tracing.js');
-      }).not.toThrow();
+        const { initTracing } = await import('../tracing.js');
+        // Should not throw when called
+        await expect(initTracing()).resolves.not.toThrow();
+      });
     });
-  });
 
   describe('Environment Configuration', () => {
     it('should use environment variables for configuration', async () => {
       process.env.OTEL_SERVICE_NAME = 'test-service';
       process.env.OTEL_SERVICE_VERSION = '1.0.0';
       process.env.NODE_ENV = 'test';
-      
-      await import('../tracing.js');
-      
-      // Verify that environment variables are used
-      expect(NodeSDK).toHaveBeenCalled();
+  const { initTracing } = await import('../tracing.js');
+  await initTracing();
+
+  // Verify that environment variables are used
+  expect(NodeSDK).toHaveBeenCalled();
       
       // Clean up
       delete process.env.OTEL_SERVICE_NAME;
