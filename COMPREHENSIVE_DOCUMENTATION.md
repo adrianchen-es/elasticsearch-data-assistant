@@ -944,8 +944,10 @@ from fastapi_cache.backends.redis import RedisBackend
 
 @app.on_event("startup")
 async def startup():
-    redis = aioredis.from_url("redis://localhost", encoding="utf8")
-    FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
+  # Use redis-py's asyncio client
+  import redis.asyncio as redis_mod
+  redis = redis_mod.from_url("redis://localhost", encoding="utf8", decode_responses=True)
+  FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
 ```
 
 #### Frontend Performance

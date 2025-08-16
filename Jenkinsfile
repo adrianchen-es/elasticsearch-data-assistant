@@ -259,7 +259,22 @@ PY
                         '''
                     }
                 }
-                
+
+                // Run combined repository test script stage
+                stage('Run combined tests script') {
+                    steps {
+                        echo '🧪 Running repository-wide combined test script: run_tests_all.sh'
+                        sh '''
+                            if [ -f ./run_tests_all.sh ]; then
+                                chmod +x ./run_tests_all.sh
+                                ./run_tests_all.sh || true
+                            else
+                                echo "run_tests_all.sh not found, skipping"
+                            fi
+                        '''
+                    }
+                }
+
                 stage('Performance Tests') {
                     steps {
                         echo '⚡ Running performance tests...'

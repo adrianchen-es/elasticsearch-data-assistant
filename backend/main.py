@@ -495,6 +495,33 @@ async def lifespan(app: FastAPI):
                 
                 logger.info("🔍 Closing Elasticsearch connections...")
                 await es_service.close()
+
+                # Close Redis client if present
+                try:
+                    redis_client = getattr(app.state, 'redis', None)
+                    if redis_client:
+                        logger.info("🔌 Closing Redis client...")
+                        close_fn = getattr(redis_client, 'close', None)
+                        if close_fn:
+                            maybe_close = close_fn()
+                            if asyncio.iscoroutine(maybe_close):
+                                await maybe_close
+
+                        # Some redis client implementations expose a connection_pool
+                        pool = getattr(redis_client, 'connection_pool', None)
+                        if pool:
+                            disconnect_fn = getattr(pool, 'disconnect', None)
+                            if disconnect_fn:
+                                maybe_disc = disconnect_fn()
+                                if asyncio.iscoroutine(maybe_disc):
+                                    await maybe_disc
+
+                        services_cleanup_span.set_attribute('redis.closed', True)
+                    else:
+                        services_cleanup_span.set_attribute('redis.closed', False)
+                except Exception as redis_close_err:
+                    logger.warning(f"⚠️ Failed to close Redis client cleanly: {redis_close_err}")
+                    services_cleanup_span.set_attribute('redis.closed', False)
                 
                 shutdown_timings["services_cleanup"] = asyncio.get_event_loop().time() - services_cleanup_start
                 services_cleanup_span.set_attributes({
