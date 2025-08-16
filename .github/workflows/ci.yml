@@ -41,8 +41,8 @@ jobs:
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
 
-      - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=$PWD/backend" >> $GITHUB_ENV
+- name: Set PYTHONPATH
+  run: echo "PYTHONPATH=$PWD/backend" >> $GITHUB_ENV
 
       - name: Print OpenTelemetry package versions
         run: |
@@ -56,21 +56,21 @@ jobs:
                   print(p + ' not installed: ' + str(e))
           PY
 
-      - name: Run telemetry smoke test
-        run: |
-          pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml || true
+- name: Run telemetry smoke test
+  run: |
+    pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml || true
 
-      - name: Run full backend tests
-        run: |
-          pytest test/ --maxfail=1 -q --junitxml=test_results.xml || true
+- name: Run full backend tests
+  run: |
+    pytest test/ --maxfail=1 -q --junitxml=test_results.xml || true
 
-      - name: Upload backend test artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-results
-          path: |
-            telemetry_smoke_results.xml
-            test_results.xml
+- name: Upload backend test artifacts
+  uses: actions/upload-artifact@v4
+  with:
+    name: backend-test-results
+    path: |
+      telemetry_smoke_results.xml
+      test_results.xml
 
   frontend-tests:
     name: Frontend tests
