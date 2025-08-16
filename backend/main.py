@@ -409,13 +409,27 @@ async def lifespan(app: FastAPI):
                     redis_url = os.getenv('REDIS_URL') or getattr(settings, 'redis_url', None)
                     if redis_url:
                         try:
-                            import aioredis
-                            logger.info("♻️ Redis configured - initializing connection pool for query attempts and cache")
-                            app.state.redis = await aioredis.from_url(redis_url, encoding='utf-8', decode_responses=True)
+                            # Use redis-py's asyncio client (redis.asyncio)
+                            import redis.asyncio as redis_mod
+                            logger.info("♻️ Redis configured - initializing async client for query attempts and cache")
+                            # redis.from_url returns an async-compatible client instance
+                            app.state.redis = redis_mod.from_url(redis_url, encoding='utf-8', decode_responses=True)
+                            # Optionally verify connection with a ping
+                            try:
+                                await app.state.redis.ping()
+                            except Exception:
+                                # If ping fails, allow the outer except to handle
+                                raise
                             app.state.query_attempts = None  # persisted in Redis
                             state_span.set_attribute('redis.enabled', True)
                         except Exception as re:
                             logger.warning(f"⚠️ Failed to connect to Redis at {redis_url}: {re}. Falling back to in-memory cache.")
+                            # Ensure we don't leave a partially-initialized client
+                            try:
+                                if getattr(app.state, 'redis', None):
+                                    await getattr(app.state.redis, 'close', lambda: None)()
+                            except Exception:
+                                pass
                             app.state.redis = None
                             app.state.query_attempts = {}
                             state_span.set_attribute('redis.enabled', False)
@@ -536,6 +550,33 @@ async def lifespan(app: FastAPI):
                 
                 logger.info("🔍 Closing Elasticsearch connections...")
                 await es_service.close()
+
+                # Close Redis client if present
+                try:
+                    redis_client = getattr(app.state, 'redis', None)
+                    if redis_client:
+                        logger.info("🔌 Closing Redis client...")
+                        close_fn = getattr(redis_client, 'close', None)
+                        if close_fn:
+                            maybe_close = close_fn()
+                            if asyncio.iscoroutine(maybe_close):
+                                await maybe_close
+
+                        # Some redis client implementations expose a connection_pool
+                        pool = getattr(redis_client, 'connection_pool', None)
+                        if pool:
+                            disconnect_fn = getattr(pool, 'disconnect', None)
+                            if disconnect_fn:
+                                maybe_disc = disconnect_fn()
+                                if asyncio.iscoroutine(maybe_disc):
+                                    await maybe_disc
+
+                        services_cleanup_span.set_attribute('redis.closed', True)
+                    else:
+                        services_cleanup_span.set_attribute('redis.closed', False)
+                except Exception as redis_close_err:
+                    logger.warning(f"⚠️ Failed to close Redis client cleanly: {redis_close_err}")
+                    services_cleanup_span.set_attribute('redis.closed', False)
                 
                 shutdown_timings["services_cleanup"] = asyncio.get_event_loop().time() - services_cleanup_start
                 services_cleanup_span.set_attributes({
