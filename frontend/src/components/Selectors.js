@@ -10,9 +10,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
 
   return (
     <div className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        AI Provider
-      </label>
+      <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
       <div className="relative">
         <select
           value={selectedProvider}
@@ -20,11 +18,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
           className="appearance-none bg-white border border-gray-300 rounded-md pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-32"
         >
           {providers.map((provider) => (
-            <option 
-              key={provider.value} 
-              value={provider.value}
-              disabled={!provider.available}
-            >
+            <option key={provider.value} value={provider.value} disabled={!provider.available}>
               {provider.label}
             </option>
           ))}

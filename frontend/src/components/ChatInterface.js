@@ -27,6 +27,9 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [showSettings, setShowSettings] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [streamEnabled, setStreamEnabled] = useState(true);
+  const [autoRunGeneratedQueries, setAutoRunGeneratedQueries] = useState(false);
+  const [showAttemptModal, setShowAttemptModal] = useState(false);
+  const [attemptModalData, setAttemptModalData] = useState(null);
   
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -166,6 +169,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setTemperature(settings.temperature || 0.7);
       setStreamEnabled(settings.streamEnabled !== false);
       setShowDebug(settings.showDebug || false);
+      setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
     } catch (error) {
       console.error('Error loading settings:', error);
     }
@@ -176,7 +180,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       const settings = {
         temperature,
         streamEnabled,
-        showDebug
+        showDebug,
+        autoRunGeneratedQueries
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
@@ -375,6 +380,45 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           setDebugInfo(data.debug_info);
         }
       }
+      // If running in elasticsearch mode and auto-run of generated queries is enabled,
+      // make a background call to /api/query/regenerate so generated queries are executed
+      // automatically. We do this after the main chat response so the UX remains snappy.
+      if (chatMode === 'elasticsearch' && autoRunGeneratedQueries) {
+        (async () => {
+          try {
+            const regenBody = {
+              message: input.trim(),
+              index_name: selectedIndex,
+              provider: selectedProvider?.name || 'default'
+            };
+
+            const regenResp = await fetch('/api/query/regenerate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(regenBody)
+            });
+
+            if (regenResp.ok) {
+              const regenData = await regenResp.json();
+              // If execution failed, the API will return raw_results.error and a query_id
+              if (regenData.raw_results && regenData.raw_results.error) {
+                const sysMsg = `Generated query execution failed (query id: ${regenData.query_id}). Click View Details to inspect.`;
+                setMessages(prev => [...prev, { role: 'assistant', content: sysMsg }]);
+                // Attach a special marker on the message allowing the UI to render a View Details button
+                // We'll store the mapping of query_id -> message index in-memory via a data-attribute on the DOM.
+                // For simplicity, append an object with meta so render can pick it up.
+                setMessages(prev => {
+                  const m = [...prev];
+                  m[m.length - 1] = { ...m[m.length - 1], meta: { query_id: regenData.query_id } };
+                  return m;
+                });
+              }
+            }
+          } catch (err) {
+            console.warn('Auto-regenerate failed:', err);
+          }
+        })();
+      }
       
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -533,6 +577,18 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                 </label>
               </div>
             </div>
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="autoRunGeneratedQueries"
+                checked={autoRunGeneratedQueries}
+                onChange={(e) => setAutoRunGeneratedQueries(e.target.checked)}
+                className="mr-2"
+              />
+              <label htmlFor="autoRunGeneratedQueries" className="text-sm font-medium text-gray-700">
+                Auto-run generated queries
+              </label>
+            </div>
             <div className="flex items-center space-x-2 mb-4">
               <label className="text-sm font-medium text-gray-700">Include Context:</label>
               <input
@@ -603,9 +659,55 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <div className="whitespace-pre-wrap">
                 {message.content}
               </div>
+              {message.meta && message.meta.query_id && (
+                <div className="mt-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const resp = await fetch(`/api/query/attempt/${message.meta.query_id}`);
+                        if (resp.ok) {
+                          const data = await resp.json();
+                          // Open modal with sanitized attempt info
+                          setAttemptModalData(data);
+                          setShowAttemptModal(true);
+                        } else {
+                          // Show modal with failure note
+                          setAttemptModalData({ error: 'Failed to retrieve details' });
+                          setShowAttemptModal(true);
+                        }
+                      } catch (err) {
+                        console.error('Failed to fetch attempt details', err);
+                        setAttemptModalData({ error: 'Failed to fetch attempt details' });
+                        setShowAttemptModal(true);
+                      }
+                    }}
+                    className="mt-2 px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                  >
+                    View Details
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
+
+        {/* Attempt details modal */}
+        {showAttemptModal && (
+          <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div className="absolute inset-0 bg-black opacity-50" onClick={() => setShowAttemptModal(false)} />
+            <div className="relative bg-white rounded-lg shadow-lg max-w-3xl w-full p-4 z-10">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-lg font-semibold">Attempt Details</h3>
+                <button onClick={() => setShowAttemptModal(false)} className="px-2 py-1">Close</button>
+              </div>
+              <div className="text-sm font-mono text-gray-800 overflow-auto max-h-96">
+                <pre className="whitespace-pre-wrap">
+                  {attemptModalData ? JSON.stringify(attemptModalData, null, 2) : 'No data available'}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
         
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">

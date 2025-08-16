@@ -323,6 +323,9 @@ async def lifespan(app: FastAPI):
                     "status": "unknown",
                     "cache_ttl": 30  # 30 seconds TTL for health checks
                 }
+                # Initialize in-memory store for query attempts (regenerate_query)
+                logger.info("🗄️ Initializing query attempts cache...")
+                app.state.query_attempts = {}
                 logger.info("✅ Health check cache initialized with 30s TTL")
 
                 state_span.set_attributes({

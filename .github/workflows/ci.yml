@@ -41,36 +41,36 @@ jobs:
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
 
-- name: Set PYTHONPATH
-  run: echo "PYTHONPATH=$PWD/backend" >> $GITHUB_ENV
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PWD/backend" >> $GITHUB_ENV
 
-- name: Print OpenTelemetry package versions
-  run: |
-    python - <<'PY'
-    import pkg_resources
-    packages = ['opentelemetry-api','opentelemetry-sdk','opentelemetry-exporter-otlp']
-    for p in packages:
-        try:
-            print(p + '==' + pkg_resources.get_distribution(p).version)
-        except Exception as e:
-            print(p + ' not installed: ' + str(e))
-    PY
+      - name: Print OpenTelemetry package versions
+        run: |
+          python - <<'PY'
+          import pkg_resources
+          packages = ['opentelemetry-api','opentelemetry-sdk','opentelemetry-exporter-otlp']
+          for p in packages:
+              try:
+                  print(p + '==' + pkg_resources.get_distribution(p).version)
+              except Exception as e:
+                  print(p + ' not installed: ' + str(e))
+          PY
 
-- name: Run telemetry smoke test
-  run: |
-    pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml || true
+      - name: Run telemetry smoke test
+        run: |
+          pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml || true
 
-- name: Run full backend tests
-  run: |
-    pytest test/ --maxfail=1 -q --junitxml=test_results.xml || true
+      - name: Run full backend tests
+        run: |
+          pytest test/ --maxfail=1 -q --junitxml=test_results.xml || true
 
-- name: Upload backend test artifacts
-  uses: actions/upload-artifact@v4
-  with:
-    name: backend-test-results
-    path: |
-      telemetry_smoke_results.xml
-      test_results.xml
+      - name: Upload backend test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: |
+            telemetry_smoke_results.xml
+            test_results.xml
 
   frontend-tests:
     name: Frontend tests
@@ -96,33 +96,33 @@ jobs:
         run: |
           npm test --silent || true
 
-- name: Upload frontend test artifacts
-  uses: actions/upload-artifact@v4
+      - name: Upload frontend test artifacts
+        uses: actions/upload-artifact@v4
 
-- name: Print OpenTelemetry package versions and enforce minimums
-  run: |
-    python - <<'PY'
-    import sys
-    from pkg_resources import get_distribution, parse_version
-    required = {
-        'opentelemetry-api': '1.36.0',
-        'opentelemetry-sdk': '1.36.0',
-        'opentelemetry-exporter-otlp': '1.36.0'
-    }
-    ok = True
-    for pkg, minv in required.items():
-        try:
-            v = get_distribution(pkg).version
-            print(f'{pkg}=={v} (required >= {minv})')
-            if parse_version(v) < parse_version(minv):
-                print(f'ERROR: {pkg} {v} is older than required {minv}', file=sys.stderr)
-                ok = False
-        except Exception as e:
-            print(f'ERROR: {pkg} not installed: {e}', file=sys.stderr)
-            ok = False
-    if not ok:
-        sys.exit(2)
-    PY
+      - name: Print OpenTelemetry package versions and enforce minimums
+        run: |
+          python - <<'PY'
+          import sys
+          from pkg_resources import get_distribution, parse_version
+          required = {
+              'opentelemetry-api': '1.36.0',
+              'opentelemetry-sdk': '1.36.0',
+              'opentelemetry-exporter-otlp': '1.36.0'
+          }
+          ok = True
+          for pkg, minv in required.items():
+              try:
+                  v = get_distribution(pkg).version
+                  print(f'{pkg}=={v} (required >= {minv})')
+                  if parse_version(v) < parse_version(minv):
+                      print(f'ERROR: {pkg} {v} is older than required {minv}', file=sys.stderr)
+                      ok = False
+              except Exception as e:
+                  print(f'ERROR: {pkg} not installed: {e}', file=sys.stderr)
+                  ok = False
+          if not ok:
+              sys.exit(2)
+          PY
 
       - name: Run telemetry smoke test
         run: |
