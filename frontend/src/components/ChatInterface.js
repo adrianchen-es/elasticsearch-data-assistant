@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { IndexSelector, TierSelector } from './Selectors';
+import CollapsibleList from './CollapsibleList';
+import MappingDisplay from './MappingDisplay';
 // lightweight logger helper to avoid multiple inline dynamic imports
 let feLogger = null;
 const getFeLogger = async () => {
   if (feLogger) return feLogger;
   try { feLogger = await import('../lib/logging.js'); return feLogger; } catch (e) { return { info: () => {}, warn: () => {}, error: () => {} }; }
 };
-import { IndexSelector, TierSelector } from './Selectors';
-import CollapsibleList from './CollapsibleList';
-import MappingDisplay from './MappingDisplay';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
