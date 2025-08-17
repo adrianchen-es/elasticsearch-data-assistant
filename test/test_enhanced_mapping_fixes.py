@@ -8,6 +8,7 @@ import sys
 import os
 import logging
 import json
+import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
 # Add the backend directory to the Python path

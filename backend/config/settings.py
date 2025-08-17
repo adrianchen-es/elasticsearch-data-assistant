@@ -29,13 +29,19 @@ class Settings(BaseSettings):
     otel_exporter_grpc_traces_endpoint: Optional[str] = os.getenv("OTEL_EXPORTER_GRPC_TRACES_ENDPOINT", "http://otel-collector:4317")
     otel_exporter_grpc_metrics_endpoint: Optional[str] = os.getenv("OTEL_EXPORTER_GRPC_METRICS_ENDPOINT", "http://otel-collector:4317")
     otel_exporter_otlp_headers: Optional[str] = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
-    environment: str = os.getenv('NODE_ENV', 'development')
+    environment: str = os.getenv('DEPLOYMENT_ENV', 'development')
     version: str = "1.0.0"
     host_name: str = socket.gethostname()
     container_name: str = os.environ.get("CONTAINER_NAME", "unknown")
     
     # Cache settings
     mapping_cache_interval_minutes: int = int(os.getenv("MAPPING_CACHE_INTERVAL_MINUTES", "30"))
+    
+    # Index filtering settings
+    filter_system_indices: bool = os.getenv("ELASTICSEARCH_FILTER_SYSTEM_INDICES", "true").lower() == "true"
+    filter_monitoring_indices: bool = os.getenv("ELASTICSEARCH_FILTER_MONITORING_INDICES", "true").lower() == "true"
+    filter_closed_indices: bool = os.getenv("ELASTICSEARCH_FILTER_CLOSED_INDICES", "true").lower() == "true"
+    show_data_streams: bool = os.getenv("ELASTICSEARCH_SHOW_DATA_STREAMS", "true").lower() == "true"
     
     class Config:
         env_file = ".env"

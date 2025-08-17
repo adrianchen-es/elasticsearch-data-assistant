@@ -15,9 +15,13 @@ opentelemetry-instrumentation-httpx==0.57b0
 opentelemetry-semantic-conventions==0.57b0
 opentelemetry-instrumentation-requests==0.57b0
 opentelemetry-util-http==0.57b0
+opentelemetry-propagator-b3==1.36.0
+opentelemetry-propagator-jaeger==1.36.0
 APScheduler==3.10.4
+
 pydantic_settings==2.10.1
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 elasticsearch[async]==8.13.2
 tiktoken>=0.7.0
+redis>=4.6.0

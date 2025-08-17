@@ -3,10 +3,9 @@ import request from 'supertest';
 import express from 'express';
 
 // Mock the tracing module to avoid OpenTelemetry setup in tests
-vi.mock('../src/tracing.js', () => ({
-  sdk: {
-    start: vi.fn()
-  }
+vi.mock('../tracing.js', () => ({
+  initTracing: async () => ({ start: vi.fn(), shutdown: vi.fn() }),
+  sdk: { start: vi.fn(), shutdown: vi.fn() }
 }));
 
 describe('Gateway Server', () => {
@@ -15,7 +14,7 @@ describe('Gateway Server', () => {
 
   beforeEach(async () => {
     // Dynamically import the server after mocking tracing
-    const { app: testApp } = await import('../src/server.js');
+  const { app: testApp } = await import('../server.js');
     app = testApp;
   });
 

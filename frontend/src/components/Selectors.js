@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, Cpu, RefreshCw, Layers } from 'lucide-react';
 
 // Component to select AI provider
-const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
+export const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
   const providers = [
     { value: 'azure', label: 'Azure AI', available: true },
     { value: 'openai', label: 'OpenAI', available: true }
@@ -10,9 +10,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
 
   return (
     <div className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        AI Provider
-      </label>
+      <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
       <div className="relative">
         <select
           value={selectedProvider}
@@ -20,11 +18,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
           className="appearance-none bg-white border border-gray-300 rounded-md pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-32"
         >
           {providers.map((provider) => (
-            <option 
-              key={provider.value} 
-              value={provider.value}
-              disabled={!provider.available}
-            >
+            <option key={provider.value} value={provider.value} disabled={!provider.available}>
               {provider.label}
             </option>
           ))}
@@ -36,7 +30,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
 };
 
 // Component to select Elasticsearch index
-const IndexSelector = ({ 
+export const IndexSelector = ({ 
   selectedIndex, 
   onIndexChange, 
   variant = 'default', 
@@ -114,6 +108,11 @@ const IndexSelector = ({
   }, [availableIndices, selectedTiers]);
 
   useEffect(() => {
+    const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
+    setFilteredIndices(filtered);
+  }, [availableIndices, selectedTiers]);
+
+  useEffect(() => {
     if (fetchIndicesOnMount) {
       fetchAvailableIndices();
     }
@@ -154,7 +153,6 @@ const IndexSelector = ({
           Refresh
         </button>
       </div>
-
       <div className="relative">
         <select
           value={selectedIndex}
@@ -208,10 +206,8 @@ const IndexSelector = ({
   );
 };
 
-export { ProviderSelector, IndexSelector, TierSelector };
-
 // Component to select data tiers
-const TierSelector = ({ 
+export const TierSelector = ({ 
   selectedTiers, 
   onTierChange, 
   disabled = false,
@@ -275,7 +271,7 @@ const TierSelector = ({
       setTierStats(stats);
     } catch (err) {
       setError(err.message);
-      console.error('Error fetching tier stats:', err);
+      import('../lib/logging.js').then(({ error }) => error('Error fetching tier stats:', err)).catch(() => {});
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IndexSelector, TierSelector } from './Selectors';
 import CollapsibleList from './CollapsibleList';
+import MappingDisplay from './MappingDisplay';
+// lightweight logger helper to avoid multiple inline dynamic imports
+let feLogger = null;
+const getFeLogger = async () => {
+  if (feLogger) return feLogger;
+  try { feLogger = await import('../lib/logging.js'); return feLogger; } catch (e) { return { info: () => {}, warn: () => {}, error: () => {} }; }
+};
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',
@@ -21,12 +28,16 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
   const [selectedTiers, setSelectedTiers] = useState(['hot']); // Default to hot tier
-  const [includeContext, setIncludeContext] = useState(true); // Default to include context
+  // include_context is now a per-message setting stored on message.meta.include_context
   
   // UI state
   const [showSettings, setShowSettings] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [streamEnabled, setStreamEnabled] = useState(true);
+  const [autoRunGeneratedQueries, setAutoRunGeneratedQueries] = useState(false);
+  const [mappingResponseFormat, setMappingResponseFormat] = useState('both');
+  const [showAttemptModal, setShowAttemptModal] = useState(false);
+  const [attemptModalData, setAttemptModalData] = useState(null);
   
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -57,13 +68,13 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         };
       }
     } catch (error) {
-      console.warn('Failed to load conversation from storage:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to load conversation from storage:', error)).catch(() => {});
       // Clear potentially corrupted data
       try {
         localStorage.removeItem(STORAGE_KEYS.CURRENT_ID);
         localStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
       } catch (clearError) {
-        console.warn('Failed to clear corrupted storage:', clearError);
+        getFeLogger().then(({ warn }) => warn('Failed to clear corrupted storage:', clearError)).catch(() => {});
       }
     }
     return null;
@@ -72,7 +83,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const saveConversationToStorage = (conversationData) => {
     try {
       if (!conversationData || !conversationData.id) {
-        console.warn('Invalid conversation data provided to saveConversationToStorage');
+        getFeLogger().then(({ warn }) => warn('Invalid conversation data provided to saveConversationToStorage')).catch(() => {});
         return false;
       }
 
@@ -96,7 +107,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       
       return true;
     } catch (error) {
-      console.warn('Failed to save conversation to storage:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to save conversation to storage:', error)).catch(() => {});
       return false;
     }
   };
@@ -145,7 +156,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   
   const saveConversation = () => {
     if (!conversationId) {
-      console.warn('No conversation ID available for saving');
+      getFeLogger().then(({ warn }) => warn('No conversation ID available for saving')).catch(() => {});
       return;
     }
 
@@ -166,8 +177,10 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setTemperature(settings.temperature || 0.7);
       setStreamEnabled(settings.streamEnabled !== false);
       setShowDebug(settings.showDebug || false);
+      setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
+  setMappingResponseFormat(settings.mappingResponseFormat || 'both');
     } catch (error) {
-      console.error('Error loading settings:', error);
+      getFeLogger().then(({ error }) => error('Error loading settings:', error)).catch(() => {});
     }
   };
   
@@ -176,11 +189,13 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       const settings = {
         temperature,
         streamEnabled,
-        showDebug
+        showDebug,
+        autoRunGeneratedQueries
+  ,mappingResponseFormat
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
-      console.error('Error saving settings:', error);
+      getFeLogger().then(({ error }) => error('Error saving settings:', error)).catch(() => {});
     }
   };
   
@@ -195,11 +210,11 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       const conversationsData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
       const settingsData = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 
-      console.log('Storage validation:', {
+      getFeLogger().then(({ info }) => info('Storage validation:', {
         currentId: currentId,
         conversationsCount: conversationsData ? Object.keys(JSON.parse(conversationsData)).length : 0,
         hasSettings: !!settingsData
-      });
+      })).catch(() => {});
 
       // Validate conversations data structure
       if (conversationsData) {
@@ -213,7 +228,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         });
 
         if (invalidKeys.length > 0) {
-          console.warn('Found invalid conversation data, cleaning up:', invalidKeys);
+          getFeLogger().then(({ warn }) => warn('Found invalid conversation data, cleaning up:', invalidKeys)).catch(() => {});
           invalidKeys.forEach(key => delete conversations[key]);
           localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
         }
@@ -221,7 +236,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
 
       return true;
     } catch (error) {
-      console.error('Storage validation failed:', error);
+      getFeLogger().then(({ error }) => error('Storage validation failed:', error)).catch(() => {});
       return false;
     }
   };
@@ -250,7 +265,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     try {
       localStorage.setItem(STORAGE_KEYS.CURRENT_ID, newId);
     } catch (error) {
-      console.warn('Failed to update current conversation ID:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to update current conversation ID:', error)).catch(() => {});
     }
   };
   
@@ -280,7 +295,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     setError(null);
     setDebugInfo(null);
     
-    const userMessage = { role: "user", content: input.trim() };
+  const userMessage = { role: "user", content: input.trim(), meta: { include_context: true } };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
@@ -291,13 +306,15 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     
     try {
       const requestBody = {
-        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        messages: newMessages.map(m => ({ role: m.role, content: m.content, meta: m.meta || {} })),
         stream: streamEnabled,
         mode: chatMode,
         temperature,
         debug: showDebug,
         conversation_id: conversationId
       };
+  // Include client's preferred mapping response format for mapping fast-path
+  requestBody.mapping_response_format = mappingResponseFormat;
       
       if (chatMode === "elasticsearch") {
         requestBody.index_name = selectedIndex;
@@ -355,7 +372,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                     setDebugInfo(event.debug);
                   }
                 } catch (parseError) {
-                  console.error("Error parsing stream chunk:", parseError, line);
+                  import('../lib/logging.js').then(({ error }) => error('Error parsing stream chunk:', parseError, line)).catch(() => {});
                 }
               }
             }
@@ -375,12 +392,51 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           setDebugInfo(data.debug_info);
         }
       }
+      // If running in elasticsearch mode and auto-run of generated queries is enabled,
+      // make a background call to /api/query/regenerate so generated queries are executed
+      // automatically. We do this after the main chat response so the UX remains snappy.
+      if (chatMode === 'elasticsearch' && autoRunGeneratedQueries) {
+        (async () => {
+          try {
+            const regenBody = {
+              message: input.trim(),
+              index_name: selectedIndex,
+              provider: selectedProvider?.name || 'default'
+            };
+
+            const regenResp = await fetch('/api/query/regenerate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(regenBody)
+            });
+
+            if (regenResp.ok) {
+              const regenData = await regenResp.json();
+              // If execution failed, the API will return raw_results.error and a query_id
+              if (regenData.raw_results && regenData.raw_results.error) {
+                const sysMsg = `Generated query execution failed (query id: ${regenData.query_id}). Click View Details to inspect.`;
+                setMessages(prev => [...prev, { role: 'assistant', content: sysMsg }]);
+                // Attach a special marker on the message allowing the UI to render a View Details button
+                // We'll store the mapping of query_id -> message index in-memory via a data-attribute on the DOM.
+                // For simplicity, append an object with meta so render can pick it up.
+                setMessages(prev => {
+                  const m = [...prev];
+                  m[m.length - 1] = { ...m[m.length - 1], meta: { query_id: regenData.query_id } };
+                  return m;
+                });
+              }
+            }
+          } catch (err) {
+            import('../lib/logging.js').then(({ warn }) => warn('Auto-regenerate failed:', err)).catch(() => {});
+          }
+        })();
+      }
       
     } catch (error) {
       if (error.name === 'AbortError') {
         setError("Request was cancelled");
       } else {
-        console.error("Chat error:", error);
+        import('../lib/logging.js').then(({ error }) => error('Chat error:', error)).catch(() => {});
         setError(`Network error: ${error.message}`);
       }
     } finally {
@@ -416,9 +472,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     }
   };
 
-  const toggleIncludeContext = () => {
-    setIncludeContext((prev) => !prev);
-  };
+  // include_context is handled per-message via message.meta.include_context
 
   const renderMappingResponse = (mappingResponse) => {
     if (!mappingResponse) return null;
@@ -432,6 +486,50 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     );
   };
 
+
+// Parse the collapsed JSON block emitted by the backend between
+// [COLLAPSED_MAPPING_JSON] and [/COLLAPSED_MAPPING_JSON]
+function parsedCollapsedJsonFromString(text) {
+  if (!text || typeof text !== 'string') return null;
+  const start = text.indexOf('[COLLAPSED_MAPPING_JSON]');
+  const end = text.indexOf('[/COLLAPSED_MAPPING_JSON]');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const jsonText = text.substring(start + '[COLLAPSED_MAPPING_JSON]'.length, end).trim();
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.fields) return parsed;
+      // If it's a flat mapping dict, convert to {fields: [...]}
+      const fields = Object.keys(parsed).map(k => ({ name: k, es_type: parsed[k] }));
+      return { fields, is_long: Object.keys(parsed).length > 40 };
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+function MappingToggleSection({ mapping }) {
+  const [visible, setVisible] = React.useState(false);
+  return (
+    <div className="mt-4">
+      <button className="text-sm underline" onClick={() => setVisible(v => !v)}>
+        {visible ? 'Hide full mapping' : 'Show full mapping'}
+      </button>
+      {visible && (
+        <div className="mt-2">
+          {/* If mapping contains fields array (structured), use CollapsibleList for a compact view */}
+          {mapping.fields ? (
+            <div className="mapping-response"><CollapsibleList items={mapping.fields} isLong={mapping.is_long} /></div>
+          ) : (
+            <MappingDisplay mapping={mapping} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header with controls */}
@@ -444,7 +542,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <select 
                 value={chatMode}
                 onChange={(e) => setChatMode(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                className="w-40 px-3 py-1 border border-gray-300 rounded-md text-sm"
                 disabled={isStreaming}
               >
                 <option value="free">Free Chat</option>
@@ -520,28 +618,44 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   Enable Streaming
                 </label>
               </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="showDebug"
-                  checked={showDebug}
-                  onChange={(e) => setShowDebug(e.target.checked)}
-                  className="mr-2"
-                />
-                <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
-                  Show Debug Info
-                </label>
-              </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showDebug"
+                    checked={showDebug}
+                    onChange={(e) => setShowDebug(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
+                    Show Debug Info
+                  </label>
+                </div>
+                <div className="flex items-center">
+                  <label className="text-sm font-medium text-gray-700 mr-2">Mapping response:</label>
+                  <select
+                    value={mappingResponseFormat}
+                    onChange={(e) => setMappingResponseFormat(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  >
+                    <option value="both">Both (dict + JSON)</option>
+                    <option value="dict">Dict only</option>
+                    <option value="json">JSON only</option>
+                  </select>
+                </div>
             </div>
-            <div className="flex items-center space-x-2 mb-4">
-              <label className="text-sm font-medium text-gray-700">Include Context:</label>
+            <div className="flex items-center">
               <input
                 type="checkbox"
-                checked={includeContext}
-                onChange={toggleIncludeContext}
-                className="form-checkbox h-4 w-4 text-blue-600"
+                id="autoRunGeneratedQueries"
+                checked={autoRunGeneratedQueries}
+                onChange={(e) => setAutoRunGeneratedQueries(e.target.checked)}
+                className="mr-2"
               />
+              <label htmlFor="autoRunGeneratedQueries" className="text-sm font-medium text-gray-700">
+                Auto-run generated queries
+              </label>
             </div>
+            {/* Per-message Include Context toggles are available on each user message; removed global setting */}
           </div>
         )}
         
@@ -603,9 +717,80 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <div className="whitespace-pre-wrap">
                 {message.content}
               </div>
+              {message.role === 'user' && (
+                <div className="mt-2 flex items-center space-x-2 text-xs text-gray-700">
+                  <label className="flex items-center space-x-1">
+                    <input
+                      type="checkbox"
+                      checked={message.meta?.include_context !== false}
+                      onChange={() => {
+                        // Toggle include_context for this message
+                        setMessages(prev => {
+                          const copy = [...prev];
+                          const idx = copy.indexOf(message);
+                          if (idx >= 0) {
+                            const m = { ...copy[idx] };
+                            m.meta = { ...(m.meta || {}), include_context: !(m.meta?.include_context !== false) };
+                            copy[idx] = m;
+                          }
+                          return copy;
+                        });
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span>Include Context</span>
+                  </label>
+                </div>
+              )}
+              {message.meta && message.meta.query_id && (
+                <div className="mt-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const resp = await fetch(`/api/query/attempt/${message.meta.query_id}`);
+                        if (resp.ok) {
+                          const data = await resp.json();
+                          // Open modal with sanitized attempt info
+                          setAttemptModalData(data);
+                          setShowAttemptModal(true);
+                        } else {
+                          // Show modal with failure note
+                          setAttemptModalData({ error: 'Failed to retrieve details' });
+                          setShowAttemptModal(true);
+                        }
+                      } catch (err) {
+                        import('../lib/logging.js').then(({ error }) => error('Failed to fetch attempt details', err)).catch(() => {});
+                        setAttemptModalData({ error: 'Failed to fetch attempt details' });
+                        setShowAttemptModal(true);
+                      }
+                    }}
+                    className="mt-2 px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                  >
+                    View Details
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
+
+        {/* Attempt details modal */}
+        {showAttemptModal && (
+          <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div className="absolute inset-0 bg-black opacity-50" onClick={() => setShowAttemptModal(false)} />
+            <div className="relative bg-white rounded-lg shadow-lg max-w-3xl w-full p-4 z-10">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-lg font-semibold">Attempt Details</h3>
+                <button onClick={() => setShowAttemptModal(false)} className="px-2 py-1">Close</button>
+              </div>
+              <div className="text-sm font-mono text-gray-800 overflow-auto max-h-96">
+                <pre className="whitespace-pre-wrap">
+                  {attemptModalData ? JSON.stringify(attemptModalData, null, 2) : 'No data available'}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
         
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -614,7 +799,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           </div>
         )}
         
-        {debugInfo && showDebug && (
+  {debugInfo && showDebug && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <div className="text-gray-800 font-medium mb-2">Debug Information</div>
             <div className="text-xs font-mono text-gray-600">
@@ -644,7 +829,16 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           </div>
         )}
         
-        {renderMappingResponse(debugInfo?.mapping_response)}
+        {/* Mapping display: prefer structured debug mapping, otherwise try to parse embedded JSON markers */}
+        {(() => {
+          const structured = debugInfo?.mapping_response;
+          const rawReply = debugInfo?.mapping_raw_reply || (messages.length ? messages[messages.length-1]?.content : null);
+          const parsed = structured || parsedCollapsedJsonFromString(rawReply);
+          if (parsed) {
+            return <MappingToggleSection mapping={parsed} />;
+          }
+          return null;
+        })()}
         
         <div ref={messagesEndRef} />
       </div>

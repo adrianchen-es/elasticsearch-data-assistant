@@ -142,12 +142,11 @@ class TestExtractMappingInfo:
         
         es_types, python_types, field_count = extract_mapping_info(nested_mapping, "test-index")
         
-        # The flattening includes the parent object field "user" plus the nested fields
-        assert field_count == 4  # user, user.name, user.email, timestamp
-        assert "user" in es_types
-        assert "user.name" in es_types
-        assert "user.email" in es_types
-        assert "timestamp" in es_types
+        # The flattening includes the parent object field "user" plus the nested fields.
+        # Expected fields: "user", "user.name", "user.email", "timestamp"
+        expected_fields = {"user", "user.name", "user.email", "timestamp"}
+        assert set(es_types.keys()) == expected_fields
+        assert field_count == len(expected_fields)
         assert python_types["user.name"] == "str"
         assert python_types["timestamp"] == "datetime"
         

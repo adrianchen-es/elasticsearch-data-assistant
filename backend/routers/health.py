@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Response
 from pydantic import BaseModel
 from typing import Dict
 from opentelemetry import trace
@@ -17,8 +17,14 @@ class HealthResponse(BaseModel):
     cached: bool = False
     timestamp: float
 
+class HealthResponse(BaseModel):
+    status: str
+    services: Dict[str, str]
+    cached: bool = False
+    timestamp: float
+
 @router.get("/health", response_model=HealthResponse)
-async def health_check(app_request: Request):
+async def health_check(app_request: Request, response: Response):
     """Health check endpoint with caching for improved performance"""
     with tracer.start_as_current_span(
         "health_check",
@@ -28,6 +34,11 @@ async def health_check(app_request: Request):
             "http.route": "/health"
         }
     ) as health_span:
+        # Propagate route template to the client via header so frontend instrumentation can pick it up
+        try:
+            response.headers['X-Http-Route'] = '/health'
+        except Exception:
+            pass
         current_time = time.time()
         
         # Check if we have cached health data
@@ -159,7 +170,7 @@ async def health_check(app_request: Request):
         health_cache['cached_response'] = response_data
         app_request.app.state.health_cache = health_cache
         
-        return HealthResponse(**response_data)
+    return HealthResponse(**response_data)
 
 @router.get("/performance")
 async def get_performance_stats(app_request: Request):

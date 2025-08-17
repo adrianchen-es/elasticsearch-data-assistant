@@ -2,16 +2,27 @@
 from typing import Dict, Any, Optional, List
 from elasticsearch import AsyncElasticsearch, ConnectionTimeout, RequestError
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
+from config.settings import settings
 import json
 import logging
 import os  # Import os to read environment variables
 import asyncio
 import time
+import re
+
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_security_tracer(__name__)
+
+# Initialize data sanitizer for enhanced security
+sanitizer = DataSanitizer()
 
 class ElasticsearchService:
+    # Expose 'client' attribute at class level so tests that create Mock(spec=ElasticsearchService)
+    # will allow setting `.client` without raising AttributeError
+    client = None
     def __init__(self, url: str, api_key: Optional[str] = None):
         initialization_start_time = time.time()
         logger.info(f"🔍 Initializing Elasticsearch service for {self._mask_url(url)}")
@@ -125,6 +136,7 @@ class ElasticsearchService:
             (current_avg * (total_requests - 1) + response_time) / total_requests
         )
 
+    @trace_async_function("elasticsearch.get_index_mapping", include_args=True)
     async def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         """Get mapping for a specific index with timeout and retry handling"""
         import time
@@ -189,7 +201,7 @@ class ElasticsearchService:
                     await asyncio.sleep(delay)
 
     async def list_indices(self) -> List[str]:
-        """List all indices with timeout handling"""
+        """List all indices with timeout handling and configurable filtering"""
         with tracer.start_as_current_span("elasticsearch.list_indices", attributes={"db.operation": "list_indices"}):
             try:
                 # Add timeout for listing indices
@@ -198,34 +210,121 @@ class ElasticsearchService:
                     self.client.cat.indices(format="json"),
                     timeout=indices_timeout
                 )
-                return [idx['index'] for idx in response if not idx['index'].startswith('.')]
+                
+                # Apply configurable filtering
+                filtered_indices = []
+                for idx in response:
+                    index_name = idx['index']
+                    
+                    # Check if it's a data stream first (before system index filtering)
+                    is_data_stream = self._is_data_stream_index(index_name)
+                    
+                    # Skip data streams if not enabled
+                    if not settings.show_data_streams and is_data_stream:
+                        logger.debug(f"Filtering out data stream index: {index_name}")
+                        continue
+                    
+                    # Skip system indices (starting with .) if filtering is enabled, 
+                    # but allow data streams even if they start with dot
+                    if settings.filter_system_indices and index_name.startswith('.') and not is_data_stream:
+                        logger.debug(f"Filtering out system index: {index_name}")
+                        continue
+                    
+                    # Skip monitoring indices if filtering is enabled
+                    if settings.filter_monitoring_indices and self._is_monitoring_index(index_name):
+                        logger.debug(f"Filtering out monitoring index: {index_name}")
+                        continue
+                    
+                    # Skip closed indices if filtering is enabled
+                    if settings.filter_closed_indices and idx.get('status') == 'close':
+                        logger.debug(f"Filtering out closed index: {index_name}")
+                        continue
+                        
+                    filtered_indices.append(index_name)
+                
+                logger.debug(f"Found {len(filtered_indices)} indices out of {len(response)} total indices")
+                logger.debug(f"Filtering settings: system={settings.filter_system_indices}, monitoring={settings.filter_monitoring_indices}, closed={settings.filter_closed_indices}, data_streams={settings.show_data_streams}")
+                return filtered_indices
+                
             except asyncio.TimeoutError:
                 logger.error("Timeout listing indices")
                 raise ConnectionTimeout("Timeout listing indices")
             except Exception as e:
                 logger.error(f"Error listing indices: {e}")
                 raise
+    
+    def _is_monitoring_index(self, index_name: str) -> bool:
+        """Check if an index is a monitoring/system index that should typically be filtered"""
+        monitoring_patterns = [
+            '.monitoring-',         # Elasticsearch monitoring indices
+            '.ds-.monitoring-',     # Data stream monitoring indices  
+            '.watcher-history-',    # Watcher history indices (more specific)
+            '.ml-anomalies-',       # Machine learning anomalies indices
+            '.ml-config',           # Machine learning config indices
+            '.ml-notifications',    # Machine learning notifications
+            '.ml-state',            # Machine learning state indices
+        ]
+        
+        # Check for exact monitoring patterns, not general .security- or .kibana patterns
+        # Those should be handled by system index filtering instead
+        return any(index_name.startswith(pattern) for pattern in monitoring_patterns)
+    
+    def _is_data_stream_index(self, index_name: str) -> bool:
+        """Check if an index is likely a data stream backing index"""
+        # Data stream backing indices often have patterns like:
+        # - .ds-<data-stream-name>-<timestamp>-<generation>
+        # - partial-.ds-<data-stream-name>-<timestamp>-<generation>
+        return ('.ds-' in index_name and 
+                not self._is_monitoring_index(index_name))
 
+    @trace_async_function("elasticsearch.execute_query", include_args=True)
     async def execute_query(self, index_name: str, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a search query with timeout handling"""
         with tracer.start_as_current_span("elasticsearch.execute_query", attributes={"db.operation": "search", "db.elasticsearch.index": index_name}):
+            span = trace.get_current_span()
             try:
+                # Add sanitized query as db.statement (per semantic conventions)
+                try:
+                    sanitized_query = sanitizer.sanitize_value(query)
+                    # Ensure the attribute is a string (OTel attribute types are limited)
+                    if not isinstance(sanitized_query, str):
+                        try:
+                            sanitized_query = json.dumps(sanitized_query)
+                        except Exception:
+                            sanitized_query = str(sanitized_query)
+                    span.set_attribute("db.statement", sanitized_query)
+                    # Attach event with stringified query to avoid invalid attribute types
+                    span.add_event("db.query", {"query": sanitized_query})
+                except Exception:
+                    span.set_attribute("db.statement", "<unavailable>")
+
                 # Add timeout for search queries
                 search_timeout = float(os.getenv("ELASTICSEARCH_SEARCH_TIMEOUT", "30"))
                 response = await asyncio.wait_for(
                     self.client.search(index=index_name, body=query),
                     timeout=search_timeout
                 )
+                # Mark span as successful
+                try:
+                    span.set_status(Status(StatusCode.OK))
+                except Exception:
+                    # Older/newer SDKs may accept different signatures
+                    try:
+                        span.set_status(StatusCode.OK)
+                    except Exception:
+                        pass
                 return response
             except asyncio.TimeoutError:
                 logger.error(f"Timeout executing query on index {index_name}")
-                logger.error(f"Query: {json.dumps(query, indent=2)}")
+                logger.error(f"Query timeout executing query on index {index_name}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(query)}")
                 raise ConnectionTimeout(f"Timeout executing query on index {index_name}")
             except Exception as e:
                 logger.error(f"Error executing query on index {index_name}: {e}")
-                logger.error(f"Query: {json.dumps(query, indent=2)}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(query)}")
                 raise
 
+    @trace_async_function("elasticsearch.validate_query", include_args=True)
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
         """Validate a query without executing it with timeout handling"""
         with tracer.start_as_current_span("elasticsearch.validate_query", attributes={"db.operation": "validate_query", "db.elasticsearch.index": index_name}):

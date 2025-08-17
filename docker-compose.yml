@@ -28,10 +28,14 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       - OTEL_SERVICE_NAME=elasticsearch-ai-backend
       - OTEL_SEMCONV_STABILITY_OPT_IN=http
+      - DEPLOYMENT_ENV=${DEPLOYMENT_ENV:-development}
+      - OTEL_PYTHON_INSTRUMENTATION_ELASTICSEARCH_ENABLED=true
+      - OTEL_PYTHON_INSTRUMENTATION_ELASTICSEARCH_CAPTURE_SEARCH_QUERY=raw
     ports:
       - "8000:8000"
     depends_on:
       - elasticsearch
+      - redis
     networks:
       - app-network
 
@@ -66,22 +70,61 @@ services:
       - REACT_APP_OTEL_TRACE_ENDPOINT=${REACT_APP_OTEL_TRACE_ENDPOINT:-http://otel-collector:4318/v1/traces}
     ports:
       - "3000:3000"
+    depends_on:
+      - gateway
     networks:
       - app-network
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: ${COLLECTOR_CONTRIB_IMAGE}
     container_name: otel-collector
-    command: ["--config=/etc/otel-collector-config.yaml"]
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+    restart: unless-stopped
+    command: ["--config", "/etc/otelcol-config.yml" ]
+    user: 0:0
     volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+      - ${HOST_FILESYSTEM}:/hostfs:ro
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+      - ${OTEL_COLLECTOR_CONFIG}:/etc/otelcol-config.yml
     environment:
-      - OTEL_COLLECTOR_EXPORTER_OTLP=${OTEL_COLLECTOR_EXPORTER_OTLP:-http://localhost:8200}
-      - ELASTIC_APM_SECRET_TOKEN=${ELASTIC_APM_SECRET_TOKEN:-SomeSecret}
+      - HOST_FILESYSTEM
+      - ELASTIC_AGENT_OTEL
+      - ELASTIC_API_KEY
+      - ELASTIC_ENDPOINT
+      - STORAGE_DIR=/usr/share/elastic-agent
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
     ports:
       - "4317:4317"   # OTLP gRPC receiver
       - "4318:4318"   # OTLP HTTP receiver
-      - "8889:8889"   # Prometheus metrics
+    # network_mode: host
+    networks:
+      - app-network
+
+  # otel-collector:
+    # image: otel/opentelemetry-collector-contrib:latest
+    # container_name: otel-collector
+    # command: ["--config=/etc/otel-collector-config.yaml"]
+    # volumes:
+    #   - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    # environment:
+    #   - OTEL_COLLECTOR_EXPORTER_OTLP=${OTEL_COLLECTOR_EXPORTER_OTLP:-http://localhost:8200}
+    #   - ELASTIC_APM_SECRET_TOKEN=${ELASTIC_APM_SECRET_TOKEN:-SomeSecret}
+    # ports:
+    #   - "4317:4317"   # OTLP gRPC receiver
+    #   - "4318:4318"   # OTLP HTTP receiver
+    #   - "8889:8889"   # Prometheus metrics
+    # networks:
+    #   - app-network
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
     networks:
       - app-network
 

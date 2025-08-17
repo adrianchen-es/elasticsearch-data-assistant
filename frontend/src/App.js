@@ -2,15 +2,23 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
+import { info as feInfo } from './lib/logging';
+import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
 import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
+import MobileLayout from './components/MobileLayout';
 
 function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
   const [indices, setIndices] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('');
+
+  const providers = [
+    { id: 'azure', name: 'Azure OpenAI' },
+    { id: 'openai', name: 'OpenAI' }
+  ];
   
   // Backend health status state (/api/health)
   const [backendHealth, setBackendHealth] = useState({
@@ -29,58 +37,120 @@ function App() {
   });
 
   // Check backend health status
-  const checkBackendHealth = async () => {
+  const HEALTH_CACHE_KEYS = {
+    backend: 'health_backend',
+    proxy: 'health_proxy'
+  };
+
+  const HEALTH_TTLS = {
+    success: 15 * 60 * 1000, // 15 minutes for healthy services
+    error: 5 * 60 * 1000, // 5 minutes for unhealthy services (retry sooner)
+    manual: 30 * 1000, // 30 seconds throttle for manual refresh
+  };
+
+  // Track last manual refresh to implement throttling
+  const [lastManualRefresh, setLastManualRefresh] = useState({
+    backend: 0,
+    proxy: 0
+  });
+
+  // health cache helpers now live in ./utils/healthCache and use sessionStorage
+
+  const checkBackendHealth = async (force = false) => {
+    // Implement manual refresh throttling
+    if (force) {
+      const now = Date.now();
+      if (now - lastManualRefresh.backend < HEALTH_TTLS.manual) {
+        const remainingSeconds = Math.ceil((HEALTH_TTLS.manual - (now - lastManualRefresh.backend)) / 1000);
+  feInfo(`Backend health check throttled. Try again in ${remainingSeconds}s`);
+        return;
+      }
+      setLastManualRefresh(prev => ({ ...prev, backend: now }));
+    }
+
+    // If cached and not forced, use cache
+    if (!force) {
+      const cached = readCachedHealth(HEALTH_CACHE_KEYS.backend);
+      if (cached) {
+        setBackendHealth(cached);
+        return;
+      }
+    }
     try {
       setBackendHealth(prev => ({ ...prev, status: 'checking', message: 'Checking backend status...' }));
-      
       const response = await fetch('/api/health');
       const data = await response.json();
-      
       if (response.ok) {
-        setBackendHealth({
+        const computed = {
           status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
           message: data.message || (data.status === 'healthy' ? 'Backend operational' : 'Backend issues detected'),
           lastChecked: new Date().toISOString(),
           services: data.services || {}
-        });
+        };
+        // Cache based on success/error with dynamic TTL
+        const ttl = computed.status === 'healthy' ? HEALTH_TTLS.success : HEALTH_TTLS.error;
+        writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, ttl);
+        setBackendHealth(computed);
       } else {
         throw new Error(data.message || 'Backend health check failed');
       }
     } catch (error) {
-      setBackendHealth({
+      const computed = {
         status: 'error',
         message: `Backend unreachable: ${error.message}`,
         lastChecked: new Date().toISOString(),
         services: {}
-      });
+      };
+      writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, HEALTH_TTLS.error);
+      setBackendHealth(computed);
     }
   };
 
-  // Check proxy health status
-  const checkProxyHealth = async () => {
+  const checkProxyHealth = async (force = false) => {
+    // Implement manual refresh throttling
+    if (force) {
+      const now = Date.now();
+      if (now - lastManualRefresh.proxy < HEALTH_TTLS.manual) {
+        const remainingSeconds = Math.ceil((HEALTH_TTLS.manual - (now - lastManualRefresh.proxy)) / 1000);
+  feInfo(`Proxy health check throttled. Try again in ${remainingSeconds}s`);
+        return;
+      }
+      setLastManualRefresh(prev => ({ ...prev, proxy: now }));
+    }
+
+    if (!force) {
+      const cached = readCachedHealth(HEALTH_CACHE_KEYS.proxy);
+      if (cached) {
+        setProxyHealth(cached);
+        return;
+      }
+    }
     try {
       setProxyHealth(prev => ({ ...prev, status: 'checking', message: 'Checking proxy status...' }));
-      
       const response = await fetch('/api/healthz');
       const data = await response.json();
-      
       if (response.ok) {
-        setProxyHealth({
+        const computed = {
           status: data.status === 'healthy' ? 'healthy' : 'unhealthy',
           message: data.message || (data.status === 'healthy' ? 'Proxy operational' : 'Proxy issues detected'),
           lastChecked: new Date().toISOString(),
           services: data.services || {}
-        });
+        };
+        const ttl = computed.status === 'healthy' ? HEALTH_TTLS.success : HEALTH_TTLS.error;
+        writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, ttl);
+        setProxyHealth(computed);
       } else {
         throw new Error(data.message || 'Proxy health check failed');
       }
     } catch (error) {
-      setProxyHealth({
+      const computed = {
         status: 'error',
         message: `Proxy unreachable: ${error.message}`,
         lastChecked: new Date().toISOString(),
         services: {}
-      });
+      };
+      writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, HEALTH_TTLS.error);
+      setProxyHealth(computed);
     }
   };
 
@@ -96,8 +166,8 @@ function App() {
     // Setup telemetry
     setupTelemetryWeb();
     
-    // Initial health checks
-    checkAllHealth();
+  // Initial health checks (will use cache if available)
+  checkAllHealth();
     
     // Set up periodic health checks every 30 seconds
     const healthCheckInterval = setInterval(checkAllHealth, 30000);
@@ -152,124 +222,31 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Database className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-xl font-semibold text-gray-900">
-                Elasticsearch AI Assistant
-              </h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              {/* Backend Health Status */}
-              <div className="relative group">
-                <button
-                  onClick={checkBackendHealth}
-                  className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
-                  title={getTooltipContent(backendHealth, 'Backend')}
-                >
-                  <Server className="h-4 w-4 text-gray-500" />
-                  {renderHealthIcon(backendHealth)}
-                  <span className="text-sm text-gray-600 hidden md:inline">
-                    Backend
-                  </span>
-                </button>
-                
-                {/* Backend Tooltip */}
-                <div className="absolute right-0 top-full mt-1 w-80 bg-black text-white text-xs rounded-md p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50">
-                  <div className="whitespace-pre-line">
-                    {getTooltipContent(backendHealth, 'Backend')}
-                  </div>
-                  <div className="text-gray-300 mt-2 text-xs">
-                    Click to refresh backend status
-                  </div>
-                </div>
-              </div>
-
-              {/* Proxy Health Status */}
-              <div className="relative group">
-                <button
-                  onClick={checkProxyHealth}
-                  className="flex items-center space-x-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
-                  title={getTooltipContent(proxyHealth, 'Proxy')}
-                >
-                  <Globe className="h-4 w-4 text-gray-500" />
-                  {renderHealthIcon(proxyHealth)}
-                  <span className="text-sm text-gray-600 hidden md:inline">
-                    Proxy
-                  </span>
-                </button>
-                
-                {/* Proxy Tooltip */}
-                <div className="absolute right-0 top-full mt-1 w-80 bg-black text-white text-xs rounded-md p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-50">
-                  <div className="whitespace-pre-line">
-                    {getTooltipContent(proxyHealth, 'Proxy')}
-                  </div>
-                  <div className="text-gray-300 mt-2 text-xs">
-                    Click to refresh proxy status
-                  </div>
-                </div>
-              </div>
-              
-              <ProviderSelector
-                selectedProvider={selectedProvider}
-                onProviderChange={setSelectedProvider}
-              />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Navigation */}
-      <nav className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            <button
-              onClick={() => setCurrentView('chat')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                currentView === 'chat'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <MessageSquare className="inline h-4 w-4 mr-2" />
-              Chat Interface
-            </button>
-            <button
-              onClick={() => setCurrentView('query')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                currentView === 'query'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Search className="inline h-4 w-4 mr-2" />
-              Query Editor
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {currentView === 'chat' && (
-          <ChatInterface
-            selectedProvider={selectedProvider}
-            selectedIndex={selectedIndex}
-            setSelectedIndex={setSelectedIndex}
-          />
-        )}
-        {currentView === 'query' && (
-          <QueryEditor
-            selectedIndex={selectedIndex}
-            setSelectedIndex={setSelectedIndex}
-          />
-        )}
-      </main>
-    </div>
+    <MobileLayout
+      currentView={currentView}
+      setCurrentView={setCurrentView}
+      backendHealth={backendHealth}
+      proxyHealth={proxyHealth}
+      renderHealthIcon={renderHealthIcon}
+      checkBackendHealth={checkBackendHealth}
+      selectedProvider={selectedProvider}
+      setSelectedProvider={setSelectedProvider}
+      providers={providers}
+    >
+      {currentView === 'chat' && (
+        <ChatInterface
+          selectedProvider={selectedProvider}
+          selectedIndex={selectedIndex}
+          setSelectedIndex={setSelectedIndex}
+        />
+      )}
+      {currentView === 'query' && (
+        <QueryEditor
+          selectedIndex={selectedIndex}
+          setSelectedIndex={setSelectedIndex}
+        />
+      )}
+    </MobileLayout>
   );
 }
 

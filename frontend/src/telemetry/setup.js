@@ -1,6 +1,6 @@
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { ATTR_SERVICE_NAME, SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
@@ -11,6 +11,11 @@ import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/c
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { trace, context } from '@opentelemetry/api';
+
+
+// Enable debug logging
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
 
 // Enable debug logging
@@ -22,10 +27,13 @@ export const setupTelemetryWeb = () => {
     // Define resource attributes for better observability
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
-      [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
-      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
-      [SemanticResourceAttributes.BROWSER_BRANDS]: navigator.userAgent,
-      [SemanticResourceAttributes.BROWSER_LANGUAGE]: navigator.language,
+      [ATTR_SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
+      // use the non-deprecated deployment attribute name directly
+      'deployment.environment': process.env.NODE_ENV || 'development',
+      // browser attributes are not part of the core Resource semantic constants in some OTEL versions;
+      // use stable string keys and guard navigator for SSR
+      'browser.user_agent': (typeof navigator !== 'undefined' && navigator.userAgent) || 'unknown',
+      'browser.language': (typeof navigator !== 'undefined' && navigator.language) || 'unknown',
     });
 
     // Configure OTLP trace exporter
@@ -38,19 +46,31 @@ export const setupTelemetryWeb = () => {
       url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
     });
 
-    // Setup WebTracerProvider
-    const tracerProvider = new WebTracerProvider({
-      resource: resource,
-      spanProcessors: [new BatchSpanProcessor(otlpTraceExporter)],
-    });
-  
+    // Setup WebTracerProvider with 100% sampling (adjust in prod)
+    // Prepare span processors first so we don't need to call addSpanProcessor on the provider
+    const spanProcessors = [
+      // Tune BatchSpanProcessor for throughput/latency tradeoffs
+      new BatchSpanProcessor(otlpTraceExporter, {
+        maxQueueSize: 2048,
+        scheduledDelayMillis: 5000,
+        maxExportBatchSize: 512,
+        exportTimeoutMillis: 30000,
+      }),
+    ];
+
     // Add ConsoleSpanExporter for development
     if (process.env.NODE_ENV === 'development') {
-      tracerProvider.addSpanProcessor(new BatchSpanProcessor(new ConsoleSpanExporter()));
+      spanProcessors.push(new BatchSpanProcessor(new ConsoleSpanExporter()));
     }
 
-    // Setup MeterProvider for metrics
-    const meterProvider = new MeterProvider({
+    const tracerProvider = new WebTracerProvider({
+      resource: resource,
+      spanProcessors: spanProcessors,
+      sampler: new TraceIdRatioBasedSampler(1.0),
+    });
+
+  // Setup MeterProvider for metrics
+  const meterProvider = new MeterProvider({
       resource: resource,
       readers: [
         new PeriodicExportingMetricReader({
@@ -60,10 +80,16 @@ export const setupTelemetryWeb = () => {
       ],
     });
 
-    // Create custom metrics
+    // Create custom metrics (high-cardinality-safe counters)
     const meter = meterProvider.getMeter('frontend-metrics');
     const pageLoadTime = meter.createHistogram('page_load_time', {
       description: 'Time taken to load the page',
+    });
+    const userInteractionCounter = meter.createCounter('user_interaction_count', {
+      description: 'Count of user interactions by type (labelled)'
+    });
+    const fetchErrorCounter = meter.createCounter('fetch_error_count', {
+      description: 'Count of fetch errors from frontend requests'
     });
 
     // Record page load time
@@ -93,10 +119,16 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
-            semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
-            applyCustomAttributesOnSpan: (span) => {
-              span.setAttribute('frontend.version', process.env.REACT_APP_VERSION);
-              span.setAttribute('frontend.environment', process.env.NODE_ENV);
+            semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
+            //semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
+            applyCustomAttributesOnSpan: (span, request) => {
+              // Better span naming and sanitized attributes for HTTP requests
+              try {
+                span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
+                span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
+              } catch (e) {
+                // Best-effort only
+              }
             },
           },
           '@opentelemetry/instrumentation-xml-http-request': {
@@ -107,17 +139,43 @@ export const setupTelemetryWeb = () => {
           '@opentelemetry/instrumentation-document-load': {
             clearTimingResources: true,
             semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
-            applyCustomAttributesOnSpan: (span) => {
-              span.updateName('Document Load');
+            applyCustomAttributesOnSpan: (span, event) => {
+              // Preserve a clear span name and record important metrics
+              //span.updateName('Document Load');
+              try {
+                const loadEvent = (performance && performance.timing) || {};
+                // record a coarse load indicator (not granular timings here)
+                span.setAttribute('document.visibilityState', document.visibilityState || 'unknown');
+                // keep the resource size trimmed if present
+                if (event && event.detail) {
+                  const detailStr = String(event.detail).slice(0, 256);
+                  span.setAttribute('document.load.detail', detailStr);
+                }
+              } catch (e) {}
             },
           },
           '@opentelemetry/instrumentation-user-interaction': {
             clearTimingResources: true,
             eventNames: ['click', 'submit', 'change', 'input', 'focus', 'blur', 'scroll'],
             semconvStabilityOptIn: 'http',
+            // Keep interaction spans small and focused; avoid capturing user input values.
             applyCustomAttributesOnSpan: (span, event) => {
-              span.updateName(`User Interaction: ${event.type}`);
-              span.setAttribute('event.target', event.target?.tagName || 'unknown');
+              try {
+                const target = event && event.target;
+                const tag = target && (target.tagName || target.nodeName) ? (target.tagName || target.nodeName) : 'unknown';
+                const id = target && target.id ? String(target.id).slice(0, 128) : undefined;
+                const classes = target && target.className ? String(target.className).slice(0, 256) : undefined;
+                span.updateName(`User Interaction: ${event.type}`);
+                span.setAttribute('user.interaction.type', event.type);
+                span.setAttribute('user.interaction.target.tag', tag);
+                if (id) span.setAttribute('user.interaction.target.id', id);
+                if (classes) span.setAttribute('user.interaction.target.class', classes);
+                // record a light-weight metric for interaction counts
+                try { userInteractionCounter.add(1, { 'interaction.type': event.type }); } catch (e) {}
+                // Don't capture input values or innerText to avoid PII leaks
+              } catch (e) {
+                // best-effort
+              }
             },
           },
         }),
@@ -126,8 +184,32 @@ export const setupTelemetryWeb = () => {
       meterProvider: meterProvider,
     });
 
-    console.log('OpenTelemetry initialized for frontend');
+    // Wrap global fetch to propagate X-Http-Route header into active span as ATTR_HTTP_ROUTE
+    try {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const resp = await nativeFetch(...args);
+        try {
+          const route = resp.headers.get('x-http-route') || resp.headers.get('X-Http-Route');
+          if (route) {
+            const span = trace.getSpan(context.active());
+            if (span) {
+              try { span.setAttribute(ATTR_HTTP_ROUTE, route); } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // best-effort
+        }
+        return resp;
+      };
+    } catch (e) {
+      // ignore if fetch cannot be wrapped in some environments
+    }
+
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ info }) => info('OpenTelemetry initialized for frontend')).catch(() => {});
   } catch (error) {
-    console.error('Failed to setup telemetry:', error);
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ error: logError }) => logError('Failed to setup telemetry:', error)).catch(() => {});
   }
 };

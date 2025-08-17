@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, '**' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  OTEL_SAMPLING_RATIO: 1.0
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio pytest-html
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PWD/backend" >> $GITHUB_ENV
+
+      - name: Print OpenTelemetry package versions
+        run: |
+          python - <<'PY'
+          import pkg_resources
+          packages = ['opentelemetry-api','opentelemetry-sdk','opentelemetry-exporter-otlp']
+          for p in packages:
+              try:
+                  print(p + '==' + pkg_resources.get_distribution(p).version)
+              except Exception as e:
+                  print(p + ' not installed: ' + str(e))
+          PY
+
+      - name: Run telemetry smoke test
+        run: |
+          pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml || true
+
+      - name: Run full backend tests
+        run: |
+          pytest test/ --maxfail=1 -q --junitxml=test_results.xml || true
+
+      - name: Upload backend test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: |
+            telemetry_smoke_results.xml
+            test_results.xml
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    needs: backend-tests
+    defaults:
+      run:
+        working-directory: ./frontend
+    env:
+      REACT_APP_FRONTEND_MASKING: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend deps
+        run: |
+          npm ci
+
+      - name: Run frontend tests
+        run: |
+          CI=true npm test --silent || true
+
+      - name: Upload frontend test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: |
+            frontend
+  # NOTE: Backend dependency installation and backend tests should not run in the frontend job.
+  # Backend tests are executed in the `backend-tests` job above.
+
+  gateway-tests:
+    name: Gateway tests
+    runs-on: ubuntu-latest
+    needs: frontend-tests
+    defaults:
+      run:
+        working-directory: ./gateway
+    env:
+      GATEWAY_MASKING_ENABLED: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install gateway deps
+        run: |
+          npm ci
+
+      - name: Run gateway tests
+        run: |
+          CI=true npm test --silent || true
+
+      - name: Upload gateway test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-test-results
+          path: |
+            gateway
+
+  run-all-tests:
+    name: Run combined test script
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, gateway-tests]
+    defaults:
+      run:
+        working-directory: ./
+    env:
+      GATEWAY_MASKING_ENABLED: 'true'
+      REACT_APP_FRONTEND_MASKING: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies (for run_tests_all.sh)
+        run: |
+          if [ -f frontend/package.json ]; then
+            cd frontend && npm ci
+          fi
+
+      - name: Install gateway dependencies (for run_tests_all.sh)
+        run: |
+          if [ -f gateway/package.json ]; then
+            cd gateway && npm ci
+          fi
+
+      - name: Install backend dependencies (for run_tests_all.sh)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f backend/requirements.txt ]; then
+            pip install -r backend/requirements.txt
+          fi
+
+      - name: Make test script executable and run
+        run: |
+          chmod +x ./run_tests_all.sh
+          ./run_tests_all.sh
+

@@ -1,5 +1,5 @@
 # backend/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Generator, List, Optional, Tuple, AsyncGenerator
@@ -19,6 +19,7 @@ tracer = trace.get_tracer(__name__)
 class ChatMessage(BaseModel):
     role: str
     content: Any
+    meta: Optional[Dict[str, Any]] = None
 
 # Heuristic keywords to detect mapping/schema requests
 MAPPING_KEYWORDS = [
@@ -37,6 +38,23 @@ def _is_mapping_request(messages: List[ChatMessage]) -> bool:
     lowered = text.lower()
     return any(k in lowered for k in MAPPING_KEYWORDS)
 
+
+def _filter_messages_for_context(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
+    """Filter messages for LLM context building.
+
+    Messages with meta.include_context explicitly set to False will be excluded.
+    """
+    filtered: List[Dict[str, Any]] = []
+    for m in messages:
+        try:
+            meta = m.meta or {}
+            include = meta.get('include_context', True)
+        except Exception:
+            include = True
+        if include:
+            filtered.append(m.model_dump())
+    return filtered
+
 # Updated ChatRequest to include the `include_context` field
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
@@ -47,7 +65,10 @@ class ChatRequest(BaseModel):
     index_name: Optional[str] = None
     conversation_id: Optional[str] = None
     debug: bool = False
-    include_context: bool = True  # New field to toggle context inclusion
+    # Controls what mapping payload the server should include in responses for mapping fast-path
+    # Options: 'both' (structured dict + json block), 'dict' (structured dict only), 'json' (json only)
+    mapping_response_format: Optional[str] = "both"
+
 
 class ChatResponse(BaseModel):
     response: str
@@ -182,7 +203,8 @@ async def handle_elasticsearch_chat(
         })
         
         try:
-            message_list = [m.model_dump() for m in req.messages]
+            # Respect per-message include_context flags when building the LLM input
+            message_list = _filter_messages_for_context(req.messages)
             chat_start = time.time()
             
             result = await ai_service.generate_elasticsearch_chat(
@@ -283,7 +305,8 @@ def create_streaming_response(
             })
             
             try:
-                message_list = [m.model_dump() for m in req.messages]
+                # Respect per-message include_context flags when building the LLM input
+                message_list = _filter_messages_for_context(req.messages)
                 
                 if req.mode == "elasticsearch" and schema_context:
                     # Elasticsearch streaming
@@ -337,7 +360,7 @@ def create_streaming_response(
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, app_request: Request):
+async def chat_endpoint(req: ChatRequest, app_request: Request, response: Response):
     """Enhanced chat endpoint supporting both free chat and Elasticsearch-assisted modes"""
     with tracer.start_as_current_span(
         "chat_endpoint",
@@ -354,6 +377,11 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
             "http.route": "/chat"
         }
     ) as chat_span:
+        # Expose route template to client for better span naming on frontend
+        try:
+            response.headers['X-Http-Route'] = '/chat'
+        except Exception:
+            pass
         try:
             # Get services from app.state
             ai_service = app_request.app.state.ai_service
@@ -401,6 +429,33 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     # Create user-friendly summary with Python types
                     reply = format_mapping_summary(es_types, python_types)
 
+                    # Build structured mapping response for frontend consumption
+                    sorted_fields = sorted(es_types.keys())
+                    structured_fields = [
+                        {"name": name, "es_type": str(es_types[name]), "python_type": python_types.get(name)}
+                        for name in sorted_fields
+                    ]
+                    structured_mapping = {
+                        "fields": structured_fields,
+                        "flat": {name: python_types.get(name) for name in sorted_fields},
+                        "field_count": field_count,
+                        "is_long": field_count > 40
+                    }
+
+                    # Attach mapping response into debug_info so frontend can render it without parsing markers
+                    if debug_info is not None:
+                        # Respect client's requested format
+                        fmt = getattr(req, 'mapping_response_format', 'both') or 'both'
+                        debug_info["mapping_response"] = structured_mapping if fmt in ("both", "dict") else None
+                        # Include the normalized original mapping dict when requested
+                        debug_info["mapping_original"] = mapping_dict if fmt in ("both", "dict") else None
+                        # Extract raw JSON block from the human reply if frontend prefers json or both
+                        if fmt in ("both", "json"):
+                            # format_mapping_summary already embeds the JSON block between markers
+                            debug_info["mapping_raw_reply"] = reply
+                        else:
+                            debug_info["mapping_raw_reply"] = None
+
                     mapping_span.set_attributes({
                         "mapping.index": index,
                         "mapping.fields_count": field_count,
@@ -414,7 +469,13 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                             if debug_info is not None:
                                 yield (json.dumps({"type": "debug", "debug": {**debug_info, "mapping_fields_count": field_count}}) + "\n").encode("utf-8")
                             yield (json.dumps({"type": "done"}) + "\n").encode("utf-8")
-                        return StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
+                        # Attach header to streaming response if possible
+                        streaming_resp = StreamingResponse(mapping_stream(), media_type="application/x-ndjson")
+                        try:
+                            streaming_resp.headers['X-Http-Route'] = '/chat'
+                        except Exception:
+                            pass
+                        return streaming_resp
 
                     # Non-streaming mapping response
                     if debug_info is not None:
@@ -432,7 +493,8 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                 
                 try:
                     # Convert messages to the format expected by AI service
-                    message_list = [m.model_dump() for m in req.messages]
+                    # Respect per-message include_context flags when building the LLM input
+                    message_list = _filter_messages_for_context(req.messages)
                     
                     if req.mode == "elasticsearch" and req.index_name:
                         # Get schema for context-aware chat
@@ -481,7 +543,12 @@ async def chat_endpoint(req: ChatRequest, app_request: Request):
                     }
                     yield (json.dumps(error_event) + "\n").encode("utf-8")
 
-            return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+            streaming = StreamingResponse(event_stream(), media_type="application/x-ndjson")
+            try:
+                streaming.headers['X-Http-Route'] = '/chat'
+            except Exception:
+                pass
+            return streaming
                 
         except TokenLimitError as te:
             chat_span.set_status(Status(StatusCode.ERROR, "Token limit exceeded"))
