@@ -196,7 +196,7 @@ class ElasticsearchService:
                     await asyncio.sleep(delay)
 
     async def list_indices(self) -> List[str]:
-        """List all indices with timeout handling"""
+        """List all indices with timeout handling and enhanced filtering"""
         with tracer.start_as_current_span("elasticsearch.list_indices", attributes={"db.operation": "list_indices"}):
             try:
                 # Add timeout for listing indices
@@ -205,7 +205,48 @@ class ElasticsearchService:
                     self.client.cat.indices(format="json"),
                     timeout=indices_timeout
                 )
-                return [idx['index'] for idx in response if not idx['index'].startswith('.')]
+                
+                # Enhanced filtering to exclude system, monitoring, and problematic indices
+                filtered_indices = []
+                for idx in response:
+                    index_name = idx['index']
+                    
+                    # Skip system indices (starting with .)
+                    if index_name.startswith('.'):
+                        continue
+                    
+                    # Skip monitoring indices
+                    if any(pattern in index_name for pattern in [
+                        '.monitoring-', 
+                        '.ds-.monitoring-',
+                        'partial-.ds-.monitoring-',
+                        '.watcher-',
+                        '.security-',
+                        '.kibana',
+                        # 'metricbeat-',
+                        # 'filebeat-',
+                        # 'winlogbeat-',
+                        # 'apm-',
+                        '.ml-'
+                    ]):
+                        logger.debug(f"Filtering out system/monitoring index: {index_name}")
+                        continue
+                    
+                    # Skip indices that look corrupted or partial
+                    if index_name.startswith('partial-'):
+                        logger.warning(f"Filtering out potential corrupted index: {index_name}")
+                        continue
+                    
+                    # Skip closed indices (if status is available)
+                    if idx.get('status') == 'close':
+                        logger.debug(f"Filtering out closed index: {index_name}")
+                        continue
+                        
+                    filtered_indices.append(index_name)
+                
+                logger.debug(f"Found {len(filtered_indices)} user indices out of {len(response)} total indices")
+                return filtered_indices
+                
             except asyncio.TimeoutError:
                 logger.error("Timeout listing indices")
                 raise ConnectionTimeout("Timeout listing indices")

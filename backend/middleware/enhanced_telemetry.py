@@ -316,6 +316,7 @@ def trace_async_function(operation_name: str = None,
                     span.set_status(Status(StatusCode.ERROR, str(e)))
                     # Don't include full exception details that might contain sensitive data
                     span.set_attribute("error.type", type(e).__name__)
+                    sanitizer = DataSanitizer()
                     span.set_attribute("error.message", sanitizer.sanitize_value(str(e), 500))
                 raise
                 
