@@ -119,45 +119,6 @@ exporters:
     mapping:
       mode: otel
 
-processors:
-  elasticinframetrics:
-    add_system_metrics: true
-    drop_original: true
-  attributes/dataset:
-    actions:
-      - key: event.dataset
-        from_attribute: data_stream.dataset
-        action: upsert
-  resource/process:
-    attributes:
-      - key: process.executable.name
-        action: delete
-      - key: process.executable.path
-        action: delete
-  batch:
-    send_batch_size: 1000
-    timeout: 1s
-    send_batch_max_size: 1500
-  batch/metrics:
-    send_batch_size: 1000
-    timeout: 1s
-    send_batch_max_size: 3000
-  elastictrace: {}
-
-exporters:
-  elasticsearch/otel:
-    endpoints:
-      - ${env:ELASTIC_ENDPOINT}
-    api_key: ${env:ELASTIC_API_KEY}
-    mapping:
-      mode: otel
-  elasticsearch/ecs:
-    endpoints:
-      - ${env:ELASTIC_ENDPOINT}
-    api_key: ${env:ELASTIC_API_KEY}
-    mapping:
-      mode: ecs
-
 extensions:
   bearertokenauth:
     scheme: "APIKey"
