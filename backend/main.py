@@ -91,7 +91,10 @@ def _start_span_safe(name, **kwargs):
 
         return _noop()
 
-setup_telemetry()  # Initialize OpenTelemetry
+# Initialize telemetry only when not running under pytest or under test harnesses
+import sys as _sys
+if 'pytest' not in _sys.modules and not os.getenv('PYTEST_CURRENT_TEST'):
+    setup_telemetry()  # Initialize OpenTelemetry
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)

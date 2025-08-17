@@ -18,7 +18,56 @@ from typing import Dict, Any, List
 from unittest.mock import Mock, patch, AsyncMock
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from opentelemetry.test_utils import TestTracerProvider
+
+# Some environments may not install opentelemetry.test_utils. Provide a
+# lightweight fallback TestTracerProvider that uses the InMemorySpanExporter
+# so tests can inspect finished spans without adding a separate test-only
+# dependency.
+try:
+    from opentelemetry.test_utils import TestTracerProvider
+except Exception:
+    from opentelemetry.sdk.trace import TracerProvider as _TracerProvider
+    from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult, SimpleSpanProcessor
+
+    class _LocalInMemoryExporter(SpanExporter):
+        """A minimal in-memory exporter compatible with multiple OTEL SDK versions."""
+        def __init__(self):
+            self._finished = []
+
+        def export(self, spans) -> "SpanExportResult":
+            # Store a shallow copy of spans for inspection
+            try:
+                self._finished.extend(list(spans))
+            except Exception:
+                pass
+            return SpanExportResult.SUCCESS
+
+        def shutdown(self):
+            return None
+
+        def get_finished_spans(self):
+            return list(self._finished)
+
+    class TestTracerProvider(_TracerProvider):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._exporter = _LocalInMemoryExporter()
+            self._processor = SimpleSpanProcessor(self._exporter)
+            self.add_span_processor(self._processor)
+
+        # Accept the broader signatures used by opentelemetry.get_tracer wrappers
+        def get_tracer(self, *args, **kwargs):
+            # Normalize to the basic (name, version) expected by underlying provider
+            name = args[0] if args else kwargs.get('name')
+            version = args[1] if len(args) > 1 else kwargs.get('version', None)
+            try:
+                return super().get_tracer(name, version)
+            except TypeError:
+                # Older SDK variants may require fewer args
+                return super().get_tracer(name)
+
+        def get_finished_spans(self):
+            return list(self._exporter.get_finished_spans())
 
 # Import our enhanced modules
 import sys

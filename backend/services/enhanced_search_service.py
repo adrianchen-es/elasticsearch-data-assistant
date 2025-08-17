@@ -349,16 +349,27 @@ class EnhancedSearchService:
         
         def analyze_agg(agg_def: Dict[str, Any]):
             nonlocal complexity
-            for agg_type, agg_config in agg_def.items():
-                if agg_type in ["terms", "date_histogram", "histogram"]:
-                    complexity += 1
-                elif agg_type in ["nested", "reverse_nested"]:
-                    complexity += 2
-                elif agg_type in ["percentiles", "percentile_ranks", "stats", "extended_stats"]:
-                    complexity += 1
-                elif agg_type == "aggs" and isinstance(agg_config, dict):
-                    analyze_agg(agg_config)
-        
+            # agg_def is typically a dict mapping agg_name -> agg_body
+            for name, body in agg_def.items():
+                if not isinstance(body, dict):
+                    continue
+                # Body may contain the specific aggregation type as a key
+                for agg_type, agg_config in body.items():
+                    if agg_type in ["terms", "date_histogram", "histogram"]:
+                        complexity += 1
+                    elif agg_type in ["nested", "reverse_nested"]:
+                        complexity += 2
+                    elif agg_type in ["percentiles", "percentile_ranks", "stats", "extended_stats"]:
+                        complexity += 1
+                    # sub-aggregations are usually under 'aggs' or 'aggregations'
+                    if isinstance(agg_config, dict):
+                        if 'aggs' in agg_config and isinstance(agg_config['aggs'], dict):
+                            analyze_agg(agg_config['aggs'])
+                        if 'aggregations' in agg_config and isinstance(agg_config['aggregations'], dict):
+                            analyze_agg(agg_config['aggregations'])
+                # Also check for nested structure where agg_def directly contains agg types
+                # (already handled above)
+
         analyze_agg(aggs)
         return complexity
 

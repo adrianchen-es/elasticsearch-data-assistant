@@ -2,6 +2,7 @@
 from typing import Dict, Any, Optional, List
 from elasticsearch import AsyncElasticsearch, ConnectionTimeout, RequestError
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
 from config.settings import settings
 import json
@@ -19,6 +20,9 @@ tracer = get_security_tracer(__name__)
 sanitizer = DataSanitizer()
 
 class ElasticsearchService:
+    # Expose 'client' attribute at class level so tests that create Mock(spec=ElasticsearchService)
+    # will allow setting `.client` without raising AttributeError
+    client = None
     def __init__(self, url: str, api_key: Optional[str] = None):
         initialization_start_time = time.time()
         logger.info(f"🔍 Initializing Elasticsearch service for {self._mask_url(url)}")
@@ -281,8 +285,15 @@ class ElasticsearchService:
             try:
                 # Add sanitized query as db.statement (per semantic conventions)
                 try:
-                    sanitized_query = sanitizer.sanitize_data(query)
+                    sanitized_query = sanitizer.sanitize_value(query)
+                    # Ensure the attribute is a string (OTel attribute types are limited)
+                    if not isinstance(sanitized_query, str):
+                        try:
+                            sanitized_query = json.dumps(sanitized_query)
+                        except Exception:
+                            sanitized_query = str(sanitized_query)
                     span.set_attribute("db.statement", sanitized_query)
+                    # Attach event with stringified query to avoid invalid attribute types
                     span.add_event("db.query", {"query": sanitized_query})
                 except Exception:
                     span.set_attribute("db.statement", "<unavailable>")
@@ -293,6 +304,15 @@ class ElasticsearchService:
                     self.client.search(index=index_name, body=query),
                     timeout=search_timeout
                 )
+                # Mark span as successful
+                try:
+                    span.set_status(Status(StatusCode.OK))
+                except Exception:
+                    # Older/newer SDKs may accept different signatures
+                    try:
+                        span.set_status(StatusCode.OK)
+                    except Exception:
+                        pass
                 return response
             except asyncio.TimeoutError:
                 logger.error(f"Timeout executing query on index {index_name}")
