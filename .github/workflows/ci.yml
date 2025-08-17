@@ -105,51 +105,8 @@ jobs:
           name: frontend-test-results
           path: |
             frontend
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Print OpenTelemetry package versions and enforce minimums
-        run: |
-          python - <<'PY'
-          import sys
-          from pkg_resources import get_distribution, parse_version
-          required = {
-              'opentelemetry-api': '1.36.0',
-              'opentelemetry-sdk': '1.36.0',
-              'opentelemetry-exporter-otlp': '1.36.0'
-          }
-          ok = True
-          for pkg, minv in required.items():
-              try:
-                  v = get_distribution(pkg).version
-                  print(f'{pkg}=={v} (required >= {minv})')
-                  if parse_version(v) < parse_version(minv):
-                      print(f'ERROR: {pkg} {v} is older than required {minv}', file=sys.stderr)
-                      ok = False
-              except Exception as e:
-                  print(f'ERROR: {pkg} not installed: {e}', file=sys.stderr)
-                  ok = False
-          if not ok:
-              sys.exit(2)
-          PY
-
-      - name: Run telemetry smoke test
-        run: |
-          pytest test/test_consolidated_smoke.py -q --junitxml=telemetry_smoke_results.xml
-
-      - name: Run full backend tests
-        run: |
-          pytest test/ --maxfail=1 -q --junitxml=test_results.xml
-
-      - name: Upload backend test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-results
-          path: |
-            telemetry_smoke_results.xml
-            test_results.xml
+  # NOTE: Backend dependency installation and backend tests should not run in the frontend job.
+  # Backend tests are executed in the `backend-tests` job above.
 
   gateway-tests:
     name: Gateway tests

@@ -31,7 +31,7 @@ run_gateway() {
   if [ -f gateway/package.json ]; then
     echo "==> Running gateway tests (gateway)..."
   # ensure dependencies are installed and run tests in CI mode for consistent behavior
-  if (cd gateway && npm ci --silent && CI=true npm test --silent); then
+  if (cd gateway && (npm ci --silent || (echo "npm ci failed, falling back to npm install" && npm install --silent)) && CI=true npm test --silent); then
       echo "gateway: OK"
       return 0
     else

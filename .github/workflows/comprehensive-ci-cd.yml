@@ -13,6 +13,7 @@ env:
 
 jobs:
   # Security and code quality checks
+  # This job runs repository-wide security scans and serves as an early fail-fast gate.
   security-scan:
     name: Security & Code Quality
     runs-on: ubuntu-latest
@@ -41,13 +42,14 @@ jobs:
           echo "🔍 Scanning for sensitive data patterns..."
           
           # Check for exposed API keys, passwords, internal IPs
-          if grep -r -E "(api[_-]?key|password|secret)" --include="*.js" --include="*.py" --include="*.json" .; then
+          # Exclude test data directories - test fixtures may contain fake keys and IPs
+          if grep -r -E "(api[_-]?key|password|secret)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=test --exclude-dir=tests .; then
             echo "❌ Potential sensitive data found in source files"
             exit 1
           fi
           
           # Check for internal IP patterns
-          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.json" .; then
+          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=test --exclude-dir=tests .; then
             echo "❌ Internal IP addresses found in source files"
             exit 1
           fi
@@ -55,6 +57,7 @@ jobs:
           echo "✅ No sensitive data patterns detected"
 
   # Backend testing and validation
+  # Runs only backend-related tests and installs only backend Python deps.
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -78,6 +81,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run preflight cross-component install check
+        run: ./.github/preflight/check_cross_component_installs.sh
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -380,7 +388,7 @@ jobs:
           echo "🔒 Checking environment variable security..."
           
           # Ensure no hardcoded secrets
-          if grep -r -E "(sk-[a-zA-Z0-9]{48}|xoxb-[a-zA-Z0-9-]+)" . --exclude-dir=.git; then
+          if grep -r -E "(sk-[a-zA-Z0-9]{48}|xoxb-[a-zA-Z0-9-]+)" . --exclude-dir=.git --exclude-dir=test --exclude-dir=tests; then
             echo "❌ Hardcoded API keys detected"
             exit 1
           fi

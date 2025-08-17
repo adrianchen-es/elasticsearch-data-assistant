@@ -185,8 +185,13 @@ pipeline {
                     steps {
                         echo '🧪 Running comprehensive application tests...'
                         sh '''
-                            # Install test dependencies in backend container
-                            docker compose exec -T backend pip install pytest pytest-asyncio pytest-html pytest-cov
+                            # Install test dependencies in backend container only if missing
+                            if ! docker compose exec -T backend python -c "import pytest" >/dev/null 2>&1; then
+                                echo "pytest not found in backend container, installing test deps..."
+                                docker compose exec -T backend pip install pytest pytest-asyncio pytest-html pytest-cov || true
+                            else
+                                echo "pytest already installed in backend container; skipping install"
+                            fi
                             
                             # Validate OpenTelemetry package versions
                             echo '🔎 Validating OpenTelemetry package versions...'

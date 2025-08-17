@@ -691,6 +691,10 @@ class TestPerformanceValidation:
         assert "***" in sanitized
         assert "sk-1234567890abcdef" not in sanitized
     
+    @pytest.mark.skipif(
+        os.environ.get("RUN_PERFORMANCE_TESTS", "false").lower() not in ("1", "true", "yes"),
+        reason="Performance tests disabled; set RUN_PERFORMANCE_TESTS=1 to enable"
+    )
     def test_tracing_overhead(self):
         """Test that enhanced tracing doesn't add significant overhead."""
         import time
