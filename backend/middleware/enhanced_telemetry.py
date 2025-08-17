@@ -87,6 +87,11 @@ class SecurityAwareTracer:
                               **kwargs):
         """Start a span as current span with automatic attribute sanitization."""
         tracer = self._provided_tracer or trace.get_tracer(self._name, self._version)
+        try:
+            provider = trace.get_tracer_provider()
+            logger.debug(f"SecurityAwareTracer: using tracer provider {provider.__class__.__name__} for tracer {self._name}")
+        except Exception:
+            logger.debug(f"SecurityAwareTracer: could not determine tracer provider for tracer {self._name}")
         with tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
             if attributes:
                 sanitized_attrs = self.sanitizer.sanitize_attributes(attributes)
@@ -134,6 +139,11 @@ class SecurityAwareTracer:
                    **kwargs):
         """Start a span with automatic attribute sanitization."""
         tracer = self._provided_tracer or trace.get_tracer(self._name, self._version)
+        try:
+            provider = trace.get_tracer_provider()
+            logger.debug(f"SecurityAwareTracer.start_span: using tracer provider {provider.__class__.__name__} for tracer {self._name}")
+        except Exception:
+            logger.debug(f"SecurityAwareTracer.start_span: could not determine tracer provider for tracer {self._name}")
         with tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
             if attributes:
                 sanitized_attrs = self.sanitizer.sanitize_attributes(attributes)
@@ -214,7 +224,9 @@ class DataSanitizer:
             (r'\b\d{3}-\d{2}-\d{4}\b', r'***-**-****'),
             (r'\b\d{9}\b', r'***'),
         ]
-        
+        # Add a common environment-style DATABASE_URL masking pattern
+        self.sensitive_patterns.append((re.compile(r"DATABASE_URL=\S+", re.IGNORECASE), "DATABASE_URL=***REDACTED***"))
+
         self.max_string_length = int(os.getenv('OTEL_MAX_ATTRIBUTE_LENGTH', '2048'))
         self.max_collection_size = int(os.getenv('OTEL_MAX_COLLECTION_SIZE', '128'))
     
