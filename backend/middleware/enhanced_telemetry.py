@@ -27,15 +27,40 @@ from opentelemetry.trace.status import Status, StatusCode
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.propagators.b3 import B3MultiFormat
-from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
 
+# Configure logger early to avoid undefined reference
+logger = logging.getLogger(__name__)
+
+# Import propagators with graceful fallbacks
+try:
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    _TRACE_CONTEXT_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"TraceContext propagator not available: {e}")
+    _TRACE_CONTEXT_AVAILABLE = False
+
+# Try to import B3 propagator, fall back to trace context only if not available
+try:
+    from opentelemetry.propagators.b3 import B3MultiFormat
+    _B3_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"B3 propagator not available: {e}")
+    _B3_AVAILABLE = False
+
+# Import semantic conventions with fallback
 try:
     from opentelemetry.semconv.resource import ResourceAttributes
 except ImportError:
-    from opentelemetry.semconv.resource import ResourceAttributes
-
-logger = logging.getLogger(__name__)
+    # Fallback for older versions
+    try:
+        from opentelemetry.semconv.resource import ResourceAttributes
+    except ImportError:
+        logger.warning("ResourceAttributes not available, using manual attributes")
+        # Define minimal fallback attributes
+        class ResourceAttributes:
+            SERVICE_NAME = "service.name"
+            SERVICE_VERSION = "service.version"
+            DEPLOYMENT_ENVIRONMENT = "deployment.environment"
 
 class SecurityAwareTracer:
     """Enhanced tracer with automatic data sanitization and security controls."""
@@ -76,12 +101,13 @@ class DataSanitizer:
     
     def __init__(self):
         self.sensitive_patterns = [
-            # API Keys and tokens
+            # API Keys and tokens - enhanced patterns
             (r'(?i)(api[_-]?key|token|secret|password)["\']?\s*[:=]\s*["\']?([^"\'\s]{8,})', r'\1=***REDACTED***'),
+            (r'(?i)API\s+key:\s*([A-Za-z0-9\-\._]{10,})', r'API key: ***REDACTED***'),
             # Bearer tokens
             (r'Bearer\s+([A-Za-z0-9\-\._]{10,})', r'Bearer ***REDACTED***'),
             # OpenAI style keys
-            (r'sk-[A-Za-z0-9]{20,}', r'sk-***REDACTED***'),
+            (r'sk-[A-Za-z0-9\-\._]{20,}', r'sk-***REDACTED***'),
             # Database connection strings
             (r'(?i)(postgres|mysql|mongodb)://[^@]+@([^/]+)', r'\1://***:***@\2'),
             # Internal IP addresses
@@ -467,37 +493,72 @@ class EnhancedTelemetrySetup:
     
     def _setup_propagation(self) -> None:
         """Setup context propagation for distributed tracing."""
+        # Build propagator list based on available components
+        propagators = []
+        
+        # Add TraceContext propagator if available
+        if _TRACE_CONTEXT_AVAILABLE:
+            propagators.append(TraceContextTextMapPropagator())
+            logger.debug("Added TraceContext propagator")
+        
+        # Add B3 propagator if available
+        if _B3_AVAILABLE:
+            propagators.append(B3MultiFormat())
+            logger.debug("Added B3 propagator")
+        
+        # Fallback to basic propagation if nothing available
+        if not propagators:
+            logger.warning("No propagators available, using basic tracing")
+            return
+        
         # Use composite propagator for maximum compatibility
-        propagator = CompositePropagator([
-            TraceContextTextMapPropagator(),  # W3C standard
-            B3MultiFormat(),  # Zipkin/B3 format for legacy systems
-        ])
+        if len(propagators) > 1:
+            propagator = CompositePropagator(propagators)
+        else:
+            propagator = propagators[0]
+            
         set_global_textmap(propagator)
     
     def _setup_instrumentation(self) -> None:
         """Setup automatic instrumentation for common libraries."""
+        instrumentations_loaded = []
+        
+        # FastAPI instrumentation
         try:
-            # FastAPI instrumentation
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
             FastAPIInstrumentor().instrument()
-            
-            # Elasticsearch instrumentation
+            instrumentations_loaded.append("FastAPI")
+        except ImportError as e:
+            logger.warning(f"FastAPI instrumentation not available: {e}")
+        
+        # Elasticsearch instrumentation
+        try:
             from opentelemetry.instrumentation.elasticsearch import ElasticsearchInstrumentor
             ElasticsearchInstrumentor().instrument()
-            
-            # HTTPX instrumentation for AI service calls
+            instrumentations_loaded.append("Elasticsearch")
+        except ImportError as e:
+            logger.warning(f"Elasticsearch instrumentation not available: {e}")
+        
+        # HTTPX instrumentation for AI service calls
+        try:
             from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
             HTTPXClientInstrumentor().instrument()
-            
-            # OpenAI instrumentation if available
-            try:
-                from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
-                OpenAIInstrumentor().instrument()
-            except ImportError:
-                logger.debug("OpenAI instrumentation not available")
-                
-        except Exception as e:
-            logger.warning(f"Some instrumentations failed to load: {e}")
+            instrumentations_loaded.append("HTTPX")
+        except ImportError as e:
+            logger.warning(f"HTTPX instrumentation not available: {e}")
+        
+        # OpenAI instrumentation if available
+        try:
+            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+            OpenAIInstrumentor().instrument()
+            instrumentations_loaded.append("OpenAI")
+        except ImportError as e:
+            logger.debug(f"OpenAI instrumentation not available: {e}")
+        
+        if instrumentations_loaded:
+            logger.info(f"Loaded instrumentations: {', '.join(instrumentations_loaded)}")
+        else:
+            logger.warning("No automatic instrumentations were loaded")
 
 # Global instance for easy access
 enhanced_telemetry = EnhancedTelemetrySetup()

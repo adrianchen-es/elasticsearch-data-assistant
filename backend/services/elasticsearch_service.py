@@ -2,6 +2,7 @@
 from typing import Dict, Any, Optional, List
 from elasticsearch import AsyncElasticsearch, ConnectionTimeout, RequestError
 from opentelemetry import trace
+from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
 import json
 import logging
 import os  # Import os to read environment variables
@@ -9,7 +10,6 @@ import asyncio
 import time
 import re
 
-from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
 
 logger = logging.getLogger(__name__)
 tracer = get_security_tracer(__name__)
