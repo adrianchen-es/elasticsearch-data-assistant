@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, Cpu, RefreshCw, Layers } from 'lucide-react';
 
 // Component to select AI provider
-const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
+export const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
   const providers = [
     { value: 'azure', label: 'Azure AI', available: true },
     { value: 'openai', label: 'OpenAI', available: true }
@@ -30,7 +30,7 @@ const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
 };
 
 // Component to select Elasticsearch index
-const IndexSelector = ({ 
+export const IndexSelector = ({ 
   selectedIndex, 
   onIndexChange, 
   variant = 'default', 
