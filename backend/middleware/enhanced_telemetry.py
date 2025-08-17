@@ -64,28 +64,30 @@ except ImportError:
             DEPLOYMENT_ENVIRONMENT = "deployment.environment"
 
 class SecurityAwareTracer:
-    """Enhanced tracer with automatic data sanitization and security controls."""
+    """Enhanced tracer with automatic data sanitization and security controls.
+
+    This tracer resolves the underlying tracer lazily from the currently-set
+    tracer provider unless an explicit tracer instance is provided. That lets
+    tests call ``trace.set_tracer_provider(...)`` during setup and still have
+    spans created by the decorators and services use the test provider.
+    """
+
     def __init__(self, name: str, tracer_instance=None, version: str = "1.0.0"):
-        # Allow passing an explicit tracer instance (preferred for tests).
-        if tracer_instance is not None and hasattr(tracer_instance, 'start_as_current_span'):
-            self.tracer = tracer_instance
-        else:
-            # Use the global get_tracer which will use the currently-set provider
-            try:
-                self.tracer = trace.get_tracer(name, version)
-            except Exception:
-                self.tracer = trace.get_tracer(name)
+        # Explicit tracer instance (optional)
+        self._provided_tracer = tracer_instance if (tracer_instance is not None and hasattr(tracer_instance, 'start_as_current_span')) else None
+        self._name = name
+        self._version = version
         self.sanitizer = DataSanitizer()
-        
-    @contextmanager  
-    def start_as_current_span(self, 
-                             name: str, 
-                             kind: trace.SpanKind = trace.SpanKind.INTERNAL,
-                             attributes: Optional[Dict[str, Any]] = None,
-                             **kwargs):
+
+    @contextmanager
+    def start_as_current_span(self,
+                              name: str,
+                              kind: trace.SpanKind = trace.SpanKind.INTERNAL,
+                              attributes: Optional[Dict[str, Any]] = None,
+                              **kwargs):
         """Start a span as current span with automatic attribute sanitization."""
-        with self.tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
-            # Apply attributes at span start
+        tracer = self._provided_tracer or trace.get_tracer(self._name, self._version)
+        with tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
             if attributes:
                 sanitized_attrs = self.sanitizer.sanitize_attributes(attributes)
                 for key, value in sanitized_attrs.items():
@@ -94,7 +96,6 @@ class SecurityAwareTracer:
                     except Exception as e:
                         logger.debug(f"Failed to set attribute {key}: {e}")
 
-            # Wrap span to sanitize any subsequent set_attribute calls
             class _SanitizingSpan:
                 def __init__(self, inner, sanitizer):
                     self._inner = inner
@@ -118,22 +119,22 @@ class SecurityAwareTracer:
 
                 @property
                 def attributes(self):
-                    # Delegate to inner span attributes if present
                     return getattr(self._inner, 'attributes', {})
 
                 def __getattr__(self, name):
                     return getattr(self._inner, name)
 
             yield _SanitizingSpan(span, self.sanitizer)
-        
+
     @contextmanager
-    def start_span(self, 
-                   name: str, 
+    def start_span(self,
+                   name: str,
                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                    attributes: Optional[Dict[str, Any]] = None,
                    **kwargs):
         """Start a span with automatic attribute sanitization."""
-        with self.tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
+        tracer = self._provided_tracer or trace.get_tracer(self._name, self._version)
+        with tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
             if attributes:
                 sanitized_attrs = self.sanitizer.sanitize_attributes(attributes)
                 for key, value in sanitized_attrs.items():
@@ -142,33 +143,38 @@ class SecurityAwareTracer:
                     except Exception as e:
                         logger.debug(f"Failed to set attribute {key}: {e}")
 
-            # Reuse sanitizing wrapper
             class _SanitizingSpanLocal:
                 def __init__(self, inner, sanitizer):
                     self._inner = inner
                     self._sanitizer = sanitizer
+
                 def set_attribute(self, key, value):
                     try:
                         safe = self._sanitizer.sanitize_value(value)
                     except Exception:
                         safe = "***"
                     return self._inner.set_attribute(key, safe)
+
                 def record_exception(self, *a, **k):
                     return self._inner.record_exception(*a, **k)
+
                 def set_status(self, *a, **k):
                     return self._inner.set_status(*a, **k)
+
                 def add_event(self, *a, **k):
                     return self._inner.add_event(*a, **k)
+
                 @property
                 def attributes(self):
                     return getattr(self._inner, 'attributes', {})
+
                 def __getattr__(self, name):
                     return getattr(self._inner, name)
 
             yield _SanitizingSpanLocal(span, self.sanitizer)
-    
+
     @asynccontextmanager
-    async def async_span(self, 
+    async def async_span(self,
                         name: str,
                         kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                         attributes: Optional[Dict[str, Any]] = None,
