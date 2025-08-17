@@ -36,7 +36,7 @@ processors:
     timeout: 1s
     send_batch_max_size: 1500
   batch/metrics:
-    send_batch_max_size: 0
+    send_batch_max_size: 3000
     timeout: 1s
   elastictrace: {}
 
@@ -71,3 +71,18 @@ extensions:
         endpoint: "${env:ELASTIC_ENDPOINT}"
         auth:
           authenticator: bearertokenauth
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, elastictrace, resource/process, attributes/dataset]
+      exporters: [elasticsearch/ecs]
+    metrics:
+      receivers: [otlp]
+      processors: [batch/metrics, elasticinframetrics, resource/process, attributes/dataset]
+      exporters: [elasticsearch/ecs]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch/ecs]

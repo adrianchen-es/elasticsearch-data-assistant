@@ -55,26 +55,14 @@ except Exception:
             self._processor = SimpleSpanProcessor(self._exporter)
             self.add_span_processor(self._processor)
 
-            # Also attach the in-memory exporter to any existing global provider
-            # as a fallback for test runs where overriding the tracer provider
-            # is disallowed. This ensures spans are captured even when
-            # trace.set_tracer_provider(...) emits a non-fatal warning.
-            try:
-                current = trace.get_tracer_provider()
-                if hasattr(current, 'add_span_processor'):
-                    try:
-                        current.add_span_processor(self._processor)
-                    except Exception:
-                        # Some providers may reject processors; ignore and continue
-                        pass
-            except Exception:
-                pass
-            # Ensure explicit test-mode flag is set so code paths that check
-            # OTEL_TEST_MODE behave deterministically in full-suite runs.
-            try:
-                os.environ['OTEL_TEST_MODE'] = '1'
-            except Exception:
-                pass
+            # Do not attach this provider's processor to any pre-existing global
+            # provider to avoid leaking test-only exporters/processors across
+            # unrelated tests. Tests should explicitly set the global tracer
+            # provider via `trace.set_tracer_provider(...)` when needed.
+            # Avoid setting OTEL_TEST_MODE globally here to prevent leaking
+            # test-only environment flags across the suite. Individual tests
+            # that require OTEL_TEST_MODE should set it explicitly in their
+            # own scope.
 
         # Accept the broader signatures used by opentelemetry.get_tracer wrappers
         def get_tracer(self, *args, **kwargs):
