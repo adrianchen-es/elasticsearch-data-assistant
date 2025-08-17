@@ -11,12 +11,14 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry import trace
 from opentelemetry.trace.status import Status, StatusCode
-from contextlib import asynccontextmanager
-import logging
 from opentelemetry.context import set_value, get_current
-
-from contextlib import contextmanager
-
+from services.elasticsearch_service import ElasticsearchService
+from services.mapping_cache_service import MappingCacheService
+from services.ai_service import AIService
+from config.settings import settings
+from routers import chat, query, health, providers
+from contextlib import asynccontextmanager, contextmanager
+import logging
 
 def _start_span_safe(name, **kwargs):
     """Start a span using the module tracer but protect against test
@@ -91,20 +93,11 @@ def _start_span_safe(name, **kwargs):
 
 setup_telemetry()  # Initialize OpenTelemetry
 
-setup_telemetry()  # Initialize OpenTelemetry
-
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 # Do not overwrite tracer.start_as_current_span on the tracer object; tests
 # patch `main.tracer` directly. Call the helper `_start_span_safe` explicitly
 # where a guarded context manager is required.
-
-from services.elasticsearch_service import ElasticsearchService
-from services.mapping_cache_service import MappingCacheService
-from services.ai_service import AIService
-from config.settings import settings
-from routers import chat, query, health, providers
-import logging
 
 async def _retry_service_init(init_fn, name, max_attempts=3, delay=2):
     """Generic retry logic for service initialization with tracing"""
