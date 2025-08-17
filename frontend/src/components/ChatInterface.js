@@ -1,4 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+// lightweight logger helper to avoid multiple inline dynamic imports
+let feLogger = null;
+const getFeLogger = async () => {
+  if (feLogger) return feLogger;
+  try { feLogger = await import('../lib/logging.js'); return feLogger; } catch (e) { return { info: () => {}, warn: () => {}, error: () => {} }; }
+};
 import { IndexSelector, TierSelector } from './Selectors';
 import CollapsibleList from './CollapsibleList';
 import MappingDisplay from './MappingDisplay';
@@ -62,13 +68,13 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         };
       }
     } catch (error) {
-      console.warn('Failed to load conversation from storage:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to load conversation from storage:', error)).catch(() => {});
       // Clear potentially corrupted data
       try {
         localStorage.removeItem(STORAGE_KEYS.CURRENT_ID);
         localStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
       } catch (clearError) {
-        console.warn('Failed to clear corrupted storage:', clearError);
+        getFeLogger().then(({ warn }) => warn('Failed to clear corrupted storage:', clearError)).catch(() => {});
       }
     }
     return null;
@@ -77,7 +83,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const saveConversationToStorage = (conversationData) => {
     try {
       if (!conversationData || !conversationData.id) {
-        console.warn('Invalid conversation data provided to saveConversationToStorage');
+        getFeLogger().then(({ warn }) => warn('Invalid conversation data provided to saveConversationToStorage')).catch(() => {});
         return false;
       }
 
@@ -101,7 +107,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       
       return true;
     } catch (error) {
-      console.warn('Failed to save conversation to storage:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to save conversation to storage:', error)).catch(() => {});
       return false;
     }
   };
@@ -150,7 +156,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   
   const saveConversation = () => {
     if (!conversationId) {
-      console.warn('No conversation ID available for saving');
+      getFeLogger().then(({ warn }) => warn('No conversation ID available for saving')).catch(() => {});
       return;
     }
 
@@ -174,7 +180,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
   setMappingResponseFormat(settings.mappingResponseFormat || 'both');
     } catch (error) {
-      console.error('Error loading settings:', error);
+      getFeLogger().then(({ error }) => error('Error loading settings:', error)).catch(() => {});
     }
   };
   
@@ -189,7 +195,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
-      console.error('Error saving settings:', error);
+      getFeLogger().then(({ error }) => error('Error saving settings:', error)).catch(() => {});
     }
   };
   
@@ -204,11 +210,11 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       const conversationsData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
       const settingsData = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 
-      console.log('Storage validation:', {
+      getFeLogger().then(({ info }) => info('Storage validation:', {
         currentId: currentId,
         conversationsCount: conversationsData ? Object.keys(JSON.parse(conversationsData)).length : 0,
         hasSettings: !!settingsData
-      });
+      })).catch(() => {});
 
       // Validate conversations data structure
       if (conversationsData) {
@@ -222,7 +228,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         });
 
         if (invalidKeys.length > 0) {
-          console.warn('Found invalid conversation data, cleaning up:', invalidKeys);
+          getFeLogger().then(({ warn }) => warn('Found invalid conversation data, cleaning up:', invalidKeys)).catch(() => {});
           invalidKeys.forEach(key => delete conversations[key]);
           localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(conversations));
         }
@@ -230,7 +236,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
 
       return true;
     } catch (error) {
-      console.error('Storage validation failed:', error);
+      getFeLogger().then(({ error }) => error('Storage validation failed:', error)).catch(() => {});
       return false;
     }
   };
@@ -259,7 +265,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     try {
       localStorage.setItem(STORAGE_KEYS.CURRENT_ID, newId);
     } catch (error) {
-      console.warn('Failed to update current conversation ID:', error);
+      getFeLogger().then(({ warn }) => warn('Failed to update current conversation ID:', error)).catch(() => {});
     }
   };
   
@@ -366,7 +372,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                     setDebugInfo(event.debug);
                   }
                 } catch (parseError) {
-                  console.error("Error parsing stream chunk:", parseError, line);
+                  import('../lib/logging.js').then(({ error }) => error('Error parsing stream chunk:', parseError, line)).catch(() => {});
                 }
               }
             }
@@ -421,7 +427,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               }
             }
           } catch (err) {
-            console.warn('Auto-regenerate failed:', err);
+            import('../lib/logging.js').then(({ warn }) => warn('Auto-regenerate failed:', err)).catch(() => {});
           }
         })();
       }
@@ -430,7 +436,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       if (error.name === 'AbortError') {
         setError("Request was cancelled");
       } else {
-        console.error("Chat error:", error);
+        import('../lib/logging.js').then(({ error }) => error('Chat error:', error)).catch(() => {});
         setError(`Network error: ${error.message}`);
       }
     } finally {
@@ -753,7 +759,7 @@ function MappingToggleSection({ mapping }) {
                           setShowAttemptModal(true);
                         }
                       } catch (err) {
-                        console.error('Failed to fetch attempt details', err);
+                        import('../lib/logging.js').then(({ error }) => error('Failed to fetch attempt details', err)).catch(() => {});
                         setAttemptModalData({ error: 'Failed to fetch attempt details' });
                         setShowAttemptModal(true);
                       }

@@ -206,8 +206,10 @@ export const setupTelemetryWeb = () => {
       // ignore if fetch cannot be wrapped in some environments
     }
 
-    console.log('OpenTelemetry initialized for frontend');
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ info }) => info('OpenTelemetry initialized for frontend')).catch(() => {});
   } catch (error) {
-    console.error('Failed to setup telemetry:', error);
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ error: logError }) => logError('Failed to setup telemetry:', error)).catch(() => {});
   }
 };

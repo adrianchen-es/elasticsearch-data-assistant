@@ -47,6 +47,8 @@ run_gateway() {
 run_backend() {
   if [ -f backend/requirements.txt ] || [ -d backend ]; then
     echo "==> Running backend tests (pytest)..."
+  # Ensure backend package is importable by pytest; avoid unbound PYTHONPATH
+    export PYTHONPATH="$ROOT_DIR/backend:${PYTHONPATH:-}"
     if pytest -q; then
       echo "backend: OK"
       return 0
@@ -68,7 +70,11 @@ main() {
   if [ "$FAILED" -ne 0 ]; then
     echo "\nOne or more test suites failed: ${FAIL_SUMMARY[*]}"
     exit 2
+    echo $'\nOne or more test suites failed: '"${FAIL_SUMMARY[*]}"
+    exit 2
   fi
+
+  echo $'\nAll test suites passed.'
 
   echo "\nAll test suites passed."
   exit 0

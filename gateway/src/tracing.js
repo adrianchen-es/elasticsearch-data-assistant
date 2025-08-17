@@ -13,6 +13,7 @@ import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk
 import { metrics } from '@opentelemetry/api';
 import os from 'os';
 import * as fs from 'fs';
+import { info as logInfo, error as logError } from './logging.js';
 
 const serviceName = process.env.OTEL_SERVICE_NAME || 'es-data-assistant-gateway';
 const useGrpc = (process.env.OTEL_EXPORTER_OTLP_PROTOCOL || '').toLowerCase() === 'grpc';
@@ -66,7 +67,7 @@ export const detectContainerInfo = () => {
       // ignore
     }
   } catch (err) {
-    console.warn('Could not detect container info:', err.message);
+    logInfo('Could not detect container info:', err && err.message ? err.message : err);
   }
   
     // Normalize into a friendly shape expected by tests
@@ -81,24 +82,7 @@ export const detectContainerInfo = () => {
       raw: containerInfo
     };
 
-    if (process.env.NODE_ENV === 'test') {
-      try {
-        const dbg = {
-          containerInfo,
-        };
-        // eslint-disable-next-line no-console
-        try {
-          dbg.exists_proc = typeof fs.existsSync === 'function' ? fs.existsSync('/proc/self/cgroup') : 'no-fn';
-        } catch (e) { dbg.exists_proc = 'err'; }
-        try {
-          dbg.exists_docker = typeof fs.existsSync === 'function' ? fs.existsSync('/.dockerenv') : 'no-fn';
-        } catch (e) { dbg.exists_docker = 'err'; }
-        try {
-          dbg.proc_content = (typeof fs.readFileSync === 'function' && dbg.exists_proc) ? fs.readFileSync('/proc/self/cgroup', 'utf8') : null;
-        } catch (e) { dbg.proc_content = 'err'; }
-        console.error('DEBUG detectContainerInfo:', JSON.stringify(dbg));
-      } catch (e) {}
-    }
+  // Removed noisy test-only debug prints to avoid leaking environment details in logs.
 
     return normalized;
 };
@@ -152,10 +136,10 @@ export async function initTracing() {
   });
 
   try {
-    await sdk.start();
-    console.log(`Gateway tracing initialized for service: ${serviceName}`);
-    console.log(`Metrics collection enabled, exporting every 5 seconds`);
-    console.log(`Host: ${os.hostname()}, Platform: ${os.type()} ${os.release()}`);
+  await sdk.start();
+  logInfo(`Gateway tracing initialized for service: ${serviceName}`);
+  logInfo(`Metrics collection enabled, exporting every 5 seconds`);
+  logInfo(`Host: ${os.hostname()}, Platform: ${os.type()} ${os.release()}`);
 
     // Set up metrics provider now that environment detection can run under test control
     meterProvider = new MeterProvider({
@@ -210,7 +194,7 @@ export async function initTracing() {
     });
 
   } catch (err) {
-    console.error('Failed to start tracing SDK:', err && err.message ? err.message : err);
+    logError('Failed to start tracing SDK:', err && err.message ? err.message : err);
   }
 
   // Graceful shutdown wired when tracing is initialized
@@ -220,9 +204,9 @@ export async function initTracing() {
         sdk && typeof sdk.shutdown === 'function' ? sdk.shutdown() : Promise.resolve(),
         meterProvider && typeof meterProvider.shutdown === 'function' ? meterProvider.shutdown() : Promise.resolve()
       ]);
-      console.log('Tracing and metrics SDK shut down successfully');
+      logInfo('Tracing and metrics SDK shut down successfully');
     } catch (error) {
-      console.error('Error shutting down SDK:', error);
+      logError('Error shutting down SDK:', error);
     }
     process.exit(0);
   };
@@ -308,49 +292,5 @@ export const createServiceResource = () => new Resource({
   ...detectContainerInfo()
 });
 
-memoryUsageGauge.addCallback((observableResult) => {
-  const metrics = collectSystemMetrics();
-  observableResult.observe(metrics.usedMemory);
-});
-
-memoryUsagePercentGauge.addCallback((observableResult) => {
-  const metrics = collectSystemMetrics();
-  observableResult.observe(metrics.memoryPercent);
-});
-
-processMemoryGauge.addCallback((observableResult) => {
-  const metrics = collectSystemMetrics();
-  observableResult.observe(metrics.processMemory.rss, { type: 'rss' });
-  observableResult.observe(metrics.processMemory.heapUsed, { type: 'heap_used' });
-  observableResult.observe(metrics.processMemory.heapTotal, { type: 'heap_total' });
-  observableResult.observe(metrics.processMemory.external, { type: 'external' });
-});
-
-processUptimeGauge.addCallback((observableResult) => {
-  const metrics = collectSystemMetrics();
-  observableResult.observe(metrics.uptime);
-});
-
-// Start the SDK
-sdk.start()
-
-console.log(`Gateway tracing initialized for service: ${serviceName}`);
-console.log(`Metrics collection enabled, exporting every 5 seconds`);
-console.log(`Host: ${os.hostname()}, Platform: ${os.type()} ${os.release()}`);
-
-// Graceful shutdown
-const shutdown = async () => {
-  try {
-    await Promise.all([
-      sdk.shutdown(),
-      meterProvider.shutdown()
-    ]);
-    console.log('Tracing and metrics SDK shut down successfully');
-  } catch (error) {
-    console.error('Error shutting down SDK:', error);
-  }
-  process.exit(0);
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+// Note: metric callbacks are only registered when initTracing creates the gauges.
+// No import-time SDK start or duplicate metric registrations exist anymore.

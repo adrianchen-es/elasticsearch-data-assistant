@@ -70,10 +70,6 @@ class ChatRequest(BaseModel):
     mapping_response_format: Optional[str] = "both"
 
 
-    es = app_request.app.state.es_service
-    ai = app_request.app.state.ai_service
-    cache = app_request.app.state.mapping_cache_service
-
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str

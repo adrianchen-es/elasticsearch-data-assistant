@@ -406,19 +406,20 @@ class MappingCacheService:
     async def refresh_cache(self):
         """Public method to trigger cache refresh (alias for refresh_all)"""
         return await self.refresh_all()
-
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics for monitoring/app.state"""
+        """Get cache statistics for monitoring/app.state (safe single implementation)"""
+        current_time = time.time()
+        uptime_reference = self._initialization_status.get("initialization_time") or current_time
         return {
             **self._stats,
-            "refresh_in_progress": self._refresh_in_progress,
+            "refresh_in_progress": getattr(self, '_refresh_in_progress', False),
             "cache_size_mb": self._stats.get("cache_size_bytes", 0) / 1024 / 1024,
-            "uptime_seconds": current_time - (self._initialization_status.get("initialization_time", current_time) or current_time),
-            "scheduler_running": self._scheduler is not None and self._scheduler.running,
+            "uptime_seconds": current_time - uptime_reference,
+            "scheduler_running": self._scheduler is not None and getattr(self._scheduler, 'running', False),
             "initialization_status": self._initialization_status,
-            "time_since_last_refresh": current_time - self._last_refresh_time if self._last_refresh_time > 0 else None,
-            "concurrent_requests": len(self._concurrent_requests),
-            "cache_hit_ratio": getattr(self, '_cache_hit_ratio', None),  # Will be calculated if available
+            "time_since_last_refresh": (current_time - getattr(self, '_last_refresh_time', 0)) if getattr(self, '_last_refresh_time', 0) and self._last_refresh_time > 0 else None,
+            "concurrent_requests": len(getattr(self, '_concurrent_requests', {})),
+            "cache_hit_ratio": getattr(self, '_cache_hit_ratio', None),
         }
 
     def get_initialization_status(self) -> Dict[str, Any]:

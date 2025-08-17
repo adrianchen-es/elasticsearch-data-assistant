@@ -525,6 +525,40 @@ class AIService:
 
         return f"{data[:show_chars]}***"
 
+    def _sanitize_for_debug(self, obj, max_len: int = 500) -> str:
+        """Sanitize arbitrary objects for debug output: mask keys/values that look sensitive and truncate long content.
+
+        This helper is intentionally lightweight for tests: it will stringify the input,
+        replace common sensitive patterns (API keys, bearer tokens, private IPs, passwords),
+        and truncate to max_len characters.
+        """
+        try:
+            s = obj
+            if not isinstance(s, str):
+                try:
+                    s = json.dumps(s)
+                except Exception:
+                    s = str(s)
+
+            # Mask bearer tokens and OpenAI-style keys
+            s = re.sub(r"Bearer\s+[A-Za-z0-9\-\._]{8,}", "Bearer [REDACTED]", s, flags=re.IGNORECASE)
+            s = re.sub(r"sk-[A-Za-z0-9]{8,}", "sk-[REDACTED]", s)
+            s = re.sub(r"[Pp]assword=\w+", "password=[REDACTED]", s)
+            # Mask simple API keys (long alphanumeric strings)
+            s = re.sub(r"[A-Za-z0-9_\-]{20,}", "[REDACTED]", s)
+            # Mask private/internal IPs
+            s = re.sub(r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "[REDACTED_IP]", s)
+            s = re.sub(r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "[REDACTED_IP]", s)
+            # Truncate
+            if len(s) > max_len:
+                s = s[:max_len] + "..."
+            return s
+        except Exception:
+            return "[UNSANITIZABLE]"
+
+
+    
+    
     async def _maybe_await(self, obj):
         """Helper to await obj if it's awaitable, else return it directly.
         Tests often patch async clients with MagicMock (not awaitable), so this
@@ -536,7 +570,7 @@ class AIService:
         if hasattr(obj, '__await__'):
             return await obj
         return obj
-    
+
     def get_initialization_status(self) -> Dict[str, Any]:
         """Get initialization status for debugging"""
         return {
@@ -630,7 +664,7 @@ class AIService:
                 init_span.set_status(Status(StatusCode.ERROR, error_msg))
                 init_span.record_exception(e)
                 raise
-    
+
     def _get_available_providers(self) -> List[str]:
         """Get list of available AI providers"""
         providers = []
@@ -639,7 +673,7 @@ class AIService:
         if self._initialization_status["openai_configured"]:
             providers.append("openai")
         return providers
-    
+
     async def _validate_provider_async(self, provider: str) -> None:
         """Validate that the requested provider is available (async version)"""
         # Ensure clients are initialized before validation
@@ -660,7 +694,7 @@ class AIService:
         elif provider not in ["azure", "openai"]:
             available = self._get_available_providers()
             raise ValueError(f"Invalid provider '{provider}'. Available providers: {available}")
-    
+
     def _validate_provider(self, provider: str) -> None:
         """Validate that the requested provider is available (sync version)"""
         # Ensure clients are initialized before validation
@@ -681,7 +715,7 @@ class AIService:
         elif provider not in ["azure", "openai"]:
             available = self._get_available_providers()
             raise ValueError(f"Invalid provider '{provider}'. Available providers: {available}")
-    
+
     async def _get_default_provider_async(self) -> str:
         """Get the default provider (prefer Azure, fallback to OpenAI) - async version"""
         # Ensure clients are initialized before getting default
@@ -693,7 +727,7 @@ class AIService:
             return "openai"
         else:
             raise ValueError("No AI providers available")
-    
+
     def _get_default_provider(self) -> str:
         """Get the default provider (prefer Azure, fallback to OpenAI) - sync version"""
         # Ensure clients are initialized before getting default
@@ -1349,3 +1383,27 @@ Available capabilities:
         # Use the streaming method with enhanced messages
         async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
             yield chunk
+
+# Expose module-level helper expected by tests
+def _sanitize_for_debug(obj, max_len: int = 500) -> str:
+    """Module-level sanitizer wrapper used by tests. It delegates to the
+    AIService instance method implementation for consistent behavior.
+    """
+    try:
+        # Create a temporary AIService instance without running __init__
+        svc = AIService.__new__(AIService)
+        return AIService._sanitize_for_debug(svc, obj, max_len=max_len)
+    except Exception:
+        # Best-effort fallback (simple regex masking)
+        try:
+            s = obj if isinstance(obj, str) else json.dumps(obj)
+        except Exception:
+            s = str(obj)
+        s = re.sub(r"Bearer\s+[A-Za-z0-9\-\._]{8,}", "Bearer [REDACTED]", s, flags=re.IGNORECASE)
+        s = re.sub(r"sk-[A-Za-z0-9]{8,}", "sk-[REDACTED]", s)
+        s = re.sub(r"[Pp]assword=\w+", "password=[REDACTED]", s)
+        s = re.sub(r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "[REDACTED_IP]", s)
+        s = re.sub(r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "[REDACTED_IP]", s)
+        if len(s) > max_len:
+            s = s[:max_len] + "..."
+        return s

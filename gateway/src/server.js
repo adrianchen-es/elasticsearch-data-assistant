@@ -1,4 +1,5 @@
 import { initTracing, sdk } from './tracing.js';
+import { info as logInfo, error as logError } from './logging.js';
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -197,7 +198,7 @@ app.use('/api/chat', createProxyMiddleware({
     } catch (e) {}
   },
   onError: (err, req, res) => {
-    console.error('Chat proxy error:', err.message);
+  logError('Chat proxy error:', err && err.message ? err.message : err);
     if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
       res.status(504).json({
         error: 'Gateway timeout',
@@ -227,7 +228,7 @@ app.use('/api/health', createProxyMiddleware({
     });
   },
   onError: (err, req, res) => {
-    console.error('API proxy error:', err.message);
+  logError('API proxy error:', err && err.message ? err.message : err);
     res.status(500).json({ 
       error: 'API service unavailable',
       message: err.message 
@@ -263,7 +264,7 @@ app.use('/api', createProxyMiddleware({
     } catch (e) {}
   },
   onError: (err, req, res) => {
-    console.error('API proxy error:', err.message);
+  logError('API proxy error:', err && err.message ? err.message : err);
     res.status(500).json({ 
       error: 'API service unavailable',
       message: err.message 
@@ -286,22 +287,22 @@ if (process.env.NODE_ENV !== 'test') {
     try {
       await initTracing();
     } catch (err) {
-      console.error('Tracing init failed:', err && err.message ? err.message : err);
+      logError('Tracing init failed:', err && err.message ? err.message : err);
     }
 
     server.listen(port, () => {
-      console.log(`Gateway listening on ${port}`);
+      logInfo(`Gateway listening on ${port}`);
     });
   })();
 }
 
 process.on('SIGTERM', async () => {
-  try {
+    try {
     if (typeof sdk !== 'undefined' && sdk && typeof sdk.shutdown === 'function') {
       await sdk.shutdown();
     }
   } catch (e) {
-    console.error('Error during SDK shutdown:', e && e.message ? e.message : e);
+    logError('Error during SDK shutdown:', e && e.message ? e.message : e);
   }
   process.exit(0);
 });

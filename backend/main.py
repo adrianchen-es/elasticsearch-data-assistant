@@ -95,13 +95,9 @@ setup_telemetry()  # Initialize OpenTelemetry
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-# Replace the tracer's start_as_current_span with the safe wrapper to handle
-# NoOpTracer differences and protect against exhausted mock side_effects in tests.
-try:
-    tracer.start_as_current_span = _start_span_safe
-except Exception:
-    # If tracer is an object that disallows attribute assignment, ignore
-    pass
+# Do not overwrite tracer.start_as_current_span on the tracer object; tests
+# patch `main.tracer` directly. Call the helper `_start_span_safe` explicitly
+# where a guarded context manager is required.
 
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
@@ -396,7 +392,9 @@ async def lifespan(app: FastAPI):
                 })
 
             # Store services in app state - separate span
-            with tracer.start_as_current_span("lifespan_app_state_setup", context=startup_context) as state_span:
+            # Use the safe starter to honor test mocks and explicitly set the
+            # startup span as the parent so tests can assert parent relationships.
+            with _start_span_safe("lifespan_app_state_setup", parent=startup_span) as state_span:
                 logger.info("🏪 Storing services in application state...")
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
@@ -418,7 +416,9 @@ async def lifespan(app: FastAPI):
                 })
 
             # Setup background tasks - separate span
-            with tracer.start_as_current_span("lifespan_background_tasks_setup", context=startup_context) as bg_span:
+            # Use the safe starter to avoid exhausting mocked tracer side_effects
+            # in tests and ensure the startup span is passed as the parent.
+            with _start_span_safe("lifespan_background_tasks_setup", parent=startup_span) as bg_span:
                 background_tasks, bg_timings = await _setup_background_tasks(
                     mapping_cache_service, app.state
                 )

@@ -14,6 +14,9 @@ pipeline {
         // Original environment variables
         ELASTICSEARCH_VERIFY_CERTS = 'false'
         LOG_LEVEL = 'INFO'
+        // Ensure masking of secrets in logs during CI
+        GATEWAY_MASKING_ENABLED = 'true'
+        REACT_APP_FRONTEND_MASKING = 'true'
     }
     
     options {

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
+import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
 import { ProviderSelector } from './components/Selectors';
 import ChatInterface from './components/ChatInterface';
@@ -61,7 +62,7 @@ function App() {
       const now = Date.now();
       if (now - lastManualRefresh.backend < HEALTH_TTLS.manual) {
         const remainingSeconds = Math.ceil((HEALTH_TTLS.manual - (now - lastManualRefresh.backend)) / 1000);
-        console.log(`Backend health check throttled. Try again in ${remainingSeconds}s`);
+  feInfo(`Backend health check throttled. Try again in ${remainingSeconds}s`);
         return;
       }
       setLastManualRefresh(prev => ({ ...prev, backend: now }));
@@ -111,7 +112,7 @@ function App() {
       const now = Date.now();
       if (now - lastManualRefresh.proxy < HEALTH_TTLS.manual) {
         const remainingSeconds = Math.ceil((HEALTH_TTLS.manual - (now - lastManualRefresh.proxy)) / 1000);
-        console.log(`Proxy health check throttled. Try again in ${remainingSeconds}s`);
+  feInfo(`Proxy health check throttled. Try again in ${remainingSeconds}s`);
         return;
       }
       setLastManualRefresh(prev => ({ ...prev, proxy: now }));

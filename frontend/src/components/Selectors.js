@@ -77,37 +77,6 @@ const IndexSelector = ({
     return categorizedIndices.filter(index => tiers.includes(index.tier));
   };
 
-  // Categorize indices by tier based on prefixes
-  const categorizeIndices = (indices) => {
-    return indices.map(index => {
-      const indexName = typeof index === 'string' ? index : index.name || index.index;
-      let tier = 'other'; // default tier for uncategorized indices
-
-      if (indexName.startsWith('partial-')) {
-        tier = 'frozen';
-      } else if (indexName.startsWith('restored-')) {
-        tier = 'cold';
-      } else if (indexName.startsWith('.')) {
-        tier = 'system';
-      }
-
-      return {
-        name: indexName,
-        tier: tier,
-        displayName: indexName.length > 20 ? `${indexName.slice(0, 17)}...` : indexName, // Truncate long names
-        originalData: index
-      };
-    });
-  };
-
-  // Filter indices based on selected tiers
-  const filterIndicesByTiers = (categorizedIndices, tiers) => {
-    if (tiers.length === 0) {
-      return categorizedIndices;
-    }
-    return categorizedIndices.filter(index => tiers.includes(index.tier));
-  };
-
   // Fetch available indices
   const fetchAvailableIndices = async () => {
     setIndicesLoading(true);
@@ -302,7 +271,7 @@ const TierSelector = ({
       setTierStats(stats);
     } catch (err) {
       setError(err.message);
-      console.error('Error fetching tier stats:', err);
+      import('../lib/logging.js').then(({ error }) => error('Error fetching tier stats:', err)).catch(() => {});
     } finally {
       setLoading(false);
     }
