@@ -140,7 +140,6 @@ extensions:
           authenticator: bearertokenauth
 
 service:
-  extensions: [apmconfig]
   pipelines:
     traces/fromsdk:
       receivers: [otlp/fromsdk]
