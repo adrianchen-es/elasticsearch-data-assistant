@@ -55,6 +55,21 @@ except Exception:
             self._processor = SimpleSpanProcessor(self._exporter)
             self.add_span_processor(self._processor)
 
+            # Also attach the in-memory exporter to any existing global provider
+            # as a fallback for test runs where overriding the tracer provider
+            # is disallowed. This ensures spans are captured even when
+            # trace.set_tracer_provider(...) emits a non-fatal warning.
+            try:
+                current = trace.get_tracer_provider()
+                if hasattr(current, 'add_span_processor'):
+                    try:
+                        current.add_span_processor(self._processor)
+                    except Exception:
+                        # Some providers may reject processors; ignore and continue
+                        pass
+            except Exception:
+                pass
+
         # Accept the broader signatures used by opentelemetry.get_tracer wrappers
         def get_tracer(self, *args, **kwargs):
             # Normalize to the basic (name, version) expected by underlying provider

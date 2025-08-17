@@ -36,9 +36,9 @@ processors:
     timeout: 1s
     send_batch_max_size: 1500
   batch/metrics:
-    send_batch_max_size: 0
+    send_batch_max_size: 1000
     timeout: 1s
-  elastictrace: {}
+  elastictrace:
     add_system_metrics: true
     drop_original: true
 
@@ -66,7 +66,8 @@ extensions:
       protocols:
         http:
           # Default is localhost:4320
-          # endpoint: "<CUSTOM_OPAMP_ENDPOINT>"
+          # To override, uncomment and set the endpoint, e.g.:
+          # endpoint: "${CUSTOM_OPAMP_ENDPOINT}"
     source:
       elasticsearch:
         endpoint: "${ELASTIC_ENDPOINT}"
