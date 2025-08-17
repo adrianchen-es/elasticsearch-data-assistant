@@ -93,6 +93,10 @@ jobs:
       - name: Run preflight cross-component install check
         run: ./.github/preflight/check_cross_component_installs.sh
 
+      - name: Validate test fixtures auditability
+        run: |
+          python ./.github/preflight/validate_test_fixtures.py
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
