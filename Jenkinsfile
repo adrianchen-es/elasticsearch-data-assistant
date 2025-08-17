@@ -14,6 +14,8 @@ pipeline {
         // Original environment variables
         ELASTICSEARCH_VERIFY_CERTS = 'false'
         LOG_LEVEL = 'INFO'
+    // Ensure tests run in test-mode (disables network OTLP exporters)
+    OTEL_TEST_MODE = '1'
         // Ensure masking of secrets in logs during CI
         GATEWAY_MASKING_ENABLED = 'true'
         REACT_APP_FRONTEND_MASKING = 'true'

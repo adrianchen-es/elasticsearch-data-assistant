@@ -69,6 +69,12 @@ except Exception:
                         pass
             except Exception:
                 pass
+            # Ensure explicit test-mode flag is set so code paths that check
+            # OTEL_TEST_MODE behave deterministically in full-suite runs.
+            try:
+                os.environ['OTEL_TEST_MODE'] = '1'
+            except Exception:
+                pass
 
         # Accept the broader signatures used by opentelemetry.get_tracer wrappers
         def get_tracer(self, *args, **kwargs):

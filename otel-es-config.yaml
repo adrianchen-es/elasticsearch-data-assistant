@@ -38,9 +38,7 @@ processors:
   batch/metrics:
     send_batch_max_size: 1000
     timeout: 1s
-  elastictrace:
-    add_system_metrics: true
-    drop_original: true
+  elastictrace: {}
 
 exporters:
   elasticsearch/otel:
