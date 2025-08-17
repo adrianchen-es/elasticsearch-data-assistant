@@ -59,6 +59,20 @@ except Exception:
             # provider to avoid leaking test-only exporters/processors across
             # unrelated tests. Tests should explicitly set the global tracer
             # provider via `trace.set_tracer_provider(...)` when needed.
+            # If test code cannot override the global tracer provider (some
+            # environments use a ProxyTracerProvider), attempt to attach our
+            # in-memory processor to the existing provider so spans are still
+            # captured for assertions.
+            try:
+                current = trace.get_tracer_provider()
+                if hasattr(current, 'add_span_processor'):
+                    try:
+                        current.add_span_processor(self._processor)
+                    except Exception:
+                        # Some providers may reject processors; ignore and continue
+                        pass
+            except Exception:
+                pass
             # Avoid setting OTEL_TEST_MODE globally here to prevent leaking
             # test-only environment flags across the suite. Individual tests
             # that require OTEL_TEST_MODE should set it explicitly in their

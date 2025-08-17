@@ -13,6 +13,10 @@ from unittest.mock import patch, MagicMock
 # Add the backend directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
+# Ensure test telemetry mode is not set for these initialization tests so
+# AIService raises expected errors when no providers are configured.
+os.environ.pop('OTEL_TEST_MODE', None)
+
 from services.ai_service import AIService
 
 
