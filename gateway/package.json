@@ -27,7 +27,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "http-proxy-middleware": "^2.0.6",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "lodash": "^4.17.21"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^1.6.0",

@@ -1,3 +1,4 @@
+import _ from 'lodash';
 // Minimal sanitized logger for gateway to avoid leaking secrets or internal addresses
 let SENSITIVE_PATTERNS = [
   /sk-[A-Za-z0-9-_]{20,}/g,
@@ -12,7 +13,7 @@ if (process.env.GATEWAY_MASKING_PATTERNS) {
   try {
     const parts = process.env.GATEWAY_MASKING_PATTERNS.split(',').map(p => p.trim()).filter(Boolean);
     if (parts.length) {
-      SENSITIVE_PATTERNS = parts.map(p => new RegExp(p, 'g'));
+      SENSITIVE_PATTERNS = parts.map(p => new RegExp(_.escapeRegExp(p), 'g'));
     }
   } catch (e) {
     // ignore invalid env var
