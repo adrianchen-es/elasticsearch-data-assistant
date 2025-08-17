@@ -207,7 +207,7 @@ export const IndexSelector = ({
 };
 
 // Component to select data tiers
-const TierSelector = ({ 
+export const TierSelector = ({ 
   selectedTiers, 
   onTierChange, 
   disabled = false,
