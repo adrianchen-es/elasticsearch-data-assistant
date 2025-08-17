@@ -25,4 +25,4 @@ uvicorn[standard]==0.30.1
 elasticsearch[async]==8.13.2
 tiktoken>=0.7.0
 redis>=4.6.0
-elastic-opentelemetry>=1.4.0
+elastic-opentelemetry>=1.5.0
