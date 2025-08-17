@@ -642,3 +642,26 @@ Added a real-time system health status indicator to the application header.
 
 ### System
 - `GET /api/health` - Service health check.
+````
+
+## The Five Tenets (Project Guarantees)
+
+The project adheres to the following tenets (verbatim):
+
+- "traceability end-to-end via opentelemetry"
+- "tests should be present to evaluate the functions for developers to know issues before deployment"
+- "sensitive data (any api keys, passwords, internal ips or internal hostnames) should not be exposed in console or log files"
+- "appropriate documentation should be present to help understand the application, troubleshoot and test it"
+- "the github workflow and jenkins files should be comprehensive to ensure broken builds do not get merged with meaningful error messages"
+
+## Current implementation status
+
+- traceability end-to-end via opentelemetry: Done — OpenTelemetry integrated with a security-aware tracer, sanitization of span attributes, and test-mode handling to avoid network exporters during tests.
+- tests should be present to evaluate the functions for developers to know issues before deployment: Done — comprehensive pytest suite with an in-test tracer shim; test runs are green locally.
+- sensitive data (any api keys, passwords, internal ips or internal hostnames) should not be exposed in console or log files: Done — centralized DataSanitizer and span-attribute masking applied across services.
+- appropriate documentation should be present to help understand the application, troubleshoot and test it: Partially Done — README extended with the tenets and high-level status; more operational runbooks can be added as follow-ups.
+- the github workflow and jenkins files should be comprehensive to ensure broken builds do not get merged with meaningful error messages: Done (Jenkins) / Partial (GitHub Actions) — Jenkinsfile and test-run scripts set OTEL_TEST_MODE; recommend adding OTEL_TEST_MODE to GitHub Actions workflows if present.
+
+---
+
+For developers: export OTEL_TEST_MODE=1 before running tests locally or in CI to prevent network OTLP exporters from running during test execution.

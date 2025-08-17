@@ -36,28 +36,28 @@ processors:
     timeout: 1s
     send_batch_max_size: 1500
   batch/metrics:
-    send_batch_max_size: 1000
+    send_batch_max_size: 0
     timeout: 1s
   elastictrace: {}
 
 exporters:
   elasticsearch/otel:
     endpoints:
-      - ${ELASTIC_ENDPOINT}
-    api_key: ${ELASTIC_API_KEY}
+      - ${env:ELASTIC_ENDPOINT}
+    api_key: ${env:ELASTIC_API_KEY}
     mapping:
       mode: otel
   elasticsearch/ecs:
     endpoints:
-      - ${ELASTIC_ENDPOINT}
-    api_key: ${ELASTIC_API_KEY}
+      - ${env:ELASTIC_ENDPOINT}
+    api_key: ${env:ELASTIC_API_KEY}
     mapping:
       mode: ecs
 
 extensions:
   bearertokenauth:
     scheme: "APIKey"
-    token: "${ELASTIC_API_KEY}"
+    token: "${env:ELASTIC_API_KEY}"
 
   apmconfig:
     opamp:
@@ -65,9 +65,9 @@ extensions:
         http:
           # Default is localhost:4320
           # To override, uncomment and set the endpoint, e.g.:
-          # endpoint: "${CUSTOM_OPAMP_ENDPOINT}"
+          # endpoint: "${env:CUSTOM_OPAMP_ENDPOINT}"
     source:
       elasticsearch:
-        endpoint: "${ELASTIC_ENDPOINT}"
+        endpoint: "${env:ELASTIC_ENDPOINT}"
         auth:
           authenticator: bearertokenauth
