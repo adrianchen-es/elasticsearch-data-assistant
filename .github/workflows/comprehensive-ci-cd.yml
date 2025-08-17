@@ -40,7 +40,13 @@ jobs:
       - name: Check for sensitive data exposure
         run: |
           echo "🔍 Scanning for sensitive data patterns..."
-          
+
+          # AUDIT NOTE: test fixtures under `test/` or `tests/` may intentionally
+          # contain fake API keys, tokens or internal IP addresses for unit tests.
+          # These directories are excluded below so security scans do not fail on
+          # intentionally fake, non-production data. Ensure test fixtures are
+          # labelled (contain 'placeholder' or a README) for future audits.
+
           # Check for exposed API keys, passwords, internal IPs
           # Exclude test data directories - test fixtures may contain fake keys and IPs
           if grep -r -E "(api[_-]?key|password|secret)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=test --exclude-dir=tests .; then

@@ -41,6 +41,13 @@ jobs:
           
           # Enhanced sensitive data detection
           echo "🔍 Scanning for sensitive data patterns..."
+
+          # AUDIT NOTE: test fixtures under `test/` or `tests/` may intentionally
+          # contain fake API keys, tokens or internal IP addresses used in unit
+          # tests. Those directories are excluded from the greps below so the
+          # security scan doesn't fail on intentionally fake data. Please ensure
+          # test fixtures are labelled (e.g. contain 'placeholder' or a README)
+          # to make this exclusion auditable.
           
           VIOLATIONS=()
           
