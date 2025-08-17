@@ -73,6 +73,12 @@ except Exception:
                         pass
             except Exception:
                 pass
+            # Ensure explicit test-mode flag is set so code paths that check
+            # OTEL_TEST_MODE behave deterministically in full-suite runs.
+            try:
+                os.environ['OTEL_TEST_MODE'] = '1'
+            except Exception:
+                pass
             # Avoid setting OTEL_TEST_MODE globally here to prevent leaking
             # test-only environment flags across the suite. Individual tests
             # that require OTEL_TEST_MODE should set it explicitly in their
