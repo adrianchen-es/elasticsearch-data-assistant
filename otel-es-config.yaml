@@ -64,10 +64,6 @@ processors:
     send_batch_size: 1000
     timeout: 1s
     send_batch_max_size: 1500
-  batch/metrics:
-    send_batch_size: 1000
-    timeout: 1s
-    send_batch_max_size: 3000
   resourcedetection:
     detectors: ["system"]
     system:
@@ -153,12 +149,12 @@ service:
 
     metrics/fromsdk:
       receivers: [otlp/fromsdk]
-      processors: [batch/metrics]
+      processors: [batch]
       exporters: [elasticsearch/ecs]
 
     metrics/hostmetrics:
       receivers: [hostmetrics/system]
-      processors: [resourcedetection, attributes/dataset, resource/process, batch/metrics]
+      processors: [resourcedetection, attributes/dataset, resource/process, batch]
       exporters: [elasticsearch/ecs]
 
     metrics/aggregated-metrics:
