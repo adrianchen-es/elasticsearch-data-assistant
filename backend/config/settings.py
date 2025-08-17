@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Cache settings
     mapping_cache_interval_minutes: int = int(os.getenv("MAPPING_CACHE_INTERVAL_MINUTES", "30"))
     
+    # Index filtering settings
+    filter_system_indices: bool = os.getenv("ELASTICSEARCH_FILTER_SYSTEM_INDICES", "true").lower() == "true"
+    filter_monitoring_indices: bool = os.getenv("ELASTICSEARCH_FILTER_MONITORING_INDICES", "true").lower() == "true"
+    filter_closed_indices: bool = os.getenv("ELASTICSEARCH_FILTER_CLOSED_INDICES", "true").lower() == "true"
+    show_data_streams: bool = os.getenv("ELASTICSEARCH_SHOW_DATA_STREAMS", "true").lower() == "true"
+    
     class Config:
         env_file = ".env"
 

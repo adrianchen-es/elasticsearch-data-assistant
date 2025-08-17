@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 from opentelemetry import trace
+from config.settings import settings
 import logging
 import asyncio
 
@@ -23,6 +24,12 @@ class ProvidersResponse(BaseModel):
     default_provider: Optional[str] = None
     total_configured: int
     total_healthy: int
+
+class IndexFilterSettings(BaseModel):
+    filter_system_indices: bool = True
+    filter_monitoring_indices: bool = True  
+    filter_closed_indices: bool = True
+    show_data_streams: bool = True
 
 @router.get("/providers", response_model=ProvidersResponse)
 async def get_providers_status(request: Request):
@@ -111,4 +118,98 @@ async def get_providers_status(request: Request):
         except Exception as e:
             span.record_exception(e)
             logger.error(f"Error getting providers status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/index-filter-settings", response_model=IndexFilterSettings)
+async def get_index_filter_settings():
+    """Get current index filtering settings"""
+    with tracer.start_as_current_span("get_index_filter_settings") as span:
+        try:
+            filter_settings = IndexFilterSettings(
+                filter_system_indices=settings.filter_system_indices,
+                filter_monitoring_indices=settings.filter_monitoring_indices,
+                filter_closed_indices=settings.filter_closed_indices,
+                show_data_streams=settings.show_data_streams
+            )
+            
+            span.set_attributes({
+                "settings.filter_system_indices": filter_settings.filter_system_indices,
+                "settings.filter_monitoring_indices": filter_settings.filter_monitoring_indices,
+                "settings.filter_closed_indices": filter_settings.filter_closed_indices,
+                "settings.show_data_streams": filter_settings.show_data_streams
+            })
+            
+            return filter_settings
+            
+        except Exception as e:
+            span.record_exception(e)
+            logger.error(f"Error getting index filter settings: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/index-filter-settings")
+async def update_index_filter_settings(filter_settings: IndexFilterSettings):
+    """Update index filtering settings (runtime only, not persistent)"""
+    with tracer.start_as_current_span("update_index_filter_settings") as span:
+        try:
+            # Update runtime settings
+            settings.filter_system_indices = filter_settings.filter_system_indices
+            settings.filter_monitoring_indices = filter_settings.filter_monitoring_indices  
+            settings.filter_closed_indices = filter_settings.filter_closed_indices
+            settings.show_data_streams = filter_settings.show_data_streams
+            
+            span.set_attributes({
+                "settings.updated.filter_system_indices": filter_settings.filter_system_indices,
+                "settings.updated.filter_monitoring_indices": filter_settings.filter_monitoring_indices,
+                "settings.updated.filter_closed_indices": filter_settings.filter_closed_indices,
+                "settings.updated.show_data_streams": filter_settings.show_data_streams
+            })
+            
+            logger.info(f"Updated index filter settings: {filter_settings.model_dump()}")
+            
+            return {
+                "status": "success",
+                "message": "Index filtering settings updated",
+                "settings": filter_settings.model_dump()
+            }
+            
+        except Exception as e:
+            span.record_exception(e)
+            logger.error(f"Failed to update index filter settings: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}")
+
+
+@router.get("/elasticsearch-settings")
+async def get_elasticsearch_settings():
+    """Get current Elasticsearch configuration and filtering settings"""
+    with tracer.start_as_current_span("get_elasticsearch_settings") as span:
+        try:
+            es_settings = {
+                "elasticsearch_url": settings.elasticsearch_url,
+                "has_api_key": bool(settings.elasticsearch_api_key),
+                "filtering": {
+                    "filter_system_indices": settings.filter_system_indices,
+                    "filter_monitoring_indices": settings.filter_monitoring_indices,
+                    "filter_closed_indices": settings.filter_closed_indices,
+                    "show_data_streams": settings.show_data_streams
+                },
+                "cache": {
+                    "mapping_cache_interval_minutes": settings.mapping_cache_interval_minutes
+                }
+            }
+            
+            span.set_attributes({
+                "elasticsearch.has_api_key": bool(settings.elasticsearch_api_key),
+                "elasticsearch.filtering.system": settings.filter_system_indices,
+                "elasticsearch.filtering.monitoring": settings.filter_monitoring_indices,
+                "elasticsearch.filtering.closed": settings.filter_closed_indices,
+                "elasticsearch.filtering.data_streams": settings.show_data_streams
+            })
+            
+            return es_settings
+            
+        except Exception as e:
+            span.record_exception(e)
+            logger.error(f"Error getting Elasticsearch settings: {e}")
             raise HTTPException(status_code=500, detail=str(e))

@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 from elasticsearch import AsyncElasticsearch, ConnectionTimeout, RequestError
 from opentelemetry import trace
 from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
+from config.settings import settings
 import json
 import logging
 import os  # Import os to read environment variables
@@ -196,7 +197,7 @@ class ElasticsearchService:
                     await asyncio.sleep(delay)
 
     async def list_indices(self) -> List[str]:
-        """List all indices with timeout handling and enhanced filtering"""
+        """List all indices with timeout handling and configurable filtering"""
         with tracer.start_as_current_span("elasticsearch.list_indices", attributes={"db.operation": "list_indices"}):
             try:
                 # Add timeout for listing indices
@@ -206,45 +207,39 @@ class ElasticsearchService:
                     timeout=indices_timeout
                 )
                 
-                # Enhanced filtering to exclude system, monitoring, and problematic indices
+                # Apply configurable filtering
                 filtered_indices = []
                 for idx in response:
                     index_name = idx['index']
                     
-                    # Skip system indices (starting with .)
-                    if index_name.startswith('.'):
+                    # Check if it's a data stream first (before system index filtering)
+                    is_data_stream = self._is_data_stream_index(index_name)
+                    
+                    # Skip data streams if not enabled
+                    if not settings.show_data_streams and is_data_stream:
+                        logger.debug(f"Filtering out data stream index: {index_name}")
                         continue
                     
-                    # Skip monitoring indices
-                    if any(pattern in index_name for pattern in [
-                        '.monitoring-', 
-                        '.ds-.monitoring-',
-                        'partial-.ds-.monitoring-',
-                        '.watcher-',
-                        '.security-',
-                        '.kibana',
-                        # 'metricbeat-',
-                        # 'filebeat-',
-                        # 'winlogbeat-',
-                        # 'apm-',
-                        '.ml-'
-                    ]):
-                        logger.debug(f"Filtering out system/monitoring index: {index_name}")
+                    # Skip system indices (starting with .) if filtering is enabled, 
+                    # but allow data streams even if they start with dot
+                    if settings.filter_system_indices and index_name.startswith('.') and not is_data_stream:
+                        logger.debug(f"Filtering out system index: {index_name}")
                         continue
                     
-                    # Skip indices that look corrupted or partial
-                    if index_name.startswith('partial-'):
-                        logger.warning(f"Filtering out potential corrupted index: {index_name}")
+                    # Skip monitoring indices if filtering is enabled
+                    if settings.filter_monitoring_indices and self._is_monitoring_index(index_name):
+                        logger.debug(f"Filtering out monitoring index: {index_name}")
                         continue
                     
-                    # Skip closed indices (if status is available)
-                    if idx.get('status') == 'close':
+                    # Skip closed indices if filtering is enabled
+                    if settings.filter_closed_indices and idx.get('status') == 'close':
                         logger.debug(f"Filtering out closed index: {index_name}")
                         continue
                         
                     filtered_indices.append(index_name)
                 
-                logger.debug(f"Found {len(filtered_indices)} user indices out of {len(response)} total indices")
+                logger.debug(f"Found {len(filtered_indices)} indices out of {len(response)} total indices")
+                logger.debug(f"Filtering settings: system={settings.filter_system_indices}, monitoring={settings.filter_monitoring_indices}, closed={settings.filter_closed_indices}, data_streams={settings.show_data_streams}")
                 return filtered_indices
                 
             except asyncio.TimeoutError:
@@ -253,6 +248,30 @@ class ElasticsearchService:
             except Exception as e:
                 logger.error(f"Error listing indices: {e}")
                 raise
+    
+    def _is_monitoring_index(self, index_name: str) -> bool:
+        """Check if an index is a monitoring/system index that should typically be filtered"""
+        monitoring_patterns = [
+            '.monitoring-',         # Elasticsearch monitoring indices
+            '.ds-.monitoring-',     # Data stream monitoring indices  
+            '.watcher-history-',    # Watcher history indices (more specific)
+            '.ml-anomalies-',       # Machine learning anomalies indices
+            '.ml-config',           # Machine learning config indices
+            '.ml-notifications',    # Machine learning notifications
+            '.ml-state',            # Machine learning state indices
+        ]
+        
+        # Check for exact monitoring patterns, not general .security- or .kibana patterns
+        # Those should be handled by system index filtering instead
+        return any(index_name.startswith(pattern) for pattern in monitoring_patterns)
+    
+    def _is_data_stream_index(self, index_name: str) -> bool:
+        """Check if an index is likely a data stream backing index"""
+        # Data stream backing indices often have patterns like:
+        # - .ds-<data-stream-name>-<timestamp>-<generation>
+        # - partial-.ds-<data-stream-name>-<timestamp>-<generation>
+        return ('.ds-' in index_name and 
+                not self._is_monitoring_index(index_name))
 
     @trace_async_function("elasticsearch.execute_query", include_args=True)
     async def execute_query(self, index_name: str, query: Dict[str, Any]) -> Dict[str, Any]:
