@@ -54,6 +54,8 @@ services:
       - REACT_APP_OTEL_TRACE_ENDPOINT=${REACT_APP_OTEL_TRACE_ENDPOINT:-http://otel-collector:4318/v1/traces}
     ports:
       - "3000:3000"
+    depends_on:
+      - gateway
     networks:
       - app-network
 

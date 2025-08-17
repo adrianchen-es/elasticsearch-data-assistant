@@ -69,6 +69,23 @@ class SecurityAwareTracer:
         self.tracer = trace.get_tracer(name, version)
         self.sanitizer = DataSanitizer()
         
+    @contextmanager  
+    def start_as_current_span(self, 
+                             name: str, 
+                             kind: trace.SpanKind = trace.SpanKind.INTERNAL,
+                             attributes: Optional[Dict[str, Any]] = None,
+                             **kwargs):
+        """Start a span as current span with automatic attribute sanitization."""
+        with self.tracer.start_as_current_span(name, kind=kind, **kwargs) as span:
+            if attributes:
+                sanitized_attrs = self.sanitizer.sanitize_attributes(attributes)
+                for key, value in sanitized_attrs.items():
+                    try:
+                        span.set_attribute(key, value)
+                    except Exception as e:
+                        logger.debug(f"Failed to set attribute {key}: {e}")
+            yield span
+        
     @contextmanager
     def start_span(self, 
                    name: str, 
