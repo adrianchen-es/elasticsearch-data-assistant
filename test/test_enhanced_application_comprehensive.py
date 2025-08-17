@@ -522,7 +522,8 @@ class TestCICDValidation:
             
             # Test emails should use example domains
             if '@' in data:
-                assert 'example.com' in data or 'test.com' in data, \
+                domain = data.split('@')[-1]
+                assert domain in ('example.com', 'test.com'), \
                     f"Test email should use example domain: {data}"
             
             # Test keys should be clearly marked as test data
