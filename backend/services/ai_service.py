@@ -5,6 +5,8 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 import asyncio, json, logging, math, os, re, time
 
+from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
+
 try:
     import tiktoken  # robust token counting when available
 except Exception:
@@ -12,7 +14,10 @@ except Exception:
 
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_security_tracer(__name__)
+
+# Initialize data sanitizer for enhanced security
+sanitizer = DataSanitizer()
 
 class TokenLimitError(Exception):
     def __init__(self, message: str, *, model: str, limit: int, prompt_tokens: int, reserved_for_output: int):
@@ -740,6 +745,7 @@ class AIService:
         else:
             raise ValueError("No AI providers available")
 
+    @trace_async_function("ai.generate_elasticsearch_query", include_args=True)
     async def generate_elasticsearch_query(self, user_prompt: str, mapping_info: Dict[str, Any], provider: str = "auto", return_debug: bool = False) -> Dict[str, Any]:
         # Auto-select provider if not specified (async-safe)
         if provider == "auto":
@@ -824,8 +830,8 @@ class AIService:
                     current_span = trace.get_current_span()
                     if return_debug and current_span is not None:
                         try:
-                            current_span.add_event("ai.input", {"prompt": _sanitize_for_debug(messages)})
-                            current_span.add_event("ai.response", {"response": _sanitize_for_debug(query_text)})
+                            current_span.add_event("ai.input", {"prompt": sanitizer.sanitize_data(messages)})
+                            current_span.add_event("ai.response", {"response": sanitizer.sanitize_data(query_text)})
                         except Exception:
                             pass
                     # Annotate which provider produced the result for tests
@@ -863,6 +869,7 @@ class AIService:
                 
                 raise ValueError(f"Failed to generate query using {provider}: {str(e)}") from e
 
+    @trace_async_function("ai.summarize_results", include_args=True)
     async def summarize_results(self, query_results: Dict[str, Any], original_prompt: str, provider: str = "auto", return_debug: bool = False) -> str:
         # Auto-select provider if not specified (async-safe)
         if provider == "auto":
@@ -1048,8 +1055,8 @@ class AIService:
                     current_span = trace.get_current_span()
                     if current_span is not None:
                         try:
-                            current_span.add_event("ai.input", {"prompt": _sanitize_for_debug(messages)})
-                            current_span.add_event("ai.response", {"response": _sanitize_for_debug(text)})
+                            current_span.add_event("ai.input", {"prompt": sanitizer.sanitize_data(messages)})
+                            current_span.add_event("ai.response", {"response": sanitizer.sanitize_data(text)})
                         except Exception:
                             pass
 

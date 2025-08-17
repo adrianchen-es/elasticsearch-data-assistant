@@ -9,24 +9,13 @@ import asyncio
 import time
 import re
 
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
 
-# Sanitization helper used for logging/tracing
-def _sanitize_for_logging(obj) -> str:
-    try:
-        s = json.dumps(obj) if not isinstance(obj, str) else obj
-    except Exception:
-        s = str(obj)
-    # mask IPv4 addresses
-    s = re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "***.***.***.***", s)
-    # mask common API key patterns (short heuristic)
-    s = re.sub(r"(?i)(api_key|apikey|authorization\s*[:=]\s*)(['\"]?)[A-Za-z0-9\-_.=+/]{10,}\2", r"\1***", s)
-    # truncate long strings
-    max_len = 1000
-    if len(s) > max_len:
-        s = s[:max_len] + "..."
-    return s
+logger = logging.getLogger(__name__)
+tracer = get_security_tracer(__name__)
+
+# Initialize data sanitizer for enhanced security
+sanitizer = DataSanitizer()
 
 class ElasticsearchService:
     def __init__(self, url: str, api_key: Optional[str] = None):
@@ -142,6 +131,7 @@ class ElasticsearchService:
             (current_avg * (total_requests - 1) + response_time) / total_requests
         )
 
+    @trace_async_function("elasticsearch.get_index_mapping", include_args=True)
     async def get_index_mapping(self, index_name: str) -> Dict[str, Any]:
         """Get mapping for a specific index with timeout and retry handling"""
         import time
@@ -223,6 +213,7 @@ class ElasticsearchService:
                 logger.error(f"Error listing indices: {e}")
                 raise
 
+    @trace_async_function("elasticsearch.execute_query", include_args=True)
     async def execute_query(self, index_name: str, query: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a search query with timeout handling"""
         with tracer.start_as_current_span("elasticsearch.execute_query", attributes={"db.operation": "search", "db.elasticsearch.index": index_name}):
@@ -230,7 +221,7 @@ class ElasticsearchService:
             try:
                 # Add sanitized query as db.statement (per semantic conventions)
                 try:
-                    sanitized_query = _sanitize_for_logging(query)
+                    sanitized_query = sanitizer.sanitize_data(query)
                     span.set_attribute("db.statement", sanitized_query)
                     span.add_event("db.query", {"query": sanitized_query})
                 except Exception:
@@ -246,13 +237,14 @@ class ElasticsearchService:
             except asyncio.TimeoutError:
                 logger.error(f"Timeout executing query on index {index_name}")
                 logger.error(f"Query timeout executing query on index {index_name}")
-                logger.debug(f"Sanitized query: {_sanitize_for_logging(query)}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(query)}")
                 raise ConnectionTimeout(f"Timeout executing query on index {index_name}")
             except Exception as e:
                 logger.error(f"Error executing query on index {index_name}: {e}")
-                logger.debug(f"Sanitized query: {_sanitize_for_logging(query)}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(query)}")
                 raise
 
+    @trace_async_function("elasticsearch.validate_query", include_args=True)
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
         """Validate a query without executing it with timeout handling"""
         with tracer.start_as_current_span("elasticsearch.validate_query", attributes={"db.operation": "validate_query", "db.elasticsearch.index": index_name}):
