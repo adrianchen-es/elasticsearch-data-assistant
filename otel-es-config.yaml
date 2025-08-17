@@ -109,7 +109,7 @@ processors:
   elastictrace:
 
 exporters:
-  elasticsearch/ecs:
+  elasticsearch/otel:
     endpoints: ["${env:ELASTIC_ENDPOINT}"]
     api_key: ${env:ELASTIC_API_KEY}
     mapping:
@@ -144,24 +144,24 @@ service:
     traces/fromsdk:
       receivers: [otlp/fromsdk]
       processors: [elastictrace, batch]
-      exporters: [elasticapm, elasticsearch/ecs]
+      exporters: [elasticapm, elasticsearch/otel]
 
     metrics/fromsdk:
       receivers: [otlp/fromsdk]
       processors: [batch]
-      exporters: [elasticsearch/ecs]
+      exporters: [elasticsearch/otel]
 
     metrics/hostmetrics:
       receivers: [hostmetrics/system]
       processors: [resourcedetection, attributes/dataset, resource/process, batch]
-      exporters: [elasticsearch/ecs]
+      exporters: [elasticsearch/otel]
 
     metrics/aggregated-metrics:
       receivers: [elasticapm]
       processors: []
-      exporters: [elasticsearch/ecs]
+      exporters: [elasticsearch/otel]
 
     logs/fromsdk:
       receivers: [otlp/fromsdk]
       processors: []
-      exporters: [elasticapm, elasticsearch/ecs]
+      exporters: [elasticapm, elasticsearch/otel]
