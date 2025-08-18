@@ -699,7 +699,12 @@ async def _warm_up_health_check(state, task_start_times):
             # Call health_check with both request and response to match its signature
             health_response = await health_check(mock_request, mock_response)
 
-            # Convert response to dict for logging (prefer Pydantic v2 model_dump)
+            # Convert response to dict for logging.
+            # This code supports both Pydantic v1 and v2 response models:
+            # - Pydantic v2 uses .model_dump()
+            # - Pydantic v1 uses .dict()
+            # The fallback is for non-Pydantic objects.
+            # If updating Pydantic, ensure compatibility here.
             if hasattr(health_response, 'model_dump'):
                 health_status = health_response.model_dump()
             elif hasattr(health_response, 'dict'):
