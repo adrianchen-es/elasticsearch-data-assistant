@@ -35,16 +35,21 @@ const MobileLayout = ({
           </div>
           <div className="flex items-center space-x-2">
             {/* Health indicators - compact for mobile */}
-            <div className="flex items-center space-x-1">
-              <button
-                onClick={() => checkBackendHealth(true)}
-                className="p-1"
-                title="Backend Status"
-              >
-                {renderHealthIcon(backendHealth)}
-              </button>
-              {renderHealthIcon(proxyHealth)}
-            </div>
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => checkBackendHealth(true)}
+                  className="p-1"
+                  title={typeof backendHealth === 'object' ? `Backend: ${backendHealth.message || backendHealth.status}` : 'Backend Status'}
+                >
+                  {renderHealthIcon(backendHealth)}
+                </button>
+                {/* Only show proxy status when backend is not reachable/healthy to avoid noise */}
+                {(backendHealth && (backendHealth.status === 'unhealthy' || backendHealth.status === 'error')) && (
+                  <div title={typeof proxyHealth === 'object' ? `Proxy: ${proxyHealth.message || proxyHealth.status}` : 'Proxy Status'}>
+                    {renderHealthIcon(proxyHealth)}
+                  </div>
+                )}
+              </div>
             
             {/* Mobile menu button */}
             <button

@@ -237,25 +237,33 @@ function App() {
     return date.toLocaleTimeString();
   };
 
-  // Generate tooltip content
+  // Generate tooltip content with concise errors and per-service details for backend
   const getTooltipContent = (healthStatus, systemName) => {
-    const { status, message, lastChecked, services } = healthStatus;
-    
-    let content = `${systemName}: ${message}\nLast checked: ${formatLastChecked(lastChecked)}`;
-    
-    if (Object.keys(services).length > 0) {
-      content += `\n\n${systemName} Services:`;
-      Object.entries(services).forEach(([service, serviceStatus]) => {
-        const statusIcon = typeof serviceStatus === 'object' 
-          ? (typeof serviceStatus.status === 'string' && serviceStatus.status.startsWith('healthy') ? '✅' : '❌')
-          : (typeof serviceStatus === 'string' && serviceStatus.startsWith('healthy') ? '✅' : '❌');
-        const serviceMessage = typeof serviceStatus === 'object' 
-          ? serviceStatus.message || service
-          : service;
-        content += `\n${statusIcon} ${serviceMessage}`;
+    const { status, message, lastChecked, services } = healthStatus || {};
+
+    // Basic header
+    let content = `${systemName}: ${status === 'healthy' ? (message || 'Healthy') : (status === 'error' ? 'Unreachable' : (message || 'Server Error'))}\nLast checked: ${formatLastChecked(lastChecked)}`;
+
+    // For backend, if any service is not healthy, list per-service status.
+    if (systemName && systemName.toLowerCase() === 'backend' && services && Object.keys(services).length > 0) {
+      const entries = Object.entries(services);
+      const anyUnhealthy = entries.some(([_k, v]) => {
+        const s = typeof v === 'object' ? v.status : v;
+        return typeof s === 'string' && !s.startsWith('healthy');
       });
+
+      if (anyUnhealthy) {
+        content += `\n\nServices:`;
+        entries.forEach(([service, serviceStatus]) => {
+          const s = typeof serviceStatus === 'object' ? serviceStatus.status : serviceStatus;
+          const msg = typeof serviceStatus === 'object' ? (serviceStatus.message || service) : service;
+          const icon = (typeof s === 'string' && s.startsWith('healthy')) ? '✅' : '❌';
+          content += `\n${icon} ${service}: ${msg}`;
+        });
+      }
     }
-    
+
+    // For non-backend systems, when unhealthy or error, avoid dumping full JSON: already represented above.
     return content;
   };
 
@@ -266,12 +274,16 @@ function App() {
       backendHealth={backendHealth}
       proxyHealth={proxyHealth}
       renderHealthIcon={renderHealthIcon}
+  // Pass tooltip generator so layout buttons can show details
+  getTooltipContent={getTooltipContent}
       checkBackendHealth={checkBackendHealth}
       selectedProvider={selectedProvider}
       setSelectedProvider={setSelectedProvider}
       providers={providers}
     tuning={tuning}
     setTuning={setTuning}
+  // Enhanced chat availability: detect via backend health.services.enhanced or message
+  enhancedAvailable={Boolean((backendHealth && backendHealth.services && backendHealth.services.enhanced) || (backendHealth && backendHealth.message && backendHealth.message.toLowerCase().includes('enhanced')))}
     >
       {currentView === 'chat' && (
         <ChatInterface
