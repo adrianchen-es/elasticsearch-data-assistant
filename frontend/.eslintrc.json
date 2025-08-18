@@ -39,8 +39,10 @@
       "rules": {
         "testing-library/await-async-utils": "off",
         "testing-library/no-node-access": "off",
-        "testing-library/no-wait-for-multiple-assertions": "off",
-        "jest/valid-expect-in-promise": "off"
+  "testing-library/no-wait-for-multiple-assertions": "off",
+  "jest/valid-expect-in-promise": "off",
+  "jest/valid-expect": "off",
+  "no-unused-expressions": "off"
       }
     }
   ]

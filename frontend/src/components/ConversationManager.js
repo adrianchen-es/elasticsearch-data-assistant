@@ -48,7 +48,7 @@ const ConversationManager = ({
   };
 
   const deleteConversation = (conversationId) => {
-    if (confirm('Are you sure you want to delete this conversation?')) {
+    if (window.confirm('Are you sure you want to delete this conversation?')) {
       const updatedConversations = { ...conversations };
       delete updatedConversations[conversationId];
       setConversations(updatedConversations);

@@ -124,21 +124,7 @@ describe('Conversation Management', () => {
 })
 
 describe('Mapping Display Functionality', () => {
-  const sampleMapping = {
-    properties: {
-      title: { type: 'text', analyzer: 'standard' },
-      description: { type: 'text' },
-      category: { type: 'keyword' },
-      price: { type: 'double' },
-      created_at: { type: 'date' },
-      metadata: {
-        properties: {
-          tags: { type: 'keyword' },
-          content: { type: 'text', analyzer: 'english' }
-        }
-      }
-    }
-  }
+  // sampleMapping fixture is provided via fixtures/sample-mapping.json for cy tests
 
   beforeEach(() => {
     cy.visit('/')

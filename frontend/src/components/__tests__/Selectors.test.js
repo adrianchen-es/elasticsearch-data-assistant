@@ -145,10 +145,9 @@ describe('IndexSelector', () => {
 
       render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
 
-      await waitFor(() => {
-        expect(screen.getByText('Elasticsearch Index')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
-      });
+  // Wait for the index label and refresh button to appear
+  await screen.findByText('Elasticsearch Index');
+  await screen.findByRole('button', { name: /refresh/i });
     });
   });
 });

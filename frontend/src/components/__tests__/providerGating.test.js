@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import MobileLayout from '../MobileLayout';
 
 describe('Provider gating in MobileLayout', () => {
