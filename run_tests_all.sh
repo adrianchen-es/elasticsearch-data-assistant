@@ -47,9 +47,15 @@ run_gateway() {
 run_backend() {
   if [ -f backend/requirements.txt ] || [ -d backend ]; then
     echo "==> Running backend tests (pytest)..."
-  # Ensure test-mode is enabled so telemetry exports do not attempt network calls
-  export OTEL_TEST_MODE=1
-  # Ensure backend package is importable by pytest; avoid unbound PYTHONPATH
+
+    # Install necessary dependencies
+    python -m pip install --upgrade pip
+    pip install -r backend/requirements.txt
+    pip install pytest pytest-asyncio pytest-html
+
+    # Ensure test-mode is enabled so telemetry exports do not attempt network calls
+    export OTEL_TEST_MODE=1
+    # Ensure backend package is importable by pytest; avoid unbound PYTHONPATH
     export PYTHONPATH="$ROOT_DIR/backend:${PYTHONPATH:-}"
     if pytest -q; then
       echo "backend: OK"
