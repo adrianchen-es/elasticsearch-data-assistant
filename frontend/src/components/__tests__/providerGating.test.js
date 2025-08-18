@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import MobileLayout from '../MobileLayout';
@@ -22,21 +22,19 @@ describe('Provider gating in MobileLayout', () => {
   ];
 
   it('disables unavailable providers in desktop selector', async () => {
-    await act(async () => {
-      render(
-        React.createElement(
-          MobileLayout,
-          { ...baseProps, providers },
-          React.createElement('div', null, 'content')
-        )
-      );
-    });
+    render(
+      React.createElement(
+        MobileLayout,
+        { ...baseProps, providers },
+        React.createElement('div', null, 'content')
+      )
+    );
 
-    const select = await screen.findByTestId('provider-selector');
-    const options = select.querySelectorAll('option');
-    const byValue = (val) => Array.from(options).find(o => o.value === val);
-    expect(byValue('p1').disabled).toBe(false);
-    expect(byValue('p2').disabled).toBe(true);
-    expect(byValue('p3').disabled).toBe(true);
+  const select = await screen.findByTestId('provider-selector');
+  const options = within(select).getAllByRole('option');
+  const byValue = (val) => options.find(o => o.value === val);
+  expect(byValue('p1').disabled).toBe(false);
+  expect(byValue('p2').disabled).toBe(true);
+  expect(byValue('p3').disabled).toBe(true);
   });
 });

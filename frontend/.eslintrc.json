@@ -28,5 +28,20 @@
         ]
       }
     }
+    ,
+    {
+      "files": ["**/*.cy.js", "**/__tests__/*.cy.js"],
+      "globals": { "cy": "readonly", "Cypress": "readonly" }
+    }
+    ,
+    {
+      "files": ["**/*.cy.js"],
+      "rules": {
+        "testing-library/await-async-utils": "off",
+        "testing-library/no-node-access": "off",
+        "testing-library/no-wait-for-multiple-assertions": "off",
+        "jest/valid-expect-in-promise": "off"
+      }
+    }
   ]
 }

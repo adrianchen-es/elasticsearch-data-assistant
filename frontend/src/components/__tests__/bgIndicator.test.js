@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ChatInterface from '../../test-stubs/ChatInterface';
@@ -23,19 +23,17 @@ describe('ChatInterface background search indicator', () => {
     // attempt fetch for View Details, not used in this test
     fetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
 
-    await act(async () => {
-      render(React.createElement(ChatInterface, { selectedProvider: { name: 'mock' }, selectedIndex: 'logs-*', setSelectedIndex: () => {} }));
-    });
+  render(React.createElement(ChatInterface, { selectedProvider: { name: 'mock' }, selectedIndex: 'logs-*', setSelectedIndex: () => {} }));
 
     // Send a message
     const send = screen.getByText('Send');
     fireEvent.click(send);
 
     // Indicator should appear while regenerate is in-flight
-    await screen.findByTestId('bg-indicator');
-    expect(screen.getByTestId('bg-indicator').textContent).toContain('logs-*');
+  await screen.findByTestId('bg-indicator');
+  expect(screen.getByTestId('bg-indicator').textContent).toContain('logs-*');
 
-    // After regen completes, indicator should be gone
-    await waitFor(() => expect(screen.queryByTestId('bg-indicator')).not.toBeInTheDocument());
+  // After regen completes, indicator should be gone
+  await waitFor(() => expect(screen.queryByTestId('bg-indicator')).not.toBeInTheDocument());
   });
 });
