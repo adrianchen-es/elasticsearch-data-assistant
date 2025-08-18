@@ -56,22 +56,22 @@ jobs:
           VIOLATIONS=()
           
           # API Keys and Secrets (exclude test fixtures which may intentionally contain fake keys)
-          if grep -r -E "(api[_-]?key|password|secret|token)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=node_modules --exclude-dir=__pycache__ --exclude-dir=test --exclude-dir=tests --exclude-dir=.github . | grep -v "# This is a test" | grep -v "placeholder" | grep -v "example"; then
+          if grep -r -E "(api[_-]?key|password|secret|token)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=node_modules --exclude-dir=__pycache__ --exclude-dir={test,tests,__tests__} --exclude-dir=.github . | grep -v "# This is a test" | grep -v "placeholder" | grep -v "example"; then
             VIOLATIONS+=("🚨 CRITICAL: Potential API keys or secrets found in source code")
           fi
           
           # Internal IP addresses (exclude test fixtures)
-          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.yml" --include="*.yaml" --exclude-dir=node_modules --exclude-dir=test --exclude-dir=tests --exclude-dir=.github .; then
+          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.yml" --include="*.yaml" --exclude-dir=node_modules --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             VIOLATIONS+=("⚠️ WARNING: Internal IP addresses found - ensure these are not production IPs")
           fi
           
           # Database connection strings
-          if grep -r -E "(mongodb://|mysql://|postgresql://|redis://)" --include="*.js" --include="*.py" --include="*.env*" --exclude-dir=node_modules --exclude-dir=test --exclude-dir=tests --exclude-dir=.github .; then
+          if grep -r -E "(mongodb://|mysql://|postgresql://|redis://)" --include="*.js" --include="*.py" --include="*.env*" --exclude-dir=node_modules --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             VIOLATIONS+=("🚨 CRITICAL: Database connection strings found in source code")
           fi
           
           # AWS keys pattern
-          if grep -r -E "(AKIA[0-9A-Z]{16})" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=node_modules --exclude-dir=test --exclude-dir=tests --exclude-dir=.github .; then
+          if grep -r -E "(AKIA[0-9A-Z]{16})" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=node_modules --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             VIOLATIONS+=("🚨 CRITICAL: AWS access keys found in source code")
           fi
           

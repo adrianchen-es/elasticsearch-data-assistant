@@ -49,13 +49,13 @@ jobs:
 
           # Check for exposed API keys, passwords, internal IPs
           # Exclude test data directories - test fixtures may contain fake keys and IPs
-          if grep -r -E "(api[_-]?key|password|secret)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=test --exclude-dir=tests --exclude-dir=.github .; then
+          if grep -r -E "(api[_-]?key|password|secret)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             echo "❌ Potential sensitive data found in source files"
             exit 1
           fi
           
           # Check for internal IP patterns
-          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir=test --exclude-dir=tests --exclude-dir=.github .; then
+          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.json" --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             echo "❌ Internal IP addresses found in source files"
             exit 1
           fi
@@ -398,7 +398,7 @@ jobs:
           echo "🔒 Checking environment variable security..."
           
           # Ensure no hardcoded secrets
-          if grep -r -E "(sk-[a-zA-Z0-9]{48}|xoxb-[a-zA-Z0-9-]+)" . --exclude-dir=.git --exclude-dir=test --exclude-dir=tests; then
+          if grep -r -E "(sk-[a-zA-Z0-9]{48}|xoxb-[a-zA-Z0-9-]+)" . --exclude-dir=.git --exclude-dir={test,tests,__tests__}; then
             echo "❌ Hardcoded API keys detected"
             exit 1
           fi
