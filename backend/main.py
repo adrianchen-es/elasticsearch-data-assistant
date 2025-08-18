@@ -19,6 +19,13 @@ from config.settings import settings
 from routers import chat, query, health, providers
 from contextlib import asynccontextmanager, contextmanager
 import logging
+import os as _os
+
+# Optional redis import (runtime optional)
+try:
+    import redis.asyncio as _redis
+except Exception:  # pragma: no cover - optional dependency failures shouldn't break app
+    _redis = None
 
 def _start_span_safe(name, **kwargs):
     """Start a span using the module tracer but protect against test
@@ -394,6 +401,12 @@ async def lifespan(app: FastAPI):
                 logger.info("🏪 Storing services in application state...")
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
+                try:
+                    from services.enhanced_search_service import EnhancedSearchService
+                    app.state.enhanced_search_service = EnhancedSearchService(es_service, ai_service)
+                    logger.info("🧠 EnhancedSearchService initialized and attached to app state")
+                except Exception as e:
+                    logger.warning(f"EnhancedSearchService not available: {e}")
                 app.state.mapping_cache_service = mapping_cache_service
                 # Initialize health check cache
                 logger.info("🏥 Initializing health check cache...")
@@ -405,6 +418,42 @@ async def lifespan(app: FastAPI):
                 # Initialize in-memory store for query attempts (regenerate_query)
                 logger.info("🗄️ Initializing query attempts cache...")
                 app.state.query_attempts = {}
+                # Optionally initialize Redis if REDIS_URL is provided
+                try:
+                    redis_url = _os.getenv('REDIS_URL')
+                    if redis_url and _redis is not None:
+                        logger.info("🔌 Attempting Redis initialization (URL masked)...")
+                        # Use a small timeout and health check on connect
+                        app.state.redis = _redis.from_url(
+                            redis_url,
+                            encoding='utf-8',
+                            decode_responses=True,
+                            socket_timeout=2,
+                            health_check_interval=30,
+                        )
+                        # Best-effort ping to validate connection
+                        try:
+                            pong = await app.state.redis.ping()
+                            state_span.set_attribute('redis.ping', bool(pong))
+                            logger.info("✅ Redis connected")
+                        except Exception as ping_err:
+                            # Keep client for lazy use; callers will handle failures
+                            state_span.set_attribute('redis.ping', False)
+                            logger.warning(f"⚠️ Redis ping failed (continuing without strict dependency): {ping_err}")
+                    else:
+                        state_span.set_attribute('redis.enabled', False)
+                except Exception as redis_err:
+                    logger.warning(f"⚠️ Redis initialization failed: {redis_err}")
+                    # Ensure no half-initialized client remains on app.state
+                    if hasattr(app.state, 'redis'):
+                        try:
+                            maybe_close = app.state.redis.close()
+                            if asyncio.iscoroutine(maybe_close):
+                                await maybe_close
+                        except Exception:
+                            pass
+                        finally:
+                            delattr(app.state, 'redis')
                 logger.info("✅ Health check cache initialized with 30s TTL")
                 state_span.set_attributes({
                     "app_state_components": 4,  # es_service, ai_service, mapping_cache_service, health_cache
@@ -651,8 +700,13 @@ async def _warm_up_health_check(state, task_start_times):
             # Call health_check with both request and response to match its signature
             health_response = await health_check(mock_request, mock_response)
             
-            # Convert response to dict for logging
-            health_status = health_response.dict() if hasattr(health_response, 'dict') else {
+            # Convert response to dict for logging (prefer Pydantic v2 model_dump)
+            if hasattr(health_response, 'model_dump'):
+                health_status = health_response.model_dump()
+            elif hasattr(health_response, 'dict'):
+                health_status = health_response.dict()
+            else:
+                health_status = {
                 'status': getattr(health_response, 'status', 'unknown'),
                 'services': getattr(health_response, 'services', {})
             }

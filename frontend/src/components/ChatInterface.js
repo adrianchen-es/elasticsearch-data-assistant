@@ -15,7 +15,29 @@ const STORAGE_KEYS = {
   SETTINGS: 'elasticsearch_chat_settings'
 };
 
-export default function ChatInterface({ selectedProvider, selectedIndex, setSelectedIndex }) {
+// Parse the collapsed JSON block emitted by the backend between
+// [COLLAPSED_MAPPING_JSON] and [/COLLAPSED_MAPPING_JSON]
+export function parsedCollapsedJsonFromString(text) {
+  if (!text || typeof text !== 'string') return null;
+  const start = text.indexOf('[COLLAPSED_MAPPING_JSON]');
+  const end = text.indexOf('[/COLLAPSED_MAPPING_JSON]');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const jsonText = text.substring(start + '[COLLAPSED_MAPPING_JSON]'.length, end).trim();
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.fields) return parsed;
+      // If it's a flat mapping dict, convert to {fields: [...]}
+      const fields = Object.keys(parsed).map(k => ({ name: k, es_type: parsed[k] }));
+      return { fields, is_long: Object.keys(parsed).length > 40 };
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+export default function ChatInterface({ selectedProvider, selectedIndex, setSelectedIndex, providers, tuning }) {
   // Core chat state
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -35,12 +57,89 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [temperature, setTemperature] = useState(0.7);
   const [streamEnabled, setStreamEnabled] = useState(true);
   const [autoRunGeneratedQueries, setAutoRunGeneratedQueries] = useState(false);
+  // Local read of tuning flags for quick access
+  const precision = Boolean(tuning?.precision);
+  const recall = Boolean(tuning?.recall);
   const [mappingResponseFormat, setMappingResponseFormat] = useState('both');
   const [showAttemptModal, setShowAttemptModal] = useState(false);
   const [attemptModalData, setAttemptModalData] = useState(null);
+  const [isBackgroundSearch, setIsBackgroundSearch] = useState(false);
+  const [bgSearchIndex, setBgSearchIndex] = useState('');
+  const [showQueryTester, setShowQueryTester] = useState(false);
+  const [queryJson, setQueryJson] = useState('');
+  const [queryValidationMsg, setQueryValidationMsg] = useState('');
   
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // Very small markdown-safe renderer: escape HTML and transform basic **bold** and `code`.
+  const escapeHtml = (str) => str
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+  const renderSafeMarkdown = (text) => {
+    if (!text) return '';
+    const escaped = escapeHtml(String(text));
+    // Bold and inline code minimal support
+    const withBold = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    const withCode = withBold.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return withCode;
+  };
+  
+  // Query Tester actions
+  const validateManualQuery = async () => {
+    setQueryValidationMsg('');
+    try {
+      const parsed = JSON.parse(queryJson || '{}');
+      const resp = await fetch('/api/query/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index_name: selectedIndex, query: parsed })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setQueryValidationMsg(data.valid ? 'Valid query' : `Invalid: ${data.message || 'unknown error'}`);
+      } else {
+        setQueryValidationMsg(`Validation error: ${data.message || 'unknown'}`);
+      }
+    } catch (e) {
+      setQueryValidationMsg(`Validation error: ${e.message}`);
+    }
+  };
+
+  const executeManualQuery = async (replaceLast = false) => {
+    setQueryValidationMsg('');
+    try {
+      const parsed = JSON.parse(queryJson || '{}');
+      const resp = await fetch('/api/query/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index_name: selectedIndex, query: parsed })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setAttemptModalData({ results: data.results, query_id: data.query_id });
+        setShowAttemptModal(true);
+        if (replaceLast) {
+          setMessages(prev => {
+            if (!prev.length) return prev;
+            const copy = [...prev];
+            let idx = copy.length - 1;
+            if (copy[idx].role !== 'assistant') {
+              copy.push({ role: 'assistant', content: '' });
+              idx = copy.length - 1;
+            }
+            copy[idx] = { ...copy[idx], content: 'Executed the provided query. Open details to view results.' };
+            return copy;
+          });
+        }
+      } else {
+        setQueryValidationMsg(`Execute error: ${data.detail || data.message || 'unknown'}`);
+      }
+    } catch (e) {
+      setQueryValidationMsg(`Execute error: ${e.message}`);
+    }
+  };
   
   // Conversation management functions
   const loadConversationFromStorage = () => {
@@ -177,7 +276,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setTemperature(settings.temperature || 0.7);
       setStreamEnabled(settings.streamEnabled !== false);
       setShowDebug(settings.showDebug || false);
-      setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
+  setAutoRunGeneratedQueries(settings.autoRunGeneratedQueries || false);
   setMappingResponseFormat(settings.mappingResponseFormat || 'both');
     } catch (error) {
       getFeLogger().then(({ error }) => error('Error loading settings:', error)).catch(() => {});
@@ -190,7 +289,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         temperature,
         streamEnabled,
         showDebug,
-        autoRunGeneratedQueries
+  autoRunGeneratedQueries
   ,mappingResponseFormat
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
@@ -398,10 +497,13 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       if (chatMode === 'elasticsearch' && autoRunGeneratedQueries) {
         (async () => {
           try {
+            setIsBackgroundSearch(true);
+            setBgSearchIndex(selectedIndex || '');
             const regenBody = {
               message: input.trim(),
               index_name: selectedIndex,
-              provider: selectedProvider?.name || 'default'
+              provider: selectedProvider?.name || 'default',
+              tuning: { precision, recall }
             };
 
             const regenResp = await fetch('/api/query/regenerate', {
@@ -428,6 +530,9 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
             }
           } catch (err) {
             import('../lib/logging.js').then(({ warn }) => warn('Auto-regenerate failed:', err)).catch(() => {});
+          } finally {
+            setIsBackgroundSearch(false);
+            setBgSearchIndex('');
           }
         })();
       }
@@ -487,27 +592,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   };
 
 
-// Parse the collapsed JSON block emitted by the backend between
-// [COLLAPSED_MAPPING_JSON] and [/COLLAPSED_MAPPING_JSON]
-function parsedCollapsedJsonFromString(text) {
-  if (!text || typeof text !== 'string') return null;
-  const start = text.indexOf('[COLLAPSED_MAPPING_JSON]');
-  const end = text.indexOf('[/COLLAPSED_MAPPING_JSON]');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const jsonText = text.substring(start + '[COLLAPSED_MAPPING_JSON]'.length, end).trim();
-  try {
-    const parsed = JSON.parse(jsonText);
-    if (parsed && typeof parsed === 'object') {
-      if (parsed.fields) return parsed;
-      // If it's a flat mapping dict, convert to {fields: [...]}
-      const fields = Object.keys(parsed).map(k => ({ name: k, es_type: parsed[k] }));
-      return { fields, is_long: Object.keys(parsed).length > 40 };
-    }
-  } catch (e) {
-    return null;
-  }
-  return null;
-}
+// parsedCollapsedJsonFromString now exported at module scope above
 
 function MappingToggleSection({ mapping }) {
   const [visible, setVisible] = React.useState(false);
@@ -529,6 +614,8 @@ function MappingToggleSection({ mapping }) {
     </div>
   );
 }
+
+// Named export for testing utilities
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -577,6 +664,12 @@ function MappingToggleSection({ mapping }) {
               className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
             >
               Settings
+            </button>
+            <button
+              onClick={() => setShowQueryTester(v => !v)}
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+            >
+              {showQueryTester ? 'Hide Tester' : 'Query Tester'}
             </button>
             <button
               onClick={clearConversation}
@@ -642,6 +735,11 @@ function MappingToggleSection({ mapping }) {
                     <option value="json">JSON only</option>
                   </select>
                 </div>
+                {/* Tuning toggles: persisted in App; we display their current values read-only here */}
+                <div className="flex items-center">
+                  <label className="text-sm font-medium text-gray-700 mr-2">Tuning:</label>
+                  <span className="text-sm text-gray-700">Precision {precision ? 'ON' : 'off'} · Recall {recall ? 'ON' : 'off'}</span>
+                </div>
             </div>
             <div className="flex items-center">
               <input
@@ -683,9 +781,39 @@ function MappingToggleSection({ mapping }) {
               </button>
             </div>
           )}
+          {!isStreaming && isBackgroundSearch && (
+            <div className="flex items-center space-x-2">
+              <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>
+              <span className="text-emerald-700">Background search on {bgSearchIndex || 'index'}...</span>
+            </div>
+          )}
         </div>
       </div>
       
+      {/* Query Tester Panel */}
+      {showQueryTester && chatMode === 'elasticsearch' && (
+        <div className="bg-white border-b border-gray-200 p-4">
+          <div className="text-sm font-medium text-gray-700 mb-2">Query Tester</div>
+          <textarea
+            value={queryJson}
+            onChange={(e) => setQueryJson(e.target.value)}
+            placeholder="Paste or edit an Elasticsearch query JSON here"
+            className="w-full h-28 border border-gray-300 rounded p-2 font-mono text-xs"
+          />
+          <div className="mt-2 flex items-center space-x-2">
+            <button onClick={async ()=>{ setQueryJson(prev=>{
+                try { return JSON.stringify(JSON.parse(prev||'{}'), null, 2);} catch { return prev; }
+              }); await Promise.resolve(); }} className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded">Format</button>
+            <button onClick={validateManualQuery} className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded">Validate</button>
+            <button onClick={()=>executeManualQuery(false)} className="px-2 py-1 text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded">Execute</button>
+            <button onClick={()=>executeManualQuery(true)} className="px-2 py-1 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 rounded">Execute & Replace</button>
+          </div>
+          {queryValidationMsg && (
+            <div className="mt-2 text-xs text-gray-600">{queryValidationMsg}</div>
+          )}
+        </div>
+      )}
+
       {/* Messages container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
@@ -714,9 +842,7 @@ function MappingToggleSection({ mapping }) {
               <div className="text-sm font-medium mb-1 opacity-75">
                 {message.role === 'user' ? 'You' : 'Assistant'}
               </div>
-              <div className="whitespace-pre-wrap">
-                {message.content}
-              </div>
+              <div className="whitespace-pre-wrap prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(message.content) }} />
               {message.role === 'user' && (
                 <div className="mt-2 flex items-center space-x-2 text-xs text-gray-700">
                   <label className="flex items-center space-x-1">

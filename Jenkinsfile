@@ -31,6 +31,30 @@ pipeline {
     stages {
         stage('🔍 Pre-flight Checks') {
             parallel {
+                stage('Linters') {
+                    steps {
+                        echo '🧹 Running linters (Ruff for Python, ESLint for JS)...'
+                        sh '''
+                            set -e
+                            # Python lint (ruff) inside backend container if available, else install minimal
+                            if docker compose exec -T backend python -c "import ruff" 2>/dev/null; then
+                                docker compose exec -T backend ruff check backend || true
+                            else
+                                docker compose exec -T backend sh -lc "pip install -q ruff && ruff check backend || true"
+                            fi
+
+                            # JS lint (eslint) for frontend if config present
+                            if [ -f frontend/package.json ]; then
+                                cd frontend
+                                if ! jq -e '.devDependencies.eslint' package.json >/dev/null 2>&1 && ! jq -e '.dependencies.eslint' package.json >/dev/null 2>&1; then
+                                    npm i -D --silent eslint || true
+                                fi
+                                npx --yes eslint --ext .js,.jsx src || true
+                                cd - >/dev/null
+                            fi
+                        '''
+                    }
+                }
                 stage('Environment Setup') {
                     steps {
                         echo "🚀 Starting enhanced build for branch: ${env.BRANCH_NAME}"

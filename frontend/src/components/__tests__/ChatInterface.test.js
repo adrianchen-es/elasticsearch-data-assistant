@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { act } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import ChatInterface from '../../test-stubs/ChatInterface';
@@ -39,7 +39,9 @@ describe('ChatInterface auto-run regenerate behavior', () => {
     });
 
   // Render component without JSX to avoid transform issues
-  render(React.createElement(ChatInterface, { selectedProvider: mockProvider, selectedIndex: 'test-index', setSelectedIndex: () => {} }));
+    await act(async () => {
+      render(React.createElement(ChatInterface, { selectedProvider: mockProvider, selectedIndex: 'test-index', setSelectedIndex: () => {} }));
+    });
 
     // Enable auto-run in settings by toggling it in localStorage before sending
     localStorage.setItem('elasticsearch_chat_settings', JSON.stringify({ autoRunGeneratedQueries: true, streamEnabled: false }));

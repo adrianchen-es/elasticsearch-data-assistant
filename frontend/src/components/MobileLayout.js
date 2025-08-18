@@ -11,7 +11,9 @@ const MobileLayout = ({
   checkBackendHealth,
   selectedProvider,
   setSelectedProvider,
-  providers 
+  providers,
+  tuning,
+  setTuning
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -88,14 +90,34 @@ const MobileLayout = ({
                   value={selectedProvider}
                   onChange={(e) => setSelectedProvider(e.target.value)}
                   className="w-full text-sm border border-gray-300 rounded-md px-2 py-1"
+                  data-testid="mobile-provider-selector"
                 >
                   {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
+                    <option key={provider.id} value={provider.id} disabled={provider.configured === false || provider.healthy === false}>
                       {provider.name}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Tuning toggles in mobile menu */}
+              {setTuning && (
+                <div className="px-3 py-2 border-t border-gray-200 mt-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1" title="Adjust query strategy preferences">
+                    Tuning
+                  </label>
+                  <div className="flex items-center space-x-4">
+                    <label className="flex items-center space-x-1 text-sm" title="Favor precision: narrower results">
+                      <input type="checkbox" checked={Boolean(tuning?.precision)} onChange={(e)=> setTuning({ ...(tuning||{}), precision: e.target.checked })} />
+                      <span>Precision</span>
+                    </label>
+                    <label className="flex items-center space-x-1 text-sm" title="Favor recall: broader results">
+                      <input type="checkbox" checked={Boolean(tuning?.recall)} onChange={(e)=> setTuning({ ...(tuning||{}), recall: e.target.checked })} />
+                      <span>Recall</span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -133,7 +155,7 @@ const MobileLayout = ({
               })}
             </nav>
 
-            {/* Desktop Health & Provider */}
+            {/* Desktop Health, Provider & Tuning */}
             <div className="flex items-center space-x-4">
               {/* Provider selector */}
               <div className="flex items-center space-x-2">
@@ -142,14 +164,30 @@ const MobileLayout = ({
                   value={selectedProvider}
                   onChange={(e) => setSelectedProvider(e.target.value)}
                   className="text-sm border border-gray-300 rounded-md px-2 py-1"
+                  data-testid="provider-selector"
                 >
                   {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
+                    <option key={provider.id} value={provider.id} disabled={provider.configured === false || provider.healthy === false}>
                       {provider.name}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Tuning toggles */}
+              {setTuning && (
+                <div className="flex items-center space-x-2">
+                  <label className="text-sm font-medium text-gray-700" title="Adjust query strategy preferences">Tuning:</label>
+                  <label className="flex items-center space-x-1 text-sm" title="Favor precision: narrower results">
+                    <input type="checkbox" checked={Boolean(tuning?.precision)} onChange={(e)=> setTuning({ ...(tuning||{}), precision: e.target.checked })} />
+                    <span>Precision</span>
+                  </label>
+                  <label className="flex items-center space-x-1 text-sm" title="Favor recall: broader results">
+                    <input type="checkbox" checked={Boolean(tuning?.recall)} onChange={(e)=> setTuning({ ...(tuning||{}), recall: e.target.checked })} />
+                    <span>Recall</span>
+                  </label>
+                </div>
+              )}
 
               {/* Health Status */}
               <div className="flex items-center space-x-2">

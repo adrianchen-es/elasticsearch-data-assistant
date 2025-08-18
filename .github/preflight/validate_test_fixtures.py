@@ -15,7 +15,8 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path.cwd()
+# Resolve repository root relative to this script's location so CWD doesn't matter
+ROOT = Path(__file__).resolve().parents[2]
 TEST_DIRS = [ROOT / "test", ROOT / "tests"]
 
 SENSITIVE_PATTERNS = [

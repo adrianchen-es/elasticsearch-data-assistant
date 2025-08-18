@@ -15,10 +15,16 @@ function App() {
   const [indices, setIndices] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('');
 
-  const providers = [
-    { id: 'azure', name: 'Azure OpenAI' },
-    { id: 'openai', name: 'OpenAI' }
-  ];
+  const [providers, setProviders] = useState([
+    { id: 'azure', name: 'Azure OpenAI', configured: true, healthy: true },
+    { id: 'openai', name: 'OpenAI', configured: true, healthy: true }
+  ]);
+  // User tuning for search behavior (persisted in localStorage)
+  const [tuning, setTuning] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('elasticsearch_chat_tuning') || '{}');
+    } catch { return {}; }
+  });
   
   // Backend health status state (/api/health)
   const [backendHealth, setBackendHealth] = useState({
@@ -163,8 +169,33 @@ function App() {
   };
 
   useEffect(() => {
-    // Setup telemetry
+  // Setup telemetry
     setupTelemetryWeb();
+    // Fetch provider statuses to gate selection by availability
+    (async () => {
+      try {
+        const resp = await fetch('/api/providers');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.providers)) {
+            setProviders(data.providers.map(p => ({
+              id: p.id,
+              name: p.name || p.id,
+              configured: !!p.configured,
+              healthy: !!p.healthy
+            })));
+            // If current selection is not healthy, fallback to a healthy default
+            const selected = data.providers.find(p => p.id === selectedProvider);
+            const healthyDefault = data.providers.find(p => p.healthy) || data.providers.find(p => p.configured);
+            if (!selected || !selected.healthy) {
+              if (healthyDefault) setSelectedProvider(healthyDefault.id);
+            }
+          }
+        }
+      } catch (e) {
+        // Non-fatal: leave defaults
+      }
+    })();
     
   // Initial health checks (will use cache if available)
   checkAllHealth();
@@ -174,6 +205,13 @@ function App() {
     
     return () => clearInterval(healthCheckInterval);
   }, []);
+
+  // Persist tuning to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('elasticsearch_chat_tuning', JSON.stringify(tuning || {}));
+    } catch {}
+  }, [tuning]);
 
   // Render health status icon
   const renderHealthIcon = (healthStatus) => {
@@ -232,12 +270,16 @@ function App() {
       selectedProvider={selectedProvider}
       setSelectedProvider={setSelectedProvider}
       providers={providers}
+    tuning={tuning}
+    setTuning={setTuning}
     >
       {currentView === 'chat' && (
         <ChatInterface
           selectedProvider={selectedProvider}
           selectedIndex={selectedIndex}
           setSelectedIndex={setSelectedIndex}
+          providers={providers}
+      tuning={tuning}
         />
       )}
       {currentView === 'query' && (

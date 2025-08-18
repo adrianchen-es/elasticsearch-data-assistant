@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 import time
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import logging
@@ -16,6 +16,8 @@ class ChatRequest(BaseModel):
     message: str
     index_name: str
     provider: str = "azure"
+    # Optional user tuning flags forwarded from UI
+    tuning: Optional[Dict[str, bool]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -313,6 +315,7 @@ async def regenerate_query(request: ChatRequest, app_request: Request):
         es_service = app_request.app.state.es_service
         ai_service = app_request.app.state.ai_service
         mapping_service = app_request.app.state.mapping_cache_service
+        tuning = getattr(request, 'tuning', None)
 
         # Create a query_id up-front so any attempt can be referenced
         query_id = str(uuid.uuid4())
@@ -347,7 +350,82 @@ async def regenerate_query(request: ChatRequest, app_request: Request):
             # error details (sanitized) in an in-memory cache and return a
             # friendly message while keeping the generated query available.
             try:
-                results = await es_service.execute_query(request.index_name, generated_query)
+                # Optionally adjust query with tuning flags (precision/recall)
+                def _apply_tuning_to_query(q: Dict[str, Any], t: Dict[str, bool]) -> Dict[str, Any]:
+                    """Apply minimal, safe adjustments based on tuning flags.
+
+                    - precision: favor tighter evaluation and more debug info
+                      (set explain=true, cap size to 25 if larger or unset, shorter timeout)
+                    - recall: favor broader result set (raise size to >= 50, reasonable timeout)
+                    If both are set, recall size wins (apply precision first, then recall).
+                    """
+                    from copy import deepcopy
+                    q2 = deepcopy(q) if q is not None else {}
+
+                    # Ensure top-level structure
+                    if not isinstance(q2, dict):
+                        return q
+
+                    if t.get("precision"):
+                        # Add explain for better diagnostics
+                        q2["explain"] = True
+                        # Cap size at 25 for focused results
+                        current_size = q2.get("size")
+                        if not isinstance(current_size, int) or current_size > 25:
+                            q2["size"] = 25
+                        # Shorter timeout
+                        q2["timeout"] = q2.get("timeout", "10s")
+
+                    if t.get("recall"):
+                        # Increase size for better recall
+                        current_size = q2.get("size")
+                        if not isinstance(current_size, int) or current_size < 50:
+                            q2["size"] = 50
+                        # Balanced timeout for larger result sets
+                        if "timeout" not in q2:
+                            q2["timeout"] = "20s"
+
+                    return q2
+
+                # Annotate span for observability
+                if tuning:
+                    span.set_attribute("search.tuning.precision", bool(tuning.get("precision")))
+                    span.set_attribute("search.tuning.recall", bool(tuning.get("recall")))
+                    generated_query = _apply_tuning_to_query(generated_query, tuning)
+
+                # Choose execution path: Enhanced when available to leverage strategy tuning
+                enhanced = getattr(app_request.app.state, 'enhanced_search_service', None)
+                if enhanced:
+                    from services.enhanced_search_service import SearchOptimization
+                    # Map tuning flags to strategy
+                    strategy = SearchOptimization.BALANCED
+                    if tuning:
+                        prec = bool(tuning.get("precision"))
+                        rec = bool(tuning.get("recall"))
+                        if prec and not rec:
+                            strategy = SearchOptimization.ACCURACY
+                        elif rec and not prec:
+                            strategy = SearchOptimization.PERFORMANCE
+                        else:
+                            strategy = SearchOptimization.BALANCED
+                        span.set_attribute("search.strategy", strategy.value)
+                    # Explain for precision requests
+                    explain = bool(tuning.get("precision")) if tuning else False
+                    enhanced_result = await enhanced.execute_enhanced_search(request.index_name, generated_query, optimization=strategy, explain=explain, profile=False)
+                    # Normalize to legacy shape
+                    results = {
+                        "hits": {"hits": enhanced_result.hits, "total": {"value": enhanced_result.total_hits}, "max_score": enhanced_result.max_score},
+                        "took": enhanced_result.took_ms,
+                        "timed_out": enhanced_result.timed_out,
+                        "_shards": enhanced_result.shards_info,
+                        "aggregations": enhanced_result.aggregations,
+                        "analysis": enhanced_result.analysis and getattr(enhanced_result.analysis, "__dict__", {}),
+                        "metrics": enhanced_result.metrics and getattr(enhanced_result.metrics, "__dict__", {}),
+                        "suggestions": enhanced_result.suggestions,
+                        "related_queries": enhanced_result.related_queries,
+                    }
+                else:
+                    results = await es_service.execute_query(request.index_name, generated_query)
             except Exception as exec_err:
                 logger.warning("Query execution failed for regenerate_query: %s", exec_err)
                 # Sanitize/shorten error message for storage

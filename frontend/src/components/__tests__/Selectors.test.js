@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { act } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { IndexSelector, ProviderSelector } from '../../test-stubs/Selectors';
@@ -37,7 +37,9 @@ describe('IndexSelector', () => {
     it('should categorize indices by tier correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       // Wait for indices to load
       await waitFor(() => {
@@ -57,7 +59,9 @@ describe('IndexSelector', () => {
     it('should filter indices when tier filter changes', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
@@ -82,7 +86,9 @@ describe('IndexSelector', () => {
     it('should show tier badges for non-hot indices', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: 'restored-cold-index-1', onIndexChange: mockOnChange, variant: 'detailed', showStatus: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: 'restored-cold-index-1', onIndexChange: mockOnChange, variant: 'detailed', showStatus: true }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/cold tier/)).toBeInTheDocument();
@@ -98,7 +104,9 @@ describe('IndexSelector', () => {
 
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/Error loading indices/)).toBeInTheDocument();
@@ -117,7 +125,9 @@ describe('IndexSelector', () => {
 
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       // Wait for error to appear
       await waitFor(() => {
@@ -146,7 +156,9 @@ describe('IndexSelector', () => {
     it('should render compact variant correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'compact', showLabel: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'compact', showLabel: true }));
+      });
 
       expect(screen.getByText('Index:')).toBeInTheDocument();
 
@@ -158,7 +170,9 @@ describe('IndexSelector', () => {
     it('should render default variant correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText('Elasticsearch Index')).toBeInTheDocument();
