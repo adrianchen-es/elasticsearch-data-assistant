@@ -4,16 +4,29 @@
     "es2021": true,
     "jest": true
   },
-  "extends": ["eslint:recommended", "plugin:react/recommended"],
-  "parserOptions": {
-    "ecmaFeatures": { "jsx": true },
-    "ecmaVersion": 12,
-    "sourceType": "module"
-  },
-  "plugins": ["react"],
+  "extends": [
+    "react-app",
+    "react-app/jest"
+  ],
   "rules": {
-    "react/react-in-jsx-scope": "off",
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "eqeqeq": ["error", "always"]
-  }
+    "react/prop-types": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/__tests__/**",
+        "**/*.test.{js,jsx}",
+        "src/**/__tests__/**"
+      ],
+      "rules": {
+        "react/prop-types": "off",
+        "no-unused-vars": [
+          "error",
+          {
+            "argsIgnorePattern": "^_"
+          }
+        ]
+      }
+    }
+  ]
 }

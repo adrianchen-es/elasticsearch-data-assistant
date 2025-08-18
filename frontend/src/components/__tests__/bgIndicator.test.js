@@ -32,7 +32,7 @@ describe('ChatInterface background search indicator', () => {
     fireEvent.click(send);
 
     // Indicator should appear while regenerate is in-flight
-    await waitFor(() => expect(screen.getByTestId('bg-indicator')).toBeInTheDocument());
+    await screen.findByTestId('bg-indicator');
     expect(screen.getByTestId('bg-indicator').textContent).toContain('logs-*');
 
     // After regen completes, indicator should be gone
