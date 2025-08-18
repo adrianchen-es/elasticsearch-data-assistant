@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { IndexSelector, ProviderSelector } from '../../test-stubs/Selectors';
 
@@ -37,7 +37,9 @@ describe('IndexSelector', () => {
     it('should categorize indices by tier correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       // Wait for indices to load
       await waitFor(() => {
@@ -57,7 +59,9 @@ describe('IndexSelector', () => {
     it('should filter indices when tier filter changes', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
@@ -82,7 +86,9 @@ describe('IndexSelector', () => {
     it('should show tier badges for non-hot indices', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: 'restored-cold-index-1', onIndexChange: mockOnChange, variant: 'detailed', showStatus: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: 'restored-cold-index-1', onIndexChange: mockOnChange, variant: 'detailed', showStatus: true }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/cold tier/)).toBeInTheDocument();
@@ -92,13 +98,15 @@ describe('IndexSelector', () => {
 
   describe('Error Handling', () => {
     it('should handle fetch errors gracefully', async () => {
-  // Clear any synchronous test indices to trigger real fetch path which we mock to reject
-  window.__TEST_INDICES__ = undefined;
-  fetch.mockRejectedValue(new Error('Network error'));
+      // Clear any synchronous test indices to trigger real fetch path which we mock to reject
+      window.__TEST_INDICES__ = undefined;
+      fetch.mockRejectedValue(new Error('Network error'));
 
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText(/Error loading indices/)).toBeInTheDocument();
@@ -117,7 +125,9 @@ describe('IndexSelector', () => {
 
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
+      });
 
       // Wait for error to appear
       await waitFor(() => {
@@ -146,7 +156,9 @@ describe('IndexSelector', () => {
     it('should render compact variant correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'compact', showLabel: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'compact', showLabel: true }));
+      });
 
       expect(screen.getByText('Index:')).toBeInTheDocument();
 
@@ -158,7 +170,9 @@ describe('IndexSelector', () => {
     it('should render default variant correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
+      await act(async () => {
+        render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
+      });
 
       await waitFor(() => {
         expect(screen.getByText('Elasticsearch Index')).toBeInTheDocument();
@@ -172,7 +186,9 @@ describe('ProviderSelector', () => {
   it('should render provider options correctly', () => {
     const mockOnChange = vi.fn();
 
-  render(React.createElement(ProviderSelector, { selectedProvider: 'azure', onProviderChange: mockOnChange }));
+    act(() => {
+      render(React.createElement(ProviderSelector, { selectedProvider: 'azure', onProviderChange: mockOnChange }));
+    });
 
     expect(screen.getByText('AI Provider')).toBeInTheDocument();
     expect(screen.getByDisplayValue('azure')).toBeInTheDocument();
@@ -187,7 +203,9 @@ describe('ProviderSelector', () => {
   it('should call onChange when provider changes', () => {
     const mockOnChange = vi.fn();
 
-  render(React.createElement(ProviderSelector, { selectedProvider: 'azure', onProviderChange: mockOnChange }));
+    act(() => {
+      render(React.createElement(ProviderSelector, { selectedProvider: 'azure', onProviderChange: mockOnChange }));
+    });
 
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'openai' } });

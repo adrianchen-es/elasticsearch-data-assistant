@@ -1,7 +1,7 @@
 import os
 import socket
 from typing import Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
 
@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     filter_closed_indices: bool = os.getenv("ELASTICSEARCH_FILTER_CLOSED_INDICES", "true").lower() == "true"
     show_data_streams: bool = os.getenv("ELASTICSEARCH_SHOW_DATA_STREAMS", "true").lower() == "true"
     
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env")
 
 settings = Settings()

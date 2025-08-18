@@ -16,6 +16,9 @@ class ChatRequest(BaseModel):
     message: str
     index_name: str
     provider: str = "azure"
+    # Tuning flags for search optimization
+    precision: bool = False
+    recall: bool = False
 
 class ChatResponse(BaseModel):
     response: str
@@ -346,8 +349,59 @@ async def regenerate_query(request: ChatRequest, app_request: Request):
             # Try executing the generated query. If execution fails, capture the
             # error details (sanitized) in an in-memory cache and return a
             # friendly message while keeping the generated query available.
+            
+            # Check if EnhancedSearchService is available
+            enhanced_search_service = getattr(app_request.app.state, 'enhanced_search_service', None)
+            
             try:
-                results = await es_service.execute_query(request.index_name, generated_query)
+                if enhanced_search_service:
+                    # Map UI tuning flags to SearchOptimization strategies
+                    from services.enhanced_search_service import SearchOptimization
+                    
+                    if request.precision and request.recall:
+                        optimization = SearchOptimization.BALANCED
+                    elif request.precision:
+                        optimization = SearchOptimization.ACCURACY
+                    elif request.recall:
+                        optimization = SearchOptimization.PERFORMANCE
+                    else:
+                        optimization = SearchOptimization.BALANCED
+                    
+                    # Set span attributes for tracing
+                    span.set_attribute("search.strategy", optimization.value)
+                    span.set_attribute("search.tuning.precision", request.precision)
+                    span.set_attribute("search.tuning.recall", request.recall)
+                    
+                    # Use enhanced search service
+                    try:
+                        enhanced_result = await enhanced_search_service.execute_enhanced_search(
+                            index_name=request.index_name,
+                            query=generated_query,
+                            optimization=optimization,
+                            explain=request.precision,  # Pass explain=True when precision is requested
+                            profile=False
+                        )
+                        
+                        # Normalize enhanced result to legacy response shape
+                        results = {
+                            "hits": {
+                                "hits": enhanced_result.hits,
+                                "total": {"value": enhanced_result.total_hits},
+                                "max_score": enhanced_result.max_score
+                            },
+                            "took": enhanced_result.took_ms,
+                            "timed_out": enhanced_result.timed_out,
+                            "_shards": enhanced_result.shards_info,
+                            "aggregations": enhanced_result.aggregations
+                        }
+                        
+                    except Exception as enhanced_err:
+                        logger.warning("Enhanced search failed, falling back to regular search: %s", enhanced_err)
+                        # Fall back to regular execution
+                        results = await es_service.execute_query(request.index_name, generated_query)
+                else:
+                    # Use regular search service
+                    results = await es_service.execute_query(request.index_name, generated_query)
             except Exception as exec_err:
                 logger.warning("Query execution failed for regenerate_query: %s", exec_err)
                 # Sanitize/shorten error message for storage

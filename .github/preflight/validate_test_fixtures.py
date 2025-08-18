@@ -15,7 +15,9 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path.cwd()
+# Resolve repository root relative to this script
+SCRIPT_DIR = Path(__file__).parent
+ROOT = SCRIPT_DIR.parent.parent  # Go up from .github/preflight to repo root
 TEST_DIRS = [ROOT / "test", ROOT / "tests"]
 
 SENSITIVE_PATTERNS = [

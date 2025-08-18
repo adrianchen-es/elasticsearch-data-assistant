@@ -15,6 +15,7 @@ from opentelemetry.context import set_value, get_current
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
 from services.ai_service import AIService
+from services.enhanced_search_service import EnhancedSearchService
 from config.settings import settings
 from routers import chat, query, health, providers
 from contextlib import asynccontextmanager, contextmanager
@@ -262,6 +263,43 @@ async def _create_mapping_cache_service(es_service):
             logger.error(f"❌ Mapping cache service creation failed after {init_time:.3f}s: {e}")
             raise
 
+async def _create_enhanced_search_service(es_service, ai_service):
+    """Create and configure enhanced search service with comprehensive tracing"""
+    local_tracer = trace.get_tracer(__name__ + ".internal")
+    with local_tracer.start_as_current_span("enhanced_search_service_create") as enhanced_span:
+        service_start_time = asyncio.get_event_loop().time()
+        logger.info("🔍 Creating enhanced search service...")
+        
+        enhanced_span.set_attributes({
+            "service.type": "enhanced_search",
+            "elasticsearch_service_available": es_service is not None,
+            "ai_service_available": ai_service is not None
+        })
+        
+        try:
+            enhanced_search_service = EnhancedSearchService(es_service, ai_service)
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            
+            enhanced_span.set_attributes({
+                "initialization_time": init_time,
+                "success": True
+            })
+            
+            logger.info(f"✅ Enhanced search service created in {init_time:.3f}s")
+            return enhanced_search_service, init_time
+            
+        except Exception as e:
+            init_time = asyncio.get_event_loop().time() - service_start_time
+            enhanced_span.set_attributes({
+                "initialization_time": init_time,
+                "success": False,
+                "error": str(e)
+            })
+            enhanced_span.record_exception(e)
+            enhanced_span.set_status(status=(StatusCode.ERROR), description=str(e))
+            logger.error(f"❌ Enhanced search service creation failed after {init_time:.3f}s: {e}")
+            raise
+
 async def _initialize_core_services():
     """Initialize all core services with retry logic and comprehensive tracing"""
     local_tracer = trace.get_tracer(__name__ + ".internal")
@@ -294,13 +332,27 @@ async def _initialize_core_services():
             )
             service_timings["mapping_cache_service"] = cache_time
             
+            # Try to initialize enhanced search service (optional)
+            enhanced_search_service = None
+            try:
+                logger.info("🚀 Initializing enhanced search service...")
+                enhanced_search_service, enhanced_time = await _retry_service_init(
+                    lambda: _create_enhanced_search_service(es_service, ai_service), "EnhancedSearchService"
+                )
+                service_timings["enhanced_search_service"] = enhanced_time
+                logger.info("✅ Enhanced search service available")
+            except Exception as e:
+                logger.warning(f"⚠️ Enhanced search service not available: {e}")
+                # Continue without enhanced search service
+            
             total_time = sum(service_timings.values())
             services_span.set_attributes({
-                "services_count": 3,
+                "services_count": 4 if enhanced_search_service else 3,
                 "total_initialization_time": total_time,
                 "elasticsearch_time": es_time,
                 "ai_service_time": ai_time,
                 "mapping_cache_time": cache_time,
+                "enhanced_search_available": enhanced_search_service is not None,
                 "success": True
             })
             
@@ -309,6 +361,7 @@ async def _initialize_core_services():
                 "es_service": es_service,
                 "ai_service": ai_service,
                 "mapping_cache_service": mapping_cache_service,
+                "enhanced_search_service": enhanced_search_service,
                 "timings": service_timings
             }
             
@@ -381,6 +434,7 @@ async def lifespan(app: FastAPI):
                 es_service = services_result["es_service"]
                 ai_service = services_result["ai_service"] 
                 mapping_cache_service = services_result["mapping_cache_service"]
+                enhanced_search_service = services_result.get("enhanced_search_service")
                 service_timings = services_result["timings"]
                 services_init_span.set_attributes({
                     "services_initialized": len(service_timings),
@@ -395,6 +449,12 @@ async def lifespan(app: FastAPI):
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
                 app.state.mapping_cache_service = mapping_cache_service
+                # Store enhanced search service if available
+                if enhanced_search_service:
+                    app.state.enhanced_search_service = enhanced_search_service
+                    logger.info("🚀 Enhanced search service attached to app state")
+                else:
+                    logger.info("⚠️ Enhanced search service not available")
                 # Initialize health check cache
                 logger.info("🏥 Initializing health check cache...")
                 app.state.health_cache = {
@@ -407,8 +467,9 @@ async def lifespan(app: FastAPI):
                 app.state.query_attempts = {}
                 logger.info("✅ Health check cache initialized with 30s TTL")
                 state_span.set_attributes({
-                    "app_state_components": 4,  # es_service, ai_service, mapping_cache_service, health_cache
-                    "health_cache_ttl": 30
+                    "app_state_components": 5 if enhanced_search_service else 4,  # es_service, ai_service, mapping_cache_service, health_cache, [enhanced_search_service]
+                    "health_cache_ttl": 30,
+                    "enhanced_search_available": enhanced_search_service is not None
                 })
 
             # Setup background tasks - separate span
@@ -652,7 +713,8 @@ async def _warm_up_health_check(state, task_start_times):
             health_response = await health_check(mock_request, mock_response)
             
             # Convert response to dict for logging
-            health_status = health_response.dict() if hasattr(health_response, 'dict') else {
+            health_status = health_response.model_dump() if hasattr(health_response, 'model_dump') else \
+                           health_response.dict() if hasattr(health_response, 'dict') else {
                 'status': getattr(health_response, 'status', 'unknown'),
                 'services': getattr(health_response, 'services', {})
             }

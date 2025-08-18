@@ -98,6 +98,61 @@ pipeline {
             }
         }
         
+        stage('🔍 Linters') {
+            parallel {
+                stage('Python Linting') {
+                    steps {
+                        echo '🐍 Running Python linting with ruff...'
+                        sh '''
+                            # Install ruff if not available
+                            pip install --user ruff || echo "ruff installation failed, continuing"
+                            
+                            # Run ruff linting on backend code
+                            echo "🔍 Running ruff on backend..."
+                            ruff check backend/ || echo "⚠️ Python linting found issues (non-blocking)"
+                            
+                            # Check for basic Python syntax errors
+                            echo "🔍 Checking Python syntax..."
+                            python -m py_compile backend/**/*.py || echo "⚠️ Python syntax issues found (non-blocking)"
+                        '''
+                    }
+                }
+                
+                stage('JavaScript Linting') {
+                    steps {
+                        echo '📝 Running JavaScript linting with eslint...'
+                        sh '''
+                            # Check if frontend directory exists
+                            if [ -d "frontend" ]; then
+                                cd frontend
+                                
+                                # Install eslint if not available in package.json
+                                if ! npm list eslint >/dev/null 2>&1; then
+                                    echo "Installing eslint..."
+                                    npm install --save-dev eslint || echo "eslint installation failed, continuing"
+                                fi
+                                
+                                # Run eslint on frontend code
+                                echo "🔍 Running eslint on frontend..."
+                                npx eslint src/ --ext .js,.jsx,.ts,.tsx || echo "⚠️ JavaScript linting found issues (non-blocking)"
+                            else
+                                echo "frontend directory not found, skipping JS linting"
+                            fi
+                            
+                            # Check gateway if it exists
+                            if [ -d "gateway" ]; then
+                                cd gateway
+                                echo "🔍 Running eslint on gateway..."
+                                npx eslint src/ --ext .js,.jsx,.ts,.tsx || echo "⚠️ Gateway linting found issues (non-blocking)"
+                            else
+                                echo "gateway directory not found, skipping gateway linting"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+        
         stage('🏗️ Build Application') {
             steps {
                 echo '🏗️ Building application containers with enhanced features...'
