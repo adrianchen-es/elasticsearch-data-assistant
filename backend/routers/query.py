@@ -1,15 +1,54 @@
 from fastapi import APIRouter, HTTPException, Request
 import time
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import logging
 import uuid
+# Expose name for tests to monkeypatch; actual service is attached to app.state at runtime
+EnhancedSearchService = None
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 router = APIRouter()
+
+# Helper: expose at module level so unit tests can import and reuse it
+def _apply_tuning_to_query(q: Dict[str, Any], t: Optional[Dict[str, bool]]) -> Dict[str, Any]:
+    """Apply minimal, safe adjustments based on tuning flags.
+
+    - precision: favor tighter evaluation and more debug info
+      (set explain=true, cap size to 25 if larger or unset, shorter timeout)
+    - recall: favor broader result set (raise size to >= 50, reasonable timeout)
+    If both are set, recall size wins (apply precision first, then recall).
+    """
+    from copy import deepcopy
+    q2 = deepcopy(q) if q is not None else {}
+
+    # Ensure top-level structure
+    if not isinstance(q2, dict):
+        return q
+
+    if t and t.get("precision"):
+        # Add explain for better diagnostics
+        q2["explain"] = True
+        # Cap size at 25 for focused results
+        current_size = q2.get("size")
+        if not isinstance(current_size, int) or current_size > 25:
+            q2["size"] = 25
+        # Shorter timeout
+        q2["timeout"] = q2.get("timeout", "10s")
+
+    if t and t.get("recall"):
+        # Increase size for better recall
+        current_size = q2.get("size")
+        if not isinstance(current_size, int) or current_size < 50:
+            q2["size"] = 50
+        # Balanced timeout for larger result sets
+        if "timeout" not in q2:
+            q2["timeout"] = "20s"
+
+    return q2
 
 # Shared models
 class ChatRequest(BaseModel):
@@ -46,18 +85,18 @@ async def execute_query(request: QueryRequest, app_request: Request):
     """Execute a custom Elasticsearch query"""
     try:
         es_service = app_request.app.state.es_service
-        
+
         # Execute the query
         results = await es_service.execute_query(request.index_name, request.query)
-        
+
         # Generate query ID for reference
         query_id = str(uuid.uuid4())
-        
+
         return QueryResponse(
             results=results,
             query_id=query_id
         )
-        
+
     except Exception as e:
         logger.error(f"Query execution error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -67,14 +106,14 @@ async def validate_query(request: QueryValidationRequest, app_request: Request):
     """Validate an Elasticsearch query without executing it"""
     try:
         es_service = app_request.app.state.es_service
-        
+
         is_valid = await es_service.validate_query(request.index_name, request.query)
-        
+
         return QueryValidationResponse(
             valid=is_valid,
             message="Query is valid" if is_valid else "Query validation failed"
         )
-        
+
     except Exception as e:
         logger.error(f"Query validation error: {e}")
         return QueryValidationResponse(
@@ -127,16 +166,16 @@ async def get_query_attempt(query_id: str, app_request: Request):
 async def get_indices(app_request: Request, tier: str = None):
     """Get available indices, optionally filtered by tier"""
     try:
-        es_service = app_request.app.state.es_service
+        _es_service = app_request.app.state.es_service
         mapping_service = app_request.app.state.mapping_cache_service
-        
+
         # Get all available indices
         indices = await mapping_service.get_available_indices()
-        
+
         # If no tier filter specified, return all indices
         if not tier:
             return indices
-            
+
         # Filter indices by tier
         # Note: This would require tier information to be included in the index metadata
         # For now, we'll return all indices as most ES deployments don't have explicit tier info
@@ -148,9 +187,9 @@ async def get_indices(app_request: Request, tier: str = None):
             index_tier = getattr(index, 'tier', 'hot')  # Default to hot
             if tier.lower() == index_tier.lower():
                 filtered_indices.append(index)
-        
+
         return filtered_indices
-        
+
     except Exception as e:
         logger.error(f"Get indices error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -183,7 +222,7 @@ async def get_cache_stats(app_request: Request):
     try:
         mapping_service = app_request.app.state.mapping_cache_service
         stats = mapping_service.get_cache_stats()
-        
+
         # Add health cache stats if available
         health_cache = getattr(app_request.app.state, 'health_cache', {})
         if health_cache:
@@ -192,7 +231,7 @@ async def get_cache_stats(app_request: Request):
                 'cache_ttl': health_cache.get('cache_ttl'),
                 'has_cached_response': 'cached_response' in health_cache
             }
-        
+
         return {
             "cache_stats": stats,
             "performance_tips": [
@@ -201,7 +240,7 @@ async def get_cache_stats(app_request: Request):
                 "Cache size should be reasonable for your memory limits"
             ]
         }
-        
+
     except Exception as e:
         logger.error(f"Get cache stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -212,12 +251,12 @@ async def refresh_cache(app_request: Request):
     try:
         mapping_service = app_request.app.state.mapping_cache_service
         await mapping_service.refresh_cache()
-        
+
         return {
             "message": "Cache refresh initiated successfully",
             "stats": mapping_service.get_cache_stats()
         }
-        
+
     except Exception as e:
         logger.error(f"Cache refresh error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -227,12 +266,12 @@ async def refresh_cache(app_request: Request):
 async def get_tiers(app_request: Request):
     """Get available data tiers with statistics"""
     try:
-        es_service = app_request.app.state.es_service
+        _es_service = app_request.app.state.es_service
         mapping_service = app_request.app.state.mapping_cache_service
-        
+
         # Get all indices
         indices = await mapping_service.get_available_indices()
-        
+
         # Calculate tier statistics
         tier_stats = {
             'hot': {'count': 0, 'indices': []},
@@ -240,25 +279,25 @@ async def get_tiers(app_request: Request):
             'cold': {'count': 0, 'indices': []},
             'frozen': {'count': 0, 'indices': []}
         }
-        
+
         for index in indices:
             # For demonstration purposes, we'll categorize based on index name patterns
             # In a real implementation, you'd check the index settings for tier allocation
             index_name = index if isinstance(index, str) else index.get('name', str(index))
-            
+
             tier = 'hot'  # Default tier
-            
+
             # Simple heuristics for tier classification based on index patterns
             if any(pattern in index_name.lower() for pattern in ['warm', 'week', 'monthly']):
                 tier = 'warm'
             elif any(pattern in index_name.lower() for pattern in ['cold', 'archive', 'old']):
-                tier = 'cold' 
+                tier = 'cold'
             elif any(pattern in index_name.lower() for pattern in ['frozen', 'backup']):
                 tier = 'frozen'
-            
+
             tier_stats[tier]['count'] += 1
             tier_stats[tier]['indices'].append(index_name)
-        
+
         return {
             'tiers': [
                 {
@@ -269,7 +308,7 @@ async def get_tiers(app_request: Request):
                     'indices': tier_stats['hot']['indices']
                 },
                 {
-                    'name': 'warm', 
+                    'name': 'warm',
                     'display_name': 'Warm',
                     'description': 'Less frequently accessed data',
                     'count': tier_stats['warm']['count'],
@@ -277,7 +316,7 @@ async def get_tiers(app_request: Request):
                 },
                 {
                     'name': 'cold',
-                    'display_name': 'Cold', 
+                    'display_name': 'Cold',
                     'description': 'Rarely accessed data',
                     'count': tier_stats['cold']['count'],
                     'indices': tier_stats['cold']['indices']
@@ -292,11 +331,11 @@ async def get_tiers(app_request: Request):
             ],
             'total_indices': len(indices)
         }
-        
+
     except Exception as e:
         logger.error(f"Get tiers error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        
+
     except Exception as e:
         logger.error(f"Get mapping error: {e}")
 
@@ -351,41 +390,6 @@ async def regenerate_query(request: ChatRequest, app_request: Request):
             # friendly message while keeping the generated query available.
             try:
                 # Optionally adjust query with tuning flags (precision/recall)
-                def _apply_tuning_to_query(q: Dict[str, Any], t: Dict[str, bool]) -> Dict[str, Any]:
-                    """Apply minimal, safe adjustments based on tuning flags.
-
-                    - precision: favor tighter evaluation and more debug info
-                      (set explain=true, cap size to 25 if larger or unset, shorter timeout)
-                    - recall: favor broader result set (raise size to >= 50, reasonable timeout)
-                    If both are set, recall size wins (apply precision first, then recall).
-                    """
-                    from copy import deepcopy
-                    q2 = deepcopy(q) if q is not None else {}
-
-                    # Ensure top-level structure
-                    if not isinstance(q2, dict):
-                        return q
-
-                    if t.get("precision"):
-                        # Add explain for better diagnostics
-                        q2["explain"] = True
-                        # Cap size at 25 for focused results
-                        current_size = q2.get("size")
-                        if not isinstance(current_size, int) or current_size > 25:
-                            q2["size"] = 25
-                        # Shorter timeout
-                        q2["timeout"] = q2.get("timeout", "10s")
-
-                    if t.get("recall"):
-                        # Increase size for better recall
-                        current_size = q2.get("size")
-                        if not isinstance(current_size, int) or current_size < 50:
-                            q2["size"] = 50
-                        # Balanced timeout for larger result sets
-                        if "timeout" not in q2:
-                            q2["timeout"] = "20s"
-
-                    return q2
 
                 # Annotate span for observability
                 if tuning:

@@ -1,9 +1,14 @@
 # backend/services/ai_service.py
-from typing import Dict, Any, Optional, Tuple, Generator, Iterable, List
+from typing import Dict, Any, Optional, Tuple, Iterable, List
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
-import asyncio, json, logging, math, os, re, time
+import json
+import logging
+import math
+import os
+import re
+import time
 
 from middleware.enhanced_telemetry import get_security_tracer, trace_async_function, DataSanitizer
 
@@ -148,7 +153,7 @@ class AIService:
         ) as init_span:
             init_start_time = time.time()
             logger.info("🚀 Initializing AIService...")
-            
+
             try:
                 # Load configuration from parameters or environment
                 self.azure_api_key = azure_api_key or os.getenv('AZURE_OPENAI_API_KEY')
@@ -161,11 +166,11 @@ class AIService:
                 # Initialize client connections (lazy)
                 self.azure_client = None
                 self.openai_client = None
-                
+
                 # Initialize synchronization primitives for async initialization
                 self._init_lock = None  # Will be created in async context
                 self._clients_initialized = False
-                
+
                 # Track initialization status for debugging
                 self._initialization_status = {
                     "service_initialized": True,
@@ -177,38 +182,38 @@ class AIService:
                     "errors": [],
                     "warnings": []
                 }
-                
+
                 # Quick configuration validation (don't create clients yet)
                 self._validate_configuration()
-                
+
                 init_duration = time.time() - init_start_time
                 self._initialization_status["initialization_time"] = init_duration
-                
+
                 # Add span attributes
                 init_span.set_attributes({
                     "ai_service.azure_configured": self._initialization_status["azure_configured"],
                     "ai_service.openai_configured": self._initialization_status["openai_configured"],
                     "ai_service.initialization_duration_ms": init_duration * 1000,
-                    "ai_service.providers_available": len([p for p in ["azure", "openai"] 
+                    "ai_service.providers_available": len([p for p in ["azure", "openai"]
                                                           if self._initialization_status.get(f"{p}_configured", False)])
                 })
-                
+
                 logger.info(f"✅ AIService initialized successfully in {init_duration:.3f}s (lazy client creation enabled)")
                 init_span.set_status(StatusCode.OK)
-                
+
             except Exception as e:
                 init_duration = time.time() - init_start_time
                 logger.error(f"❌ AIService initialization failed after {init_duration:.3f}s: {e}")
                 init_span.set_status(StatusCode.ERROR, f"Service initialization failed: {e}")
                 init_span.record_exception(e)
                 raise
-    
+
     def _validate_configuration(self):
         """Validate configuration without creating clients"""
         with tracer.start_as_current_span("ai_service.validate_configuration") as config_span:
             logger.debug("🔍 Validating AI service configuration...")
             validation_results = {"azure": False, "openai": False, "warnings": [], "errors": []}
-            
+
             # Check Azure configuration.
             # Treat Azure as configured if API key and endpoint are present. Deployment is
             # recommended but optional for some test scenarios; warn if missing.
@@ -246,7 +251,7 @@ class AIService:
                 self._initialization_status["warnings"].append(warning_msg)
                 validation_results["warnings"].append(warning_msg)
                 logger.debug(f"⚠️  {warning_msg}")
-            
+
             # Check if we have at least one provider configured
             if not self._initialization_status["azure_configured"] and not self._initialization_status["openai_configured"]:
                 # Allow bypass if explicitly in OTEL_TEST_MODE or if the active tracer provider
@@ -322,24 +327,24 @@ class AIService:
                     "ai_service.providers_configured": providers
                 })
                 config_span.set_status(StatusCode.OK)
-    
+
     async def _ensure_clients_initialized_async(self):
         """Async version of client initialization with proper locking"""
         if self._clients_initialized:
             logger.debug("🔄 AI clients already initialized (async), skipping creation")
             return
-            
+
         # Initialize async lock if not already done
         if self._init_lock is None:
             import asyncio
             self._init_lock = asyncio.Lock()
-            
+
         async with self._init_lock:
             # Double-check pattern
             if self._clients_initialized:
                 logger.debug("🔄 AI clients initialized by another task, skipping")
                 return
-                
+
             with tracer.start_as_current_span(
                 "ai_service.create_clients",
                 kind=SpanKind.INTERNAL,
@@ -350,30 +355,30 @@ class AIService:
             ) as client_span:
                 logger.info("🚀 Creating AI client connections (async)...")
                 initialization_start_time = time.time()
-                
+
                 azure_success = False
                 openai_success = False
                 errors = []
-                
+
                 # Initialize Azure OpenAI client
                 if self._initialization_status["azure_configured"] and not self.azure_client:
                     azure_start_time = time.time()
                     try:
                         logger.info("☁️ Initializing Azure OpenAI client (async)...")
-                        
+
                         self.azure_client = AsyncAzureOpenAI(
                             api_key=self.azure_api_key,
                             azure_endpoint=self.azure_endpoint,
                             api_version=self.azure_version
                         )
-                        
+
                         azure_duration = time.time() - azure_start_time
                         azure_success = True
                         logger.info(f"✅ Azure OpenAI client created successfully in {azure_duration:.3f}s")
                         logger.info(f"   • Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}")
                         logger.info(f"   • Deployment: {self.azure_deployment}")
                         logger.info(f"   • API Version: {self.azure_version}")
-                        
+
                     except Exception as e:
                         azure_duration = time.time() - azure_start_time
                         error_msg = f"Failed to create Azure OpenAI client after {azure_duration:.3f}s: {str(e)}"
@@ -381,33 +386,33 @@ class AIService:
                         errors.append(("azure", str(e)))
                         logger.error(f"❌ {error_msg}")
 
-                # Initialize OpenAI client  
+                # Initialize OpenAI client
                 if self._initialization_status["openai_configured"] and not self.openai_client:
                     openai_start_time = time.time()
                     try:
                         logger.info("🤖 Initializing OpenAI client (async)...")
-                        
+
                         self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-                        
+
                         openai_duration = time.time() - openai_start_time
                         openai_success = True
                         logger.info(f"✅ OpenAI client created successfully in {openai_duration:.3f}s")
                         logger.info(f"   • Model: {self.openai_model}")
-                        
+
                     except Exception as e:
                         openai_duration = time.time() - openai_start_time
                         error_msg = f"Failed to create OpenAI client after {openai_duration:.3f}s: {str(e)}"
                         self._initialization_status["errors"].append(error_msg)
                         errors.append(("openai", str(e)))
                         logger.error(f"❌ {error_msg}")
-                
+
                 self._clients_initialized = True
                 self._initialization_status["clients_created"] = True
-                
+
                 # Update timing information
                 total_duration = time.time() - initialization_start_time
                 self._initialization_status["client_creation_time"] = total_duration
-                
+
                 # Set span attributes
                 client_span.set_attributes({
                     "ai_service.azure_success": azure_success,
@@ -415,7 +420,7 @@ class AIService:
                     "ai_service.total_duration_ms": total_duration * 1000,
                     "ai_service.error_count": len(errors)
                 })
-                
+
                 # Final validation
                 if not self.azure_client and not self.openai_client:
                     error_msg = f"Failed to create any AI clients despite valid configuration (after {total_duration:.3f}s)"
@@ -424,22 +429,22 @@ class AIService:
                     for provider, error in errors:
                         client_span.record_exception(Exception(f"{provider}: {error}"))
                     raise ValueError("Failed to initialize AI clients")
-                
+
                 # Success summary
                 providers = []
                 if self.azure_client:
                     providers.append("Azure OpenAI")
                 if self.openai_client:
                     providers.append("OpenAI")
-                    
+
                 success_count = sum([azure_success, openai_success])
-                total_configured = len([p for p in ["azure", "openai"] 
+                total_configured = len([p for p in ["azure", "openai"]
                                      if self._initialization_status.get(f"{p}_configured", False)])
-                    
+
                 logger.info(f"🎉 AI client initialization completed in {total_duration:.3f}s")
                 logger.info(f"🚀 Ready providers: {', '.join(providers)}")
                 logger.info(f"📊 Success rate: {success_count}/{total_configured} providers initialized")
-                
+
                 client_span.set_status(StatusCode.OK)
 
     def _ensure_clients_initialized(self):
@@ -447,7 +452,7 @@ class AIService:
         if self._initialization_status["clients_created"]:
             logger.debug("🔄 AI clients already initialized, skipping creation")
             return
-            
+
         with tracer.start_as_current_span(
             "ai_service.create_clients_sync",
             kind=SpanKind.INTERNAL,
@@ -459,30 +464,30 @@ class AIService:
         ) as client_span:
             logger.info("🚀 Creating AI client connections (sync)...")
             initialization_start_time = time.time()
-            
+
             azure_success = False
             openai_success = False
             errors = []
-            
+
             # Initialize Azure OpenAI client
             if self._initialization_status["azure_configured"] and not self.azure_client:
                 azure_start_time = time.time()
                 try:
                     logger.info("☁️ Initializing Azure OpenAI client (sync)...")
-                    
+
                     self.azure_client = AsyncAzureOpenAI(
-                        api_key=self.azure_api_key, 
-                        azure_endpoint=self.azure_endpoint, 
+                        api_key=self.azure_api_key,
+                        azure_endpoint=self.azure_endpoint,
                         api_version=self.azure_version
                     )
-                    
+
                     azure_duration = time.time() - azure_start_time
                     azure_success = True
                     logger.info(f"✅ Azure OpenAI client created successfully in {azure_duration:.3f}s")
                     logger.info(f"   • Endpoint: {self._mask_sensitive_data(self.azure_endpoint)}")
                     logger.info(f"   • Deployment: {self.azure_deployment}")
                     logger.info(f"   • API Version: {self.azure_version}")
-                    
+
                 except Exception as e:
                     azure_duration = time.time() - azure_start_time
                     error_msg = f"Failed to create Azure OpenAI client after {azure_duration:.3f}s: {str(e)}"
@@ -490,33 +495,33 @@ class AIService:
                     errors.append(("azure", str(e)))
                     logger.error(f"❌ {error_msg}")
 
-            # Initialize OpenAI client  
+            # Initialize OpenAI client
             if self._initialization_status["openai_configured"] and not self.openai_client:
                 openai_start_time = time.time()
                 try:
                     logger.info("🤖 Initializing OpenAI client (sync)...")
-                    
+
                     self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-                    
+
                     openai_duration = time.time() - openai_start_time
                     openai_success = True
                     logger.info(f"✅ OpenAI client created successfully in {openai_duration:.3f}s")
                     logger.info(f"   • Model: {self.openai_model}")
-                    
+
                 except Exception as e:
                     openai_duration = time.time() - openai_start_time
                     error_msg = f"Failed to create OpenAI client after {openai_duration:.3f}s: {str(e)}"
                     self._initialization_status["errors"].append(error_msg)
                     errors.append(("openai", str(e)))
                     logger.error(f"❌ {error_msg}")
-            
+
             self._initialization_status["clients_created"] = True
             self._clients_initialized = True
-            
+
             # Update timing information
             total_duration = time.time() - initialization_start_time
             self._initialization_status["client_creation_time"] = total_duration
-            
+
             # Set span attributes
             client_span.set_attributes({
                 "ai_service.azure_success": azure_success,
@@ -524,7 +529,7 @@ class AIService:
                 "ai_service.total_duration_ms": total_duration * 1000,
                 "ai_service.error_count": len(errors)
             })
-            
+
             # Final validation
             if not self.azure_client and not self.openai_client:
                 error_msg = f"Failed to create any AI clients despite valid configuration (after {total_duration:.3f}s)"
@@ -533,24 +538,24 @@ class AIService:
                 for provider, error in errors:
                     client_span.record_exception(Exception(f"{provider}: {error}"))
                 raise ValueError("Failed to initialize AI clients")
-            
+
             # Success summary
             providers = []
             if self._initialization_status["azure_configured"]:
                 providers.append("Azure OpenAI")
             if self._initialization_status["openai_configured"]:
                 providers.append("OpenAI")
-                
+
             success_count = sum([azure_success, openai_success])
-            total_configured = len([p for p in ["azure", "openai"] 
+            total_configured = len([p for p in ["azure", "openai"]
                                  if self._initialization_status.get(f"{p}_configured", False)])
-                
+
             logger.info(f"🎉 AI client initialization completed in {total_duration:.3f}s")
             logger.info(f"🚀 Ready providers: {', '.join(providers)}")
             logger.info(f"📊 Success rate: {success_count}/{total_configured} providers initialized")
-            
+
             client_span.set_status(StatusCode.OK)
-    
+
     def _mask_sensitive_data(self, data: str, show_chars: int = 4) -> str:
         """Mask sensitive data for logging, showing only first few characters"""
         if not data:
@@ -613,8 +618,8 @@ class AIService:
             return "[UNSANITIZABLE]"
 
 
-    
-    
+
+
     async def _maybe_await(self, obj):
         """Helper to await obj if it's awaitable, else return it directly.
         Tests often patch async clients with MagicMock (not awaitable), so this
@@ -645,36 +650,36 @@ class AIService:
         ) as init_span:
             logger.info("🚀 Performing complete AI service initialization (async)...")
             init_start_time = time.time()
-            
+
             try:
                 # Ensure clients are created
                 await self._ensure_clients_initialized_async()
-                
+
                 # Verify functionality by testing a simple operation (if possible)
                 if self.azure_client or self.openai_client:
                     logger.info("🔍 AI service clients are ready for use")
-                
+
                 init_duration = time.time() - init_start_time
                 self._initialization_status["complete_initialization_time"] = init_duration
-                
+
                 status = self.get_initialization_status()
-                
+
                 init_span.set_attributes({
                     "ai_service.complete_init_duration_ms": init_duration * 1000,
                     "ai_service.clients_ready": status["clients_ready"],
                     "ai_service.providers_available": len(status["available_providers"])
                 })
-                
+
                 logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
                 init_span.set_status(StatusCode.OK)
-                
+
                 return status
-                
+
             except Exception as e:
                 init_duration = time.time() - init_start_time
                 error_msg = f"AI service async initialization failed after {init_duration:.3f}s: {e}"
                 logger.error(f"❌ {error_msg}")
-                
+
                 init_span.set_status(Status(StatusCode.ERROR, error_msg))
                 init_span.record_exception(e)
                 raise
@@ -687,36 +692,36 @@ class AIService:
         ) as init_span:
             logger.info("🚀 Performing complete AI service initialization (sync)...")
             init_start_time = time.time()
-            
+
             try:
                 # Ensure clients are created
                 self._ensure_clients_initialized()
-                
+
                 # Verify functionality
                 if self.azure_client or self.openai_client:
                     logger.info("🔍 AI service clients are ready for use")
-                
+
                 init_duration = time.time() - init_start_time
                 self._initialization_status["complete_initialization_time"] = init_duration
-                
+
                 status = self.get_initialization_status()
-                
+
                 init_span.set_attributes({
                     "ai_service.complete_init_duration_ms": init_duration * 1000,
                     "ai_service.clients_ready": status["clients_ready"],
                     "ai_service.providers_available": len(status["available_providers"])
                 })
-                
+
                 logger.info(f"✅ AI service fully initialized in {init_duration:.3f}s")
                 init_span.set_status(StatusCode.OK)
-                
+
                 return status
-                
+
             except Exception as e:
                 init_duration = time.time() - init_start_time
                 error_msg = f"AI service sync initialization failed after {init_duration:.3f}s: {e}"
                 logger.error(f"❌ {error_msg}")
-                
+
                 init_span.set_status(Status(StatusCode.ERROR, error_msg))
                 init_span.record_exception(e)
                 raise
@@ -734,7 +739,7 @@ class AIService:
         """Validate that the requested provider is available (async version)"""
         # Ensure clients are initialized before validation
         await self._ensure_clients_initialized_async()
-        
+
         if provider == "azure" and not self.azure_client:
             raise ValueError(
                 f"Azure OpenAI provider not available. "
@@ -755,7 +760,7 @@ class AIService:
         """Validate that the requested provider is available (sync version)"""
         # Ensure clients are initialized before validation
         self._ensure_clients_initialized()
-        
+
         if provider == "azure" and not self.azure_client:
             raise ValueError(
                 f"Azure OpenAI provider not available. "
@@ -776,7 +781,7 @@ class AIService:
         """Get the default provider (prefer Azure, fallback to OpenAI) - async version"""
         # Ensure clients are initialized before getting default
         await self._ensure_clients_initialized_async()
-        
+
         if self.azure_client:
             return "azure"
         elif self.openai_client:
@@ -788,7 +793,7 @@ class AIService:
         """Get the default provider (prefer Azure, fallback to OpenAI) - sync version"""
         # Ensure clients are initialized before getting default
         self._ensure_clients_initialized()
-        
+
         if self.azure_client:
             return "azure"
         elif self.openai_client:
@@ -803,7 +808,7 @@ class AIService:
             provider = await self._get_default_provider_async()
         # Validate provider availability (async-safe)
         await self._validate_provider_async(provider)
-        
+
         with tracer.start_as_current_span(
             "ai_generate_query", kind=SpanKind.CLIENT,
             attributes={
@@ -818,9 +823,9 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Generate an Elasticsearch query for: {user_prompt}"}
             ]
-            
+
             logger.debug(f"Generating Elasticsearch query using {provider} provider")
-            
+
             try:
                 # Attempt the primary provider and fall back to the other if it errors
                 last_exc = None
@@ -855,7 +860,7 @@ class AIService:
                         continue
                 if response is None and last_exc:
                     raise last_exc
-                
+
                 # Coerce content (which may be MagicMock or other object in tests)
                 try:
                     raw_content = response.choices[0].message.content
@@ -895,12 +900,12 @@ class AIService:
                     logger.error(error_msg)
                     # Surface a friendly, deterministic message so tests can assert on content
                     raise ValueError(f"Invalid JSON response from provider: {provider}. The provider returned non-JSON output.") from json_err
-                    
+
             except Exception as e:
                 current_span = trace.get_current_span()
                 current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
-                
+
                 error_context = {
                     "provider": provider,
                     "model": self.azure_deployment if provider == "azure" else self.openai_model,
@@ -909,15 +914,15 @@ class AIService:
                     "error": str(e),
                     "error_type": type(e).__name__
                 }
-                
+
                 logger.error(f"Error generating Elasticsearch query: {error_context}")
-                
+
                 if return_debug:
                     error_context.update({
                         'messages': messages,
                         'initialization_status': self.get_initialization_status()
                     })
-                
+
                 raise ValueError(f"Failed to generate query using {provider}: {str(e)}") from e
 
     @trace_async_function("ai.summarize_results", include_args=True)
@@ -927,7 +932,7 @@ class AIService:
             provider = await self._get_default_provider_async()
         # Validate provider availability (async-safe)
         await self._validate_provider_async(provider)
-        
+
         with tracer.start_as_current_span(
             "ai_summarize_results", kind=SpanKind.CLIENT,
             attributes={
@@ -953,9 +958,9 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ]
-            
+
             logger.debug(f"Summarizing results using {provider} provider")
-            
+
             try:
                 if provider == "azure":
                     resp_candidate = self.azure_client.chat.completions.create(
@@ -970,19 +975,19 @@ class AIService:
                         temperature=0.3
                     )
                 response = await self._maybe_await(resp_candidate)
-                
+
                 summary = response.choices[0].message.content
                 if not summary:
                     raise ValueError(f"Empty summary response from {provider} API")
-                
+
                 logger.debug(f"Successfully generated summary using {provider}")
                 return summary
-                
+
             except Exception as e:
                 current_span = trace.get_current_span()
                 current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
-                
+
                 error_context = {
                     "provider": provider,
                     "model": self.azure_deployment if provider == "azure" else self.openai_model,
@@ -991,15 +996,15 @@ class AIService:
                     "error": str(e),
                     "error_type": type(e).__name__
                 }
-                
+
                 logger.error(f"Error summarizing results: {error_context}")
-                
+
                 if return_debug:
                     error_context.update({
                         'messages': messages,
                         'initialization_status': self.get_initialization_status()
                     })
-                
+
                 raise ValueError(f"Failed to summarize results using {provider}: {str(e)}") from e
 
     def _build_system_prompt(self, mapping_info: Dict[str, Any]) -> str:
@@ -1017,8 +1022,8 @@ class AIService:
             "Return only the JSON query, no additional text or formatting."
         )
 
-    async def free_chat(self, user_prompt: str, provider: str = "auto", return_debug: bool = False, 
-                       context_info: Optional[Dict[str, Any]] = None, 
+    async def free_chat(self, user_prompt: str, provider: str = "auto", return_debug: bool = False,
+                       context_info: Optional[Dict[str, Any]] = None,
                        conversation_id: Optional[str] = None) -> Tuple[str, dict]:
         """
         Free chat mode that doesn't require Elasticsearch context
@@ -1026,10 +1031,10 @@ class AIService:
         # Auto-select provider if not specified
         if provider == "auto":
             provider = await self._get_default_provider_async()
-            
+
         # Validate provider availability
         await self._validate_provider_async(provider)
-        
+
         with tracer.start_as_current_span("ai_free_chat", kind=SpanKind.CLIENT):
             current_span = trace.get_current_span()
             current_span.set_attributes({
@@ -1039,22 +1044,22 @@ class AIService:
                 "ai.mode": "free_chat",
                 "ai.conversation_id": conversation_id or "unknown"
             })
-        
+
             # Build system prompt for free chat
             system_prompt = "You are a helpful AI assistant. Provide clear, accurate, and helpful responses."
-            
+
             # Add context information if available
             if context_info:
                 system_prompt += f"\n\nAvailable context: {json.dumps(context_info, indent=2)}"
                 system_prompt += "\nNote: You can reference this context in your responses if relevant, but don't automatically query or analyze the data unless specifically asked."
-            
+
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
-            
+
             logger.debug(f"Starting free chat using {provider} provider")
-            
+
             try:
                 if provider == "azure":
                     resp_candidate = self.azure_client.chat.completions.create(
@@ -1071,18 +1076,18 @@ class AIService:
                         max_tokens=2000
                     )
                 response = await self._maybe_await(resp_candidate)
-                
+
                 text = response.choices[0].message.content
                 if not text:
                     raise ValueError(f"Empty response from {provider} API")
-                    
+
                 current_span.set_attribute("ai.response.length", len(text))
                 current_span.set_status(StatusCode.OK)
-                
+
                 logger.debug(f"Free chat completed successfully using {provider}")
-                
+
                 logger.debug(f"Free chat completed successfully using {provider}")
-                
+
                 # Debug information
                 debug_info = {}
                 if return_debug:
@@ -1112,11 +1117,11 @@ class AIService:
                             pass
 
                 return text, debug_info
-                
+
             except Exception as e:
                 current_span.set_status(StatusCode.ERROR)
                 current_span.record_exception(e)
-                
+
                 error_context = {
                     "provider": provider,
                     "model": self.azure_deployment if provider == "azure" else self.openai_model,
@@ -1125,9 +1130,9 @@ class AIService:
                     "error": str(e),
                     "error_type": type(e).__name__
                 }
-                
+
                 logger.error(f"Error in free chat: {error_context}")
-                
+
                 # Return error information
                 error_response = f"I apologize, but I encountered an error while processing your request: {str(e)}"
                 debug_info = {
@@ -1137,20 +1142,20 @@ class AIService:
                     'provider': provider,
                     'initialization_status': self.get_initialization_status()
                 } if return_debug else {}
-                
+
                 return error_response, debug_info
 
-    async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None, 
-                          temperature: float = 0.2, stream: bool = False, 
+    async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None,
+                          temperature: float = 0.2, stream: bool = False,
                           conversation_id: Optional[str] = None, provider: str = "auto"):
         """Generate chat response - returns different types based on stream parameter"""
         # Auto-select provider if not specified
         if provider == "auto":
             provider = await self._get_default_provider_async()
-            
+
         # Validate provider availability
         await self._validate_provider_async(provider)
-        
+
         with tracer.start_as_current_span("ai_generate_chat") as current_span:
             current_span.set_attributes({
                 "ai.provider": provider,
@@ -1159,9 +1164,9 @@ class AIService:
                 "ai.conversation_id": conversation_id or "unknown",
                 "ai.message_count": len(messages)
             })
-            
+
             logger.debug(f"Generating chat response using {provider} provider (streaming: {stream})")
-            
+
             try:
                 if stream:
                     # For streaming, return the async generator
@@ -1169,21 +1174,22 @@ class AIService:
                 else:
                     # For non-streaming, return the response directly
                     return await self._get_chat_response(messages, model, temperature, provider)
-                    
-            except Exception as e:
+
+            except Exception as exc:
                 current_span.set_status(StatusCode.ERROR)
-                current_span.record_exception(e)
-                
+                current_span.record_exception(exc)
+                err = exc
+
                 error_context = {
                     "provider": provider,
                     "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
                     "stream": stream,
                     "conversation_id": conversation_id,
                     "message_count": len(messages),
-                    "error": str(e),
-                    "error_type": type(e).__name__
+                    "error": str(exc),
+                    "error_type": type(exc).__name__
                 }
-                
+
                 logger.error(f"Error in generate_chat: {error_context}")
                 if stream:
                     # For streaming, create a generator that yields error
@@ -1192,15 +1198,15 @@ class AIService:
                             "type": "error",
                             "error": {
                                 "code": "chat_failed",
-                                "message": str(e),
+                                "message": str(err),
                                 "provider": provider
                             }
                         }
                     return error_generator()
                 else:
-                    raise ValueError(f"Failed to generate chat response using {provider}: {str(e)}") from e
+                    raise ValueError(f"Failed to generate chat response using {provider}: {str(err)}") from err
 
-    async def _stream_chat_response(self, messages: List[Dict], model: Optional[str], 
+    async def _stream_chat_response(self, messages: List[Dict], model: Optional[str],
                                   temperature: float, provider: str):
         """Stream chat response with tracing"""
         with tracer.start_as_current_span("ai_stream_chat_response", kind=SpanKind.CLIENT) as span:
@@ -1211,7 +1217,7 @@ class AIService:
                 "ai.message_count": len(messages)
             })
             logger.debug(f"Starting stream chat response using {provider}")
-        
+
         try:
             if provider == "azure":
                 response = await self.azure_client.chat.completions.create(
@@ -1221,14 +1227,14 @@ class AIService:
                     stream=True,
                     max_tokens=2000
                 )
-                
+
                 async for chunk in response:
                     if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                         yield {
                             "type": "content",
                             "delta": chunk.choices[0].delta.content
                         }
-                        
+
             else:  # openai
                 response = await self.openai_client.chat.completions.create(
                     model=model or self.openai_model,
@@ -1237,18 +1243,18 @@ class AIService:
                     stream=True,
                     max_tokens=2000
                 )
-                
+
                 async for chunk in response:
                     if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                         yield {
                             "type": "content",
                             "delta": chunk.choices[0].delta.content
                         }
-            
+
             logger.debug(f"Stream completed successfully using {provider}")
             span.set_status(StatusCode.OK)
             yield {"type": "done"}
-            
+
         except Exception as e:
             error_context = {
                 "provider": provider,
@@ -1256,21 +1262,21 @@ class AIService:
                 "error": str(e),
                 "error_type": type(e).__name__
             }
-            
+
             logger.error(f"Error in stream chat response: {error_context}")
             span.set_status(StatusCode.ERROR)
             span.record_exception(e)
             yield {
                 "type": "error",
                 "error": {
-                    "code": "stream_failed", 
+                    "code": "stream_failed",
                     "message": str(e),
                     "provider": provider,
                     "initialization_status": self.get_initialization_status()
                 }
             }
 
-    async def _get_chat_response(self, messages: List[Dict], model: Optional[str], 
+    async def _get_chat_response(self, messages: List[Dict], model: Optional[str],
                                temperature: float, provider: str) -> Dict:
         """Get non-streaming chat response with tracing"""
         with tracer.start_as_current_span("ai_get_chat_response", kind=SpanKind.CLIENT) as span:
@@ -1281,7 +1287,7 @@ class AIService:
                 "ai.message_count": len(messages)
             })
             logger.debug(f"Getting chat response using {provider}")
-        
+
             try:
                 if provider == "azure":
                     resp_candidate = self.azure_client.chat.completions.create(
@@ -1337,10 +1343,10 @@ class AIService:
         # Auto-select provider if not specified
         if provider == "auto":
             provider = await self._get_default_provider_async()
-            
+
         # Validate provider availability
         await self._validate_provider_async(provider)
-        
+
         with tracer.start_as_current_span("ai_elasticsearch_chat") as current_span:
             current_span.set_attributes({
                 "ai.provider": provider,
@@ -1348,16 +1354,16 @@ class AIService:
                 "ai.conversation_id": conversation_id or "unknown",
                 "ai.schema_indices": list(schema_context.keys()) if schema_context else []
             })
-            
+
             # Build enhanced system prompt with schema context
             system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
-            
+
             # Ensure we have a system message at the beginning
             enhanced_messages = [{"role": "system", "content": system_prompt}]
             enhanced_messages.extend(messages)
-            
+
             logger.debug(f"Generating Elasticsearch chat using {provider} provider")
-            
+
             try:
                 if provider == "azure":
                     response = await self.azure_client.chat.completions.create(
@@ -1373,7 +1379,7 @@ class AIService:
                         temperature=temperature,
                         max_tokens=2000
                     )
-                
+
                 text = None
                 try:
                     # Support both attribute-style and dict-style responses
@@ -1404,7 +1410,7 @@ Available capabilities:
 4. Provide general assistance and guidance
 
 """
-        
+
         if schema_context:
             prompt += "Available Elasticsearch indices and their schemas:\n\n"
             for index_name, schema in schema_context.items():
@@ -1413,9 +1419,9 @@ Available capabilities:
                     prompt += f"Fields: {', '.join(schema['properties'].keys())}\n\n"
                 else:
                     prompt += f"Schema: {json.dumps(schema, indent=2)}\n\n"
-        
+
         prompt += """Important: Only generate actual Elasticsearch queries when the user specifically asks for a query. For general questions about the data or schema, provide informative responses without automatically creating queries."""
-        
+
         return prompt
 
     async def generate_elasticsearch_chat_stream(self, messages: List[Dict], schema_context: Dict[str, Any],
@@ -1425,19 +1431,19 @@ Available capabilities:
         # Auto-select provider if not specified
         if provider == "auto":
             provider = await self._get_default_provider_async()
-            
-        # Validate provider availability  
+
+        # Validate provider availability
         await self._validate_provider_async(provider)
-        
+
         logger.debug(f"Starting Elasticsearch chat stream using {provider} provider")
-        
+
         # Build enhanced system prompt with schema context
         system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
-        
+
         # Ensure we have a system message at the beginning
         enhanced_messages = [{"role": "system", "content": system_prompt}]
         enhanced_messages.extend(messages)
-        
+
         # Use the streaming method with enhanced messages
         async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
             yield chunk

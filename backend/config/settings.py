@@ -8,18 +8,18 @@ class Settings(BaseSettings):
     # Elasticsearch settings
     elasticsearch_url: str = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
     elasticsearch_api_key: Optional[str] = os.getenv("ELASTICSEARCH_API_KEY")
-    
+
     # Azure AI settings
     azure_ai_api_key: str = os.getenv("AZURE_AI_API_KEY", "")
     azure_ai_endpoint: str = os.getenv("AZURE_AI_ENDPOINT", "")
     azure_ai_deployment: str = os.getenv("AZURE_AI_DEPLOYMENT", "")
     azure_ai_model: str = os.getenv("AZURE_AI_MODEL", "gpt-4")
     azure_ai_version: Optional[str] = os.getenv("AZURE_AI_VERSION", "2024-12-01-preview")
-    
+
     # Alternative AI providers
     openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4")
-    
+
     # OpenTelemetry settings
     otel_exporter_grpc_protocol: bool = os.getenv('OTEL_EXPORTER_OTLP_PROTOCOL', '').lower() == 'grpc'
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elasticsearch-ai-backend")
@@ -33,16 +33,16 @@ class Settings(BaseSettings):
     version: str = "1.0.0"
     host_name: str = socket.gethostname()
     container_name: str = os.environ.get("CONTAINER_NAME", "unknown")
-    
+
     # Cache settings
     mapping_cache_interval_minutes: int = int(os.getenv("MAPPING_CACHE_INTERVAL_MINUTES", "30"))
-    
+
     # Index filtering settings
     filter_system_indices: bool = os.getenv("ELASTICSEARCH_FILTER_SYSTEM_INDICES", "true").lower() == "true"
     filter_monitoring_indices: bool = os.getenv("ELASTICSEARCH_FILTER_MONITORING_INDICES", "true").lower() == "true"
     filter_closed_indices: bool = os.getenv("ELASTICSEARCH_FILTER_CLOSED_INDICES", "true").lower() == "true"
     show_data_streams: bool = os.getenv("ELASTICSEARCH_SHOW_DATA_STREAMS", "true").lower() == "true"
-    
+
     # Pydantic v2 configuration style
     model_config = SettingsConfigDict(env_file=".env")
 
