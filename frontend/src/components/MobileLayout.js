@@ -9,6 +9,8 @@ const MobileLayout = ({
   proxyHealth,
   renderHealthIcon,
   checkBackendHealth,
+  getTooltipContent,
+  enhancedAvailable,
   selectedProvider,
   setSelectedProvider,
   providers,
@@ -31,7 +33,12 @@ const MobileLayout = ({
         <div className="flex items-center justify-between h-16 px-4">
           <div className="flex items-center">
             <Database className="h-6 w-6 text-blue-600 mr-2" />
-            <h1 className="text-lg font-semibold text-gray-900">ES AI Assistant</h1>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg font-semibold text-gray-900">ES AI Assistant</h1>
+              {enhancedAvailable && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Enhanced</span>
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             {/* Health indicators - compact for mobile */}
@@ -132,11 +139,14 @@ const MobileLayout = ({
       <header className="bg-white shadow-sm border-b border-gray-200 hidden lg:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
+              <div className="flex items-center">
               <Database className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-xl font-semibold text-gray-900">
-                Elasticsearch AI Assistant
-              </h1>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-xl font-semibold text-gray-900">Elasticsearch AI Assistant</h1>
+                {enhancedAvailable && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Enhanced</span>
+                )}
+              </div>
             </div>
             
             {/* Desktop Navigation */}
