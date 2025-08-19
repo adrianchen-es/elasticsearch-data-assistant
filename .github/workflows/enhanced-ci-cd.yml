@@ -66,7 +66,7 @@ jobs:
           # fi
           
           # Internal IP addresses (exclude test fixtures)
-          if grep -r -E "(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" --include="*.js" --include="*.py" --include="*.yml" --include="*.yaml" --exclude-dir=node_modules --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
+          if grep -r -E '\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b' --include="*.js" --include="*.py" --include="*.json" --exclude-dir={test,tests,__tests__} --exclude-dir=.github .; then
             VIOLATIONS+=("⚠️ WARNING: Internal IP addresses found - ensure these are not production IPs")
           fi
           
