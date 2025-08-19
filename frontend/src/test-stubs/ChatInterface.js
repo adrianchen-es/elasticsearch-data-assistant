@@ -13,9 +13,13 @@ const ChatInterface = ({ selectedProvider, selectedIndex, setSelectedIndex }) =>
     const data = await resp.json();
     setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
     // simulate regenerate call and attach meta.query_id on failure
-    setIsBackgroundSearch(true);
-    const regen = await fetch('/api/query/regenerate', { method: 'POST' });
-    const regenData = await regen.json();
+  setIsBackgroundSearch(true);
+  // ensure the background indicator is renderable for tests by
+  // yielding to the event loop briefly before continuing with the
+  // regenerate request so tests can observe the indicator.
+  await new Promise((r) => setTimeout(r, 20));
+  const regen = await fetch('/api/query/regenerate', { method: 'POST' });
+  const regenData = await regen.json();
     if (regenData.raw_results && regenData.raw_results.error) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Generated query execution failed (query id: ${regenData.query_id}). Click View Details to inspect.`, meta: { query_id: regenData.query_id } }]);
     }

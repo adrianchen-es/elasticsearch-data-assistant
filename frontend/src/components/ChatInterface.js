@@ -222,10 +222,11 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   
   // Load settings on mount and fetch indices if in elasticsearch mode
   useEffect(() => {
-    // Validate storage data first
-    validateStorageData();
+  // Validate storage data first
+  // eslint-disable-next-line no-use-before-define
+  validateStorageData();
     
-    loadSettings();
+  loadSettings();
     const conversation = loadConversationFromStorage();
     if (conversation) {
       setMessages(conversation.messages || []);

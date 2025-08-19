@@ -1,6 +1,6 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
@@ -12,7 +12,8 @@ import MobileLayout from './components/MobileLayout';
 function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
-  const [indices, setIndices] = useState([]);
+  // indices and selectedIndex are managed in child components; keep local placeholders
+  const [indices] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState('');
 
   const [providers, setProviders] = useState([
@@ -197,7 +198,8 @@ function App() {
       }
     })();
     
-  // Initial health checks (will use cache if available)
+    // Initial health checks (will use cache if available)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   checkAllHealth();
     
     // Set up periodic health checks every 30 seconds

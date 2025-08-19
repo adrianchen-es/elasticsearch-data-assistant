@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Check, X, Copy, RefreshCw } from 'lucide-react';
-import ReactJson from 'react-json-view';
+import { Play, Check, X, Copy } from 'lucide-react';
 import { IndexSelector, TierSelector } from './Selectors';
 
 const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
@@ -154,17 +153,22 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
           </div>
         </div>
 
-        <div className="flex-1 border rounded-lg overflow-hidden">
-          <ReactJson
-            src={query}
-            theme="github"
-            onEdit={handleQueryChange}
-            onAdd={handleQueryChange}
-            onDelete={handleQueryChange}
-            displayDataTypes={false}
-            displayObjectSize={false}
-            collapsed={false}
-            style={{ height: '100%', overflow: 'auto', padding: '16px' }}
+        <div className="flex-1 border rounded-lg overflow-hidden p-2">
+          <textarea
+            aria-label="query-editor"
+            value={JSON.stringify(query, null, 2)}
+            onChange={(e) => {
+              try {
+                const parsed = JSON.parse(e.target.value);
+                setQuery(parsed);
+                setValidationStatus(null);
+                setResults(null);
+                setError(null);
+              } catch (err) {
+                // ignore parse errors while typing
+              }
+            }}
+            className="w-full h-64 font-mono text-sm p-2"
           />
         </div>
 
@@ -185,13 +189,7 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
               <div className="mb-4 text-sm text-gray-600">
                 Found {results.hits?.total?.value || 0} results in {results.took}ms
               </div>
-              <ReactJson
-                src={results}
-                theme="github"
-                collapsed={2}
-                displayDataTypes={false}
-                displayObjectSize={false}
-              />
+              <pre className="text-sm overflow-auto whitespace-pre-wrap">{JSON.stringify(results, null, 2)}</pre>
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
