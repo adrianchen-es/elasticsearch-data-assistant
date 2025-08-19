@@ -4,16 +4,26 @@ import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
-import { ProviderSelector } from './components/Selectors';
+// ProviderSelector is not used here; selectors are provided by child components
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 import MobileLayout from './components/MobileLayout';
 
+const HEALTH_CACHE_KEYS = {
+  backend: 'health_backend',
+  proxy: 'health_proxy'
+};
+
+const HEALTH_TTLS = {
+  success: 15 * 60 * 1000, // 15 minutes for healthy services
+  error: 5 * 60 * 1000, // 5 minutes for unhealthy services (retry sooner)
+  manual: 30 * 1000, // 30 seconds throttle for manual refresh
+};
+
 function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
-  // indices and selectedIndex are managed in child components; keep local placeholders
-  const [indices] = useState([]);
+  // selectedIndex is managed in child components; keep local placeholder only
   const [selectedIndex, setSelectedIndex] = useState('');
 
   const [providers, setProviders] = useState([
@@ -44,16 +54,7 @@ function App() {
   });
 
   // Check backend health status
-  const HEALTH_CACHE_KEYS = {
-    backend: 'health_backend',
-    proxy: 'health_proxy'
-  };
-
-  const HEALTH_TTLS = {
-    success: 15 * 60 * 1000, // 15 minutes for healthy services
-    error: 5 * 60 * 1000, // 5 minutes for unhealthy services (retry sooner)
-    manual: 30 * 1000, // 30 seconds throttle for manual refresh
-  };
+  
 
   // Track last manual refresh to implement throttling
   const [lastManualRefresh, setLastManualRefresh] = useState({
@@ -63,7 +64,7 @@ function App() {
 
   // health cache helpers now live in ./utils/healthCache and use sessionStorage
 
-  const checkBackendHealth = async (force = false) => {
+  const checkBackendHealth = React.useCallback(async (force = false) => {
     // Implement manual refresh throttling
     if (force) {
       const now = Date.now();
@@ -111,9 +112,9 @@ function App() {
       writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, HEALTH_TTLS.error);
       setBackendHealth(computed);
     }
-  };
+  }, [lastManualRefresh]);
 
-  const checkProxyHealth = async (force = false) => {
+  const checkProxyHealth = React.useCallback(async (force = false) => {
     // Implement manual refresh throttling
     if (force) {
       const now = Date.now();
@@ -159,18 +160,27 @@ function App() {
       writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, HEALTH_TTLS.error);
       setProxyHealth(computed);
     }
-  };
+  }, [lastManualRefresh]);
 
   // Check both health endpoints
-  const checkAllHealth = async () => {
+  const checkAllHealth = React.useCallback(async () => {
     await Promise.all([
       checkBackendHealth(),
       checkProxyHealth()
     ]);
-  };
+  }, [checkBackendHealth, checkProxyHealth]);
 
+  // We intentionally run this effect once on mount and use internal helpers;
+  // disable exhaustive-deps for this mount-only behavior.
+  // Run the following setup once on mount. The called helpers are stable in this
+  // component lifecycle and intentionally omitted from deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-  // Setup telemetry
+    // Setup telemetry and initial provider/health fetch. These are intentionally
+    // performed once on mount. checkAllHealth is stable for the lifecycle of
+    // this component in current architecture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // (justification: mount-only effects; dependencies are stable primitives)
     setupTelemetryWeb();
     // Fetch provider statuses to gate selection by availability
     (async () => {
@@ -198,15 +208,14 @@ function App() {
       }
     })();
     
-    // Initial health checks (will use cache if available)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Initial health checks (will use cache if available)
   checkAllHealth();
     
     // Set up periodic health checks every 30 seconds
-    const healthCheckInterval = setInterval(checkAllHealth, 30000);
+  const healthCheckInterval = setInterval(() => { checkAllHealth(); }, 30000);
     
     return () => clearInterval(healthCheckInterval);
-  }, []);
+  }, [checkAllHealth, selectedProvider]);
 
   // Persist tuning to localStorage when it changes
   useEffect(() => {

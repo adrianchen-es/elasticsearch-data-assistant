@@ -88,6 +88,8 @@ export const setupTelemetryWeb = () => {
     const userInteractionCounter = meter.createCounter('user_interaction_count', {
       description: 'Count of user interactions by type (labelled)'
     });
+    // Counter for fetch errors (not referenced yet by code paths below)
+    // eslint-disable-next-line no-unused-vars
     const fetchErrorCounter = meter.createCounter('fetch_error_count', {
       description: 'Count of fetch errors from frontend requests'
     });
@@ -142,8 +144,9 @@ export const setupTelemetryWeb = () => {
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
               //span.updateName('Document Load');
-              try {
-                const loadEvent = (performance && performance.timing) || {};
+                try {
+                  // eslint-disable-next-line no-unused-vars
+                  const loadEvent = (performance && performance.timing) || {};
                 // record a coarse load indicator (not granular timings here)
                 span.setAttribute('document.visibilityState', document.visibilityState || 'unknown');
                 // keep the resource size trimmed if present

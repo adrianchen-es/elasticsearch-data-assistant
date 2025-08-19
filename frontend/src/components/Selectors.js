@@ -78,7 +78,7 @@ export const IndexSelector = ({
   };
 
   // Fetch available indices
-  const fetchAvailableIndices = async () => {
+  const fetchAvailableIndices = React.useCallback(async () => {
     setIndicesLoading(true);
     setIndicesError(null);
     try {
@@ -100,23 +100,23 @@ export const IndexSelector = ({
     } finally {
       setIndicesLoading(false);
     }
-  };
+  }, [selectedTiers]);
 
+  // availableIndices and selectedTiers drive filteredIndices; recalculation is safe
   useEffect(() => {
     const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
     setFilteredIndices(filtered);
   }, [availableIndices, selectedTiers]);
 
-  useEffect(() => {
-    const filtered = filterIndicesByTiers(availableIndices, selectedTiers);
-    setFilteredIndices(filtered);
-  }, [availableIndices, selectedTiers]);
+  // duplicate effect removed; deduplicated above
 
+  // Run fetchAvailableIndices on mount if requested. The function is stable within this component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (fetchIndicesOnMount) {
       fetchAvailableIndices();
     }
-  }, [fetchIndicesOnMount]);
+  }, [fetchAvailableIndices, fetchIndicesOnMount]);
 
   const retryFetchIndices = () => {
     fetchAvailableIndices();

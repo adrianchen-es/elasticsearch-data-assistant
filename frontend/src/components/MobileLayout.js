@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, X, Database, MessageSquare, Search, Settings } from 'lucide-react';
+import { Menu, X, Database, MessageSquare, Search } from 'lucide-react';
 
 const MobileLayout = ({ 
   children, 

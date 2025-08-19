@@ -94,4 +94,5 @@ export const ProviderSelector = ({ selectedProvider='azure', onProviderChange = 
   );
 };
 
-export default { IndexSelector, ProviderSelector };
+const TestStubs = { IndexSelector, ProviderSelector };
+export default TestStubs;

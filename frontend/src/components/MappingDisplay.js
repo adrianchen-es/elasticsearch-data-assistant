@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
 const MappingDisplay = ({ mapping, indexName }) => {
@@ -103,20 +103,7 @@ const MappingDisplay = ({ mapping, indexName }) => {
     return colors[type] || 'bg-gray-100 text-gray-800';
   };
 
-  const groupByParent = (fields) => {
-    const groups = {};
-    fields.forEach(field => {
-      const parts = field.path.split('.');
-      const parentPath = parts.slice(0, -1).join('.');
-      const level = parts.length - 1;
-      
-      if (!groups[parentPath]) {
-        groups[parentPath] = [];
-      }
-      groups[parentPath].push({ ...field, level });
-    });
-    return groups;
-  };
+  // groupByParent helper removed; not used in current render
 
   const renderField = (field) => {
     const hasChildren = mappingFields.some(f => 

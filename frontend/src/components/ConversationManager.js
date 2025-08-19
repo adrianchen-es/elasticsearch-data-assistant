@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Plus, Trash2, Star, Archive } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Star } from 'lucide-react';
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'elasticsearch_chat_conversations',

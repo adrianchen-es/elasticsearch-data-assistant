@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Play, Check, X, Copy } from 'lucide-react';
 import { IndexSelector, TierSelector } from './Selectors';
 
@@ -73,12 +73,7 @@ const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
     }
   };
 
-  const handleQueryChange = (edit) => {
-    setQuery(edit.updated_src);
-    setValidationStatus(null);
-    setResults(null);
-    setError(null);
-  };
+  // handleQueryChange removed (previously used by react-json-view)
 
   const copyQuery = () => {
     navigator.clipboard.writeText(JSON.stringify(query, null, 2));

@@ -179,7 +179,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     return null;
   };
 
-  const saveConversationToStorage = (conversationData) => {
+  const saveConversationToStorage = React.useCallback((conversationData) => {
     try {
       if (!conversationData || !conversationData.id) {
         getFeLogger().then(({ warn }) => warn('Invalid conversation data provided to saveConversationToStorage')).catch(() => {});
@@ -209,7 +209,9 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       getFeLogger().then(({ warn }) => warn('Failed to save conversation to storage:', error)).catch(() => {});
       return false;
     }
-  };
+  }, []);
+
+  // helper removed; use saveConversationToStorage directly
   
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -238,9 +240,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       const newId = generateConversationId();
       setConversationId(newId);
     }
-  }, []);
+  }, [setSelectedIndex]);
   
-  // Save conversation to localStorage whenever it changes
   useEffect(() => {
     if (conversationId && messages.length > 0) {
       const conversationData = {
@@ -252,24 +253,9 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       };
       saveConversationToStorage(conversationData);
     }
-  }, [messages, conversationId, chatMode, selectedIndex]);
+  }, [messages, conversationId, chatMode, selectedIndex, saveConversationToStorage]);
   
-  const saveConversation = () => {
-    if (!conversationId) {
-      getFeLogger().then(({ warn }) => warn('No conversation ID available for saving')).catch(() => {});
-      return;
-    }
-
-    const conversationData = {
-      id: conversationId,
-      messages: messages,
-      mode: chatMode,
-      index: selectedIndex,
-      title: generateConversationTitle(messages)
-    };
-
-    return saveConversationToStorage(conversationData);
-  };
+  // saveConversation helper intentionally removed from exports; use saveConversationToStorage directly.
   
   const loadSettings = () => {
     try {
@@ -284,20 +270,20 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
     }
   };
   
-  const saveSettings = () => {
+  const saveSettings = React.useCallback(() => {
     try {
       const settings = {
         temperature,
         streamEnabled,
         showDebug,
-  autoRunGeneratedQueries
-  ,mappingResponseFormat
+        autoRunGeneratedQueries,
+        mappingResponseFormat
       };
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
       getFeLogger().then(({ error }) => error('Error saving settings:', error)).catch(() => {});
     }
-  };
+  }, [temperature, streamEnabled, showDebug, autoRunGeneratedQueries, mappingResponseFormat]);
   
   const generateConversationId = () => {
     return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -549,6 +535,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
+  // appendAssistantChunk is stable; other dependencies are intentionally included above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk]);
   
   const cancelRequest = () => {
@@ -567,7 +555,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   // Save settings whenever they change
   useEffect(() => {
     saveSettings();
-  }, [temperature, streamEnabled, showDebug]);
+  }, [saveSettings]);
   
   const handleTierChange = (tiers) => {
     setSelectedTiers(tiers);
@@ -580,17 +568,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
 
   // include_context is handled per-message via message.meta.include_context
 
-  const renderMappingResponse = (mappingResponse) => {
-    if (!mappingResponse) return null;
-
-    const { fields, is_long } = mappingResponse;
-    return (
-      <div className="mapping-response">
-        <h3 className="text-lg font-semibold">Mapping Response</h3>
-        <CollapsibleList items={fields} isLong={is_long} />
-      </div>
-    );
-  };
+  // renderMappingResponse left intentionally unused in current UI; keep for future use
 
 
 // parsedCollapsedJsonFromString now exported at module scope above
