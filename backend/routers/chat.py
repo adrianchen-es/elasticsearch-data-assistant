@@ -10,6 +10,7 @@ import time
 import uuid
 import logging
 from services.ai_service import AIService, TokenLimitError
+from services.security_service import SecurityService, ThreatLevel
 from utils.mapping_utils import normalize_mapping_data, extract_mapping_info, format_mapping_summary
 import re
 
@@ -38,32 +39,6 @@ def _is_mapping_request(messages: List[ChatMessage]) -> bool:
         text = str(messages[-1].content)
     lowered = text.lower()
     return any(k in lowered for k in MAPPING_KEYWORDS)
-
-
-_SENSITIVE_PATTERNS = [
-    re.compile(r"(?i)api[_-]?key\s*[:=]\s*\S+"),
-    re.compile(r"(?i)authorization:\s*bearer\s+[A-Za-z0-9\-\._~\+/]+=*"),
-    re.compile(r"(?i)password\s*[:=]\s*\S+"),
-    re.compile(r"(?i)secret\s*[:=]\s*\S+"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS Access Key ID
-    re.compile(r"(?i)token\s*[:=]\s*[A-Za-z0-9\-\._~\+/]+=*")
-]
-
-
-def _detect_sensitive_indicators(messages: List[ChatMessage]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    try:
-        for m in messages or []:
-            text = m.content if isinstance(m.content, str) else json.dumps(m.content)
-            for pat in _SENSITIVE_PATTERNS:
-                for _ in pat.finditer(text or ""):
-                    key = pat.pattern[:24]  # short key for aggregation only
-                    counts[key] = counts.get(key, 0) + 1
-    except Exception:
-        # best-effort, never fail chat on detection issues
-        return counts
-    return counts
-
 
 def _filter_messages_for_context(messages: List[ChatMessage]) -> List[Dict[str, Any]]:
     """Filter messages for LLM context building.
@@ -409,22 +384,35 @@ async def chat_endpoint(req: ChatRequest, app_request: Request, response: Respon
         except Exception:
             pass
         try:
-            # Get services from app.state
+            # Get services from app.state (or dependency injection container)
             ai_service = app_request.app.state.ai_service
             _es_service = app_request.app.state.es_service
             mapping_cache_service = app_request.app.state.mapping_cache_service
+            security_service = getattr(app_request.app.state, 'security_service', SecurityService())
 
             # Generate conversation ID if not provided
             conversation_id = req.conversation_id or str(uuid.uuid4())
             chat_span.set_attribute("chat.conversation_id_generated", conversation_id)
 
-            # Best-effort exfiltration indicator detection (never store raw values)
-            indicators = _detect_sensitive_indicators(req.messages)
-            if indicators:
+            # Enhanced security threat detection
+            security_results = security_service.detect_threats(req.messages)
+            if security_results and security_results.threats_detected:
+                # Calculate threat level from detected threats
+                threat_levels = [threat.threat_level for threat in security_results.threats_detected]
+                highest_threat = max(threat_levels, key=lambda x: ['low', 'medium', 'high', 'critical'].index(x.value))
+                
+                # Group threats by type
+                threat_types = [threat.threat_type for threat in security_results.threats_detected]
+                
                 chat_span.set_attribute("security.exfiltration_suspected", True)
-                chat_span.add_event("exfiltration_indicators_detected", attributes={
-                    "indicator_types": list(indicators.keys()),
-                    "indicator_count_total": sum(indicators.values())
+                chat_span.set_attribute("security.threat_level", highest_threat.value)
+                chat_span.set_attribute("security.risk_score", security_results.risk_score)
+                chat_span.set_attribute("security.threat_count", len(security_results.threats_detected))
+                chat_span.add_event("security_threats_detected", attributes={
+                    "threat_types": threat_types,
+                    "threat_count_total": len(security_results.threats_detected),
+                    "highest_threat_level": highest_threat.value,
+                    "risk_score": security_results.risk_score
                 })
             else:
                 chat_span.set_attribute("security.exfiltration_suspected", False)

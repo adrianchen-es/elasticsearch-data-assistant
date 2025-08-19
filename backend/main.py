@@ -13,6 +13,8 @@ from opentelemetry.context import set_value, get_current
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
 from services.ai_service import AIService
+from services.security_service import SecurityService
+from services.container import ServiceContainer
 from config.settings import settings
 from routers import chat, query, health, providers
 from contextlib import asynccontextmanager, contextmanager
@@ -324,6 +326,56 @@ async def _initialize_core_services():
             logger.error(f"❌ Core services initialization failed: {e}")
             raise
 
+async def _setup_service_container(es_service, ai_service, mapping_cache_service):
+    """Setup dependency injection container with all services"""
+    local_tracer = trace.get_tracer(__name__ + ".internal")
+    with local_tracer.start_as_current_span("service_container_setup") as container_span:
+        logger.info("📦 Setting up service container...")
+        
+        try:
+            container = ServiceContainer()
+            
+            # Register existing services
+            container.register("es_service", lambda: es_service)
+            container.register("ai_service", lambda: ai_service)
+            container.register("mapping_cache_service", lambda: mapping_cache_service)
+            
+            # Register new security service
+            def security_service_factory():
+                return SecurityService()
+            container.register("security_service", security_service_factory)
+            
+            # Register enhanced search service if available
+            try:
+                from services.enhanced_search_service import EnhancedSearchService
+                def enhanced_search_factory():
+                    return EnhancedSearchService(
+                        container.get("es_service"),
+                        container.get("ai_service")
+                    )
+                container.register("enhanced_search_service", enhanced_search_factory, 
+                                 dependencies=["es_service", "ai_service"])
+                logger.info("🧠 EnhancedSearchService registered in container")
+            except Exception as e:
+                logger.warning(f"EnhancedSearchService not available: {e}")
+            
+            # Initialize all services in dependency order
+            await container.initialize_async()
+            
+            container_span.set_attributes({
+                "services_registered": len(container._services),
+                "success": True
+            })
+            
+            logger.info(f"✅ Service container initialized with {len(container._services)} services")
+            return container
+            
+        except Exception as e:
+            container_span.record_exception(e)
+            container_span.set_status(status=(StatusCode.ERROR), description=str(e))
+            logger.error(f"❌ Service container setup failed: {e}")
+            raise
+
 async def _setup_background_tasks(mapping_cache_service, app_state):
     """Setup and start background tasks with tracing"""
     local_tracer = trace.get_tracer(__name__ + ".internal")
@@ -393,20 +445,36 @@ async def lifespan(app: FastAPI):
                     "total_services_time": sum(service_timings.values())
                 })
 
-            # Store services in app state - separate span
+            # Setup dependency injection container
+            with _start_span_safe("lifespan_container_setup", parent=startup_span) as container_init_span:
+                container = await _setup_service_container(es_service, ai_service, mapping_cache_service)
+                container_init_span.set_attributes({
+                    "container_services": len(container._services),
+                    "success": True
+                })
+
+            # Store services in app state - separate span (backward compatibility)
             # Use the safe starter to honor test mocks and explicitly set the
             # startup span as the parent so tests can assert parent relationships.
             with _start_span_safe("lifespan_app_state_setup", parent=startup_span) as state_span:
                 logger.info("🏪 Storing services in application state...")
+                
+                # Store container for new dependency injection approach
+                app.state.container = container
+                
+                # Keep existing app.state assignments for backward compatibility
                 app.state.es_service = es_service
                 app.state.ai_service = ai_service
-                try:
-                    from services.enhanced_search_service import EnhancedSearchService
-                    app.state.enhanced_search_service = EnhancedSearchService(es_service, ai_service)
-                    logger.info("🧠 EnhancedSearchService initialized and attached to app state")
-                except Exception as e:
-                    logger.warning(f"EnhancedSearchService not available: {e}")
                 app.state.mapping_cache_service = mapping_cache_service
+                
+                # Get services from container for consistency
+                app.state.security_service = container.get("security_service")
+                
+                try:
+                    app.state.enhanced_search_service = container.get("enhanced_search_service")
+                    logger.info("🧠 EnhancedSearchService retrieved from container")
+                except Exception as e:
+                    logger.warning(f"EnhancedSearchService not available in container: {e}")
                 # Initialize health check cache
                 logger.info("🏥 Initializing health check cache...")
                 app.state.health_cache = {
@@ -455,7 +523,8 @@ async def lifespan(app: FastAPI):
                             delattr(app.state, 'redis')
                 logger.info("✅ Health check cache initialized with 30s TTL")
                 state_span.set_attributes({
-                    "app_state_components": 4,  # es_service, ai_service, mapping_cache_service, health_cache
+                    "app_state_components": 5,  # es_service, ai_service, mapping_cache_service, security_service, health_cache
+                    "container_services": len(container._services),
                     "health_cache_ttl": 30
                 })
 
