@@ -345,18 +345,15 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
             container.register("security_service", security_service_factory)
             
             # Register query executor service
-            async def query_executor_factory():
+            async def query_executor_factory(es_service, security_service):
                 from services.query_executor import QueryExecutor
-                es_service = await container.get("es_service")
-                security_service = await container.get("security_service")
                 return QueryExecutor(es_service, security_service)
             container.register("query_executor", query_executor_factory, 
                              dependencies=["es_service", "security_service"])
             
             # Create enhanced AI service with query executor
-            async def enhanced_ai_service_factory():
+            async def enhanced_ai_service_factory(query_executor):
                 # Create a new AI service instance with query executor
-                query_executor = await container.get("query_executor")
                 enhanced_ai = AIService(
                     azure_api_key=ai_service.azure_api_key,
                     azure_endpoint=ai_service.azure_endpoint,
@@ -376,9 +373,7 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
             # Register enhanced search service if available
             try:
                 from services.enhanced_search_service import EnhancedSearchService
-                async def enhanced_search_factory():
-                    es_service = await container.get("es_service")
-                    ai_service = await container.get("ai_service")
+                async def enhanced_search_factory(es_service, ai_service):
                     return EnhancedSearchService(es_service, ai_service)
                 container.register("enhanced_search_service", enhanced_search_factory, 
                                  dependencies=["es_service", "ai_service"])
