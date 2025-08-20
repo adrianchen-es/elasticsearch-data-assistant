@@ -77,6 +77,8 @@ class MappingCacheService:
                 self._last_refresh_time = 0
                 self._min_refresh_interval = float(os.getenv("MIN_REFRESH_INTERVAL", "60"))  # seconds
                 self._concurrent_requests = {}  # Deduplication for concurrent requests
+                # Short-lived indices cache to reduce repeated ES calls
+                self._indices_cache = {"timestamp": 0, "indices": []}
 
                 # Initialization status tracking
                 self._initialization_status = {
@@ -614,14 +616,29 @@ class MappingCacheService:
         """Get list of available indices"""
         with tracer.start_as_current_span('mapping_cache.get_available_indices'):
             try:
-                # Try to get from cache first
+                # Prefer cached mappings if available
                 if self._mappings:
                     self.cache_hits.add(1)
                     return list(self._mappings.keys())
 
-                # If cache is empty, fetch from Elasticsearch
+                # Use short-lived indices cache to avoid hammering ES
+                now = time.time()
+                ttl = float(os.getenv("INDICES_TTL_SECONDS", "5"))
+                if now - self._indices_cache.get("timestamp", 0) < ttl and self._indices_cache.get("indices"):
+                    self.cache_hits.add(1)
+                    return list(self._indices_cache.get("indices", []))
+
+                # If cache is empty or expired, fetch from Elasticsearch
                 self.cache_misses.add(1)
                 indices = await self.es.list_indices()
+                # update indices cache
+                try:
+                    self._indices_cache["indices"] = list(indices)
+                    self._indices_cache["timestamp"] = now
+                except Exception:
+                    self._indices_cache["indices"] = []
+                    self._indices_cache["timestamp"] = 0
+
                 return indices
             except Exception as e:
                 logger.error(f"Error getting available indices: {e}")
@@ -737,9 +754,22 @@ class MappingCacheService:
 
     # --- JSON Schema builders ---
     def _build_json_schema_for_index(self, index: str, mapping: Dict[str, Any]) -> Dict[str, Any]:
-        # mapping structure: { index: { 'mappings': { 'properties': {...} } } }
-        index_body = mapping.get(index) or next(iter(mapping.values()), {})
-        props = (index_body.get('mappings') or {}).get('properties', {})
+        # mapping can be returned in different shapes depending on ES client/version
+        # Common form: { index: { 'mappings': { 'properties': {...} } } }
+        props = {}
+        try:
+            if isinstance(mapping, dict) and index in mapping:
+                index_body = mapping.get(index, {}) or {}
+            elif isinstance(mapping, dict) and mapping:
+                # Some clients return {index: {...}} while others return {<type>: {...}}
+                index_body = next(iter(mapping.values())) or {}
+            else:
+                index_body = mapping or {}
+
+            mappings = index_body.get('mappings') if isinstance(index_body, dict) else {}
+            props = (mappings or {}).get('properties', {}) or {}
+        except Exception:
+            props = {}
         schema_props = self._convert_properties(props)
         return {
             '$schema': 'https://json-schema.org/draft/2020-12/schema',

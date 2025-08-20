@@ -73,12 +73,26 @@ class ServiceContainer:
             
             # Create instance using factory or constructor
             if config.factory:
+                # Factory may be sync or async
                 if asyncio.iscoroutinefunction(config.factory):
                     instance = await config.factory(**resolved_deps)
                 else:
-                    instance = config.factory(**resolved_deps)
+                    maybe = config.factory(**resolved_deps)
+                    # If factory returned a coroutine, await it
+                    if asyncio.iscoroutine(maybe):
+                        instance = await maybe
+                    else:
+                        instance = maybe
             else:
-                instance = config.implementation(**resolved_deps)
+                # implementation may be a constructor or an async factory function
+                if asyncio.iscoroutinefunction(config.implementation):
+                    instance = await config.implementation(**resolved_deps)
+                else:
+                    maybe = config.implementation(**resolved_deps)
+                    if asyncio.iscoroutine(maybe):
+                        instance = await maybe
+                    else:
+                        instance = maybe
             
             logger.debug(f"Created instance of {config.name}")
             return instance
