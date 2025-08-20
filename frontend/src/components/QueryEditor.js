@@ -1,6 +1,4 @@
-import React, { useState } from 'react';
-import { Play, Check, X, Copy } from 'lucide-react';
-import { IndexSelector, TierSelector } from './Selectors';
+export { default } from './QueryEditor.jsx';
 
 const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [query, setQuery] = useState({

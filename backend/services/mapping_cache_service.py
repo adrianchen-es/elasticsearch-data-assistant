@@ -623,7 +623,7 @@ class MappingCacheService:
 
                 # Use short-lived indices cache to avoid hammering ES
                 now = time.time()
-                ttl = float(os.getenv("INDICES_TTL_SECONDS", "5"))
+                ttl = float(os.getenv("INDICES_TTL_SECONDS", "60"))
                 if now - self._indices_cache.get("timestamp", 0) < ttl and self._indices_cache.get("indices"):
                     self.cache_hits.add(1)
                     return list(self._indices_cache.get("indices", []))

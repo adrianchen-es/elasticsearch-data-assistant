@@ -9,8 +9,10 @@ export default function ExecutedQueriesSection({ queries }) {
     <div className="mt-3 border border-blue-200 rounded-lg bg-blue-50">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded); } }}
         className="w-full px-3 py-2 text-left text-sm font-medium text-blue-800 hover:bg-blue-100 rounded-t-lg flex items-center justify-between"
         aria-expanded={isExpanded}
+        aria-controls="executed-queries-panel"
       >
         <span className="flex items-center">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -29,7 +31,7 @@ export default function ExecutedQueriesSection({ queries }) {
       </button>
 
       {isExpanded && (
-        <div className="px-3 pb-3">
+        <div id="executed-queries-panel" className="px-3 pb-3" role="region" aria-live="polite">
           {queries.map((queryResult, index) => (
             <div key={index} className="mt-2 border border-gray-200 rounded bg-white">
               <div className="px-3 py-2 bg-gray-50 border-b text-xs font-medium text-gray-600 flex items-center">
