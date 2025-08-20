@@ -14,9 +14,12 @@ const categorize = (indices) => {
 };
 
 export const IndexSelector = ({ selectedIndex = '', onIndexChange = () => {}, variant = 'default', showLabel = true, showStatus = false }) => {
-  const [indices, setIndices] = useState([]);
-  const [filtered, setFiltered] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // Prefer synchronous initialization for tests that provide window.__TEST_INDICES__
+  const testProvided = (typeof window !== 'undefined' && Array.isArray(window.__TEST_INDICES__));
+  const initialCats = testProvided ? categorize(window.__TEST_INDICES__) : [];
+  const [indices, setIndices] = useState(initialCats);
+  const [filtered, setFiltered] = useState(initialCats);
+  const [loading, setLoading] = useState(!testProvided);
   const [error, setError] = useState(null);
   const [tierFilter, setTierFilter] = useState('all');
 
@@ -24,12 +27,8 @@ export const IndexSelector = ({ selectedIndex = '', onIndexChange = () => {}, va
     setLoading(true);
     setError(null);
     try {
-      // If tests provide synchronous indices via window.__TEST_INDICES__, use that to avoid timing issues
-      if (typeof window !== 'undefined' && Array.isArray(window.__TEST_INDICES__)) {
-        const cats = categorize(window.__TEST_INDICES__);
-        setIndices(cats);
-        setFiltered(cats);
-      } else {
+      // If tests provide synchronous indices via window.__TEST_INDICES__, we've already initialized state.
+      if (!(typeof window !== 'undefined' && Array.isArray(window.__TEST_INDICES__))) {
         const resp = await fetch('/api/indices');
         if (!resp.ok) throw new Error('fetch failed');
         const data = await resp.json();

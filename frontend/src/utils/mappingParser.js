@@ -4,33 +4,30 @@ import { normalizeMapping } from './mappingNormalizer';
 export function parseCollapsedMapping(text) {
   if (!text || typeof text !== 'string') return null;
 
+  // Support two formats:
+  // 1) [COLLAPSED_MAPPING_JSON]...[/COLLAPSED_MAPPING_JSON]
+  // 2) Plain fenced code block containing JSON (```json ... ```)
+
+  let payload = text;
   const marker = '[COLLAPSED_MAPPING_JSON]';
   const start = text.indexOf(marker);
-  if (start === -1) return null;
-  let payload = text.slice(start + marker.length);
-
-  // If there's an ending marker, cut there
-  const endMarker = '[/COLLAPSED_MAPPING_JSON]';
-  const end = payload.indexOf(endMarker);
-  if (end !== -1) payload = payload.slice(0, end);
-
-  // Trim and remove triple-backtick fences if present
-  payload = payload.trim();
-  // Remove surrounding ```json or ``` fences
-  if (payload.startsWith('```')) {
-    // remove leading ```...\n
-    const firstLineBreak = payload.indexOf('\n');
-    if (firstLineBreak !== -1) {
-      payload = payload.slice(firstLineBreak + 1);
-    } else {
-      // single-line fence, strip it
-      payload = payload.replace(/^```+/, '').replace(/```+$/, '').trim();
-    }
+  if (start !== -1) {
+    payload = text.slice(start + marker.length);
+    const endMarker = '[/COLLAPSED_MAPPING_JSON]';
+    const end = payload.indexOf(endMarker);
+    if (end !== -1) payload = payload.slice(0, end);
   }
 
-  if (payload.endsWith('```')) {
-    // strip trailing fence
-    payload = payload.replace(/```+$/g, '').trim();
+  // Trim and remove any surrounding fences; allow multiple fences and language hints
+  payload = payload.trim();
+  // Remove multiple leading fences and optional language hint like ```json
+  payload = payload.replace(/^(```+\s*[a-zA-Z0-9-_]*\s*\n)+/g, '');
+  // Remove multiple trailing fences
+  payload = payload.replace(/(\n\s*```+\s*)+$/g, '');
+  payload = payload.trim();
+  // If payload is a single-line fenced block like ```{"a":1}``` remove inline fences
+  if (payload.startsWith('```') && payload.indexOf('\n') === -1) {
+    payload = payload.replace(/^```+\s*/g, '').replace(/\s*```+$/g, '').trim();
   }
 
   // Some renderers add leading/trailing whitespace or html entities - just try to parse
