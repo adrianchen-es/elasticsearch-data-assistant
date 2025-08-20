@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IndexSelector, TierSelector } from './Selectors';
 import CollapsibleList from './CollapsibleList';
 import MappingDisplay from './MappingDisplay';
+import ExecutedQueriesSection from './ExecutedQueriesSection.jsx';
 // lightweight logger helper to avoid multiple inline dynamic imports
 let feLogger = null;
 const getFeLogger = async () => {
@@ -433,6 +434,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let streamDebugInfo = null;
         
         try {
           while (true) {
@@ -453,8 +455,26 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   } else if (event.type === "error") {
                     setError(event.error?.message || "Streaming error occurred");
                   } else if (event.type === "done") {
-                    // Stream completed successfully
+                    // Stream completed successfully - attach executed queries if available
+                    if (streamDebugInfo && streamDebugInfo.executed_queries) {
+                      setMessages(prev => {
+                        const newMessages = [...prev];
+                        const lastIndex = newMessages.length - 1;
+                        if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
+                          newMessages[lastIndex] = {
+                            ...newMessages[lastIndex],
+                            meta: {
+                              ...newMessages[lastIndex].meta,
+                              executed_queries: streamDebugInfo.executed_queries,
+                              query_execution_metadata: streamDebugInfo.query_execution_metadata
+                            }
+                          };
+                        }
+                        return newMessages;
+                      });
+                    }
                   } else if (event.debug) {
+                    streamDebugInfo = event.debug;
                     setDebugInfo(event.debug);
                   }
                 } catch (parseError) {
@@ -471,7 +491,19 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         const data = await response.json();
         
         if (data.response) {
-          setMessages(prev => [...prev, { role: "assistant", content: data.response }]);
+          const assistantMessage = { 
+            role: "assistant", 
+            content: data.response,
+            meta: {}
+          };
+          
+          // Attach executed queries if available
+          if (data.debug_info && data.debug_info.executed_queries) {
+            assistantMessage.meta.executed_queries = data.debug_info.executed_queries;
+            assistantMessage.meta.query_execution_metadata = data.debug_info.query_execution_metadata;
+          }
+          
+          setMessages(prev => [...prev, assistantMessage]);
         }
         
         if (data.debug_info) {
@@ -822,6 +854,12 @@ function MappingToggleSection({ mapping }) {
                 {message.role === 'user' ? 'You' : 'Assistant'}
               </div>
               <div className="whitespace-pre-wrap prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(message.content) }} />
+              
+              {/* Show executed queries if available */}
+              {message.meta && message.meta.executed_queries && message.meta.executed_queries.length > 0 && (
+                <ExecutedQueriesSection queries={message.meta.executed_queries} />
+              )}
+              
               {message.role === 'user' && (
                 <div className="mt-2 flex items-center space-x-2 text-xs text-gray-700">
                   <label className="flex items-center space-x-1">
