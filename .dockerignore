@@ -1,0 +1,16 @@
+.dockerignore
+/.github
+/node_modules
+/vendor
+.DS_Store
+.git
+.idea
+.editorconfig
+.env*
+.gitattributes
+.gitignore
+.gitlab-ci.yml*
+.php_cs
+.php_cs.cache
+.phpunit.result.cache
+.styleci.yml
