@@ -1,5 +1,4 @@
-export { default } from './QueryEditor.jsx';
-
+/* Removed duplicate default re-export to avoid multiple default exports */
 const QueryEditor = ({ selectedIndex, setSelectedIndex }) => {
   const [query, setQuery] = useState({
     query: {

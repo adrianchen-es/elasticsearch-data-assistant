@@ -1,4 +1,3 @@
-export { default } from './MappingDisplay.jsx';
 import React, { useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
