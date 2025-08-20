@@ -337,7 +337,6 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
             
             # Register existing services
             container.register("es_service", lambda: es_service)
-            container.register("ai_service", lambda: ai_service)
             container.register("mapping_cache_service", lambda: mapping_cache_service)
             
             # Register new security service
@@ -345,14 +344,42 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
                 return SecurityService()
             container.register("security_service", security_service_factory)
             
+            # Register query executor service
+            async def query_executor_factory():
+                from services.query_executor import QueryExecutor
+                es_service = await container.get("es_service")
+                security_service = await container.get("security_service")
+                return QueryExecutor(es_service, security_service)
+            container.register("query_executor", query_executor_factory, 
+                             dependencies=["es_service", "security_service"])
+            
+            # Create enhanced AI service with query executor
+            async def enhanced_ai_service_factory():
+                # Create a new AI service instance with query executor
+                query_executor = await container.get("query_executor")
+                enhanced_ai = AIService(
+                    azure_api_key=ai_service.azure_api_key,
+                    azure_endpoint=ai_service.azure_endpoint,
+                    azure_deployment=ai_service.azure_deployment,
+                    azure_version=ai_service.azure_version,
+                    openai_api_key=ai_service.openai_api_key,
+                    openai_model=ai_service.openai_model,
+                    query_executor=query_executor
+                )
+                return enhanced_ai
+            container.register("enhanced_ai_service", enhanced_ai_service_factory,
+                             dependencies=["query_executor"])
+            
+            # Keep original AI service for backward compatibility
+            container.register("ai_service", lambda: ai_service)
+            
             # Register enhanced search service if available
             try:
                 from services.enhanced_search_service import EnhancedSearchService
-                def enhanced_search_factory():
-                    return EnhancedSearchService(
-                        container.get("es_service"),
-                        container.get("ai_service")
-                    )
+                async def enhanced_search_factory():
+                    es_service = await container.get("es_service")
+                    ai_service = await container.get("ai_service")
+                    return EnhancedSearchService(es_service, ai_service)
                 container.register("enhanced_search_service", enhanced_search_factory, 
                                  dependencies=["es_service", "ai_service"])
                 logger.info("🧠 EnhancedSearchService registered in container")
@@ -360,7 +387,7 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
                 logger.warning(f"EnhancedSearchService not available: {e}")
             
             # Initialize all services in dependency order
-            await container.initialize_async()
+            await container.initialize_all()
             
             container_span.set_attributes({
                 "services_registered": len(container._services),
@@ -469,6 +496,8 @@ async def lifespan(app: FastAPI):
                 
                 # Get services from container for consistency
                 app.state.security_service = container.get("security_service")
+                app.state.query_executor = container.get("query_executor")
+                app.state.enhanced_ai_service = container.get("enhanced_ai_service")
                 
                 try:
                     app.state.enhanced_search_service = container.get("enhanced_search_service")

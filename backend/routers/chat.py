@@ -191,16 +191,18 @@ async def handle_elasticsearch_chat(
     conversation_id: str,
     schema_context: Dict,
     debug_info: Optional[Dict],
-    span: trace.Span
+    span: trace.Span,
+    enhanced_ai_service: Optional[AIService] = None
 ) -> Tuple[str, Optional[Dict]]:
-    """Handle Elasticsearch context-aware chat"""
+    """Handle Elasticsearch context-aware chat with optional query execution"""
     with tracer.start_as_current_span("elasticsearch_chat", parent=span) as chat_span:
         chat_span.set_attributes({
             "chat.mode": "elasticsearch",
             "chat.index": req.index_name,
             "chat.message_count": len(req.messages),
             "chat.temperature": req.temperature,
-            "chat.model": req.model or "auto"
+            "chat.model": req.model or "auto",
+            "chat.query_execution_enabled": enhanced_ai_service is not None and hasattr(enhanced_ai_service, 'query_executor') and enhanced_ai_service.query_executor is not None
         })
 
         try:
@@ -208,14 +210,32 @@ async def handle_elasticsearch_chat(
             message_list = _filter_messages_for_context(req.messages)
             chat_start = time.time()
 
-            result = await ai_service.generate_elasticsearch_chat(
-                message_list,
-                schema_context=schema_context,
-                model=req.model,
-                temperature=req.temperature,
-                conversation_id=conversation_id,
-                return_debug=req.debug
-            )
+            # Use enhanced AI service if available for query execution capabilities
+            if enhanced_ai_service and hasattr(enhanced_ai_service, 'generate_elasticsearch_chat_with_execution'):
+                logger.info("Using enhanced AI service with query execution capabilities")
+                chat_span.add_event("using_enhanced_ai_service")
+                
+                result = await enhanced_ai_service.generate_elasticsearch_chat_with_execution(
+                    message_list,
+                    schema_context=schema_context,
+                    model=req.model,
+                    temperature=req.temperature,
+                    conversation_id=conversation_id,
+                    return_debug=req.debug
+                )
+            else:
+                # Fallback to standard AI service
+                logger.debug("Using standard AI service (no query execution)")
+                chat_span.add_event("using_standard_ai_service")
+                
+                result = await ai_service.generate_elasticsearch_chat(
+                    message_list,
+                    schema_context=schema_context,
+                    model=req.model,
+                    temperature=req.temperature,
+                    conversation_id=conversation_id,
+                    return_debug=req.debug
+                )
 
             chat_duration = int((time.time() - chat_start) * 1000)
             if debug_info is not None:
@@ -224,13 +244,28 @@ async def handle_elasticsearch_chat(
             chat_span.set_attribute("chat.response_time_ms", chat_duration)
             chat_span.set_status(StatusCode.OK)
 
-            if req.debug and isinstance(result, tuple):
+            # Handle enhanced AI service response format
+            if req.debug and isinstance(result, dict):
+                # Enhanced AI service returns a dict with debug info
+                response_text = result.get("text", "")
+                if debug_info is not None:
+                    debug_info["model_info"] = result.get("debug_info", {})
+                    debug_info["executed_queries"] = result.get("executed_queries", [])
+                    if "query_execution_metadata" in result:
+                        debug_info["query_execution"] = result["query_execution_metadata"]
+                return response_text, debug_info
+            elif req.debug and isinstance(result, tuple):
+                # Standard AI service returns a tuple
                 response_text, model_debug = result
                 if debug_info is not None:
                     debug_info["model_info"] = model_debug
                 return response_text, debug_info
             else:
-                return result, debug_info
+                # Non-debug mode - just return the text
+                if isinstance(result, dict):
+                    return result.get("text", str(result)), debug_info
+                else:
+                    return result, debug_info
 
         except Exception as e:
             chat_span.set_status(StatusCode.ERROR)
@@ -386,6 +421,8 @@ async def chat_endpoint(req: ChatRequest, app_request: Request, response: Respon
         try:
             # Get services from app.state (or dependency injection container)
             ai_service = app_request.app.state.ai_service
+            # Try to get enhanced AI service with query execution capabilities
+            enhanced_ai_service = getattr(app_request.app.state, 'enhanced_ai_service', None)
             _es_service = app_request.app.state.es_service
             mapping_cache_service = app_request.app.state.mapping_cache_service
             security_service = getattr(app_request.app.state, 'security_service', SecurityService())
@@ -527,19 +564,35 @@ async def chat_endpoint(req: ChatRequest, app_request: Request, response: Respon
                         if stream_debug_info is not None:
                             stream_debug_info["timings"]["schema_fetch_ms"] = int((time.time() - schema_start) * 1000)
 
-                        # Use context-aware streaming
-                        async for event in ai_service.generate_elasticsearch_chat_stream(
-                            message_list,
-                            schema_context={req.index_name: schema} if schema else {},
-                            model=req.model,
-                            temperature=req.temperature,
-                            conversation_id=conversation_id
-                        ):
-                            # Add debug info to first content chunk
-                            if stream_debug_info is not None and event.get("type") == "content":
-                                event["debug"] = stream_debug_info
-                                stream_debug_info = None  # Only send once
-                            yield (json.dumps(event) + "\n").encode("utf-8")
+                        # Use enhanced AI service if available for query execution capabilities
+                        if enhanced_ai_service and hasattr(enhanced_ai_service, 'generate_elasticsearch_chat_stream_with_execution'):
+                            # Use enhanced streaming with query execution
+                            async for event in enhanced_ai_service.generate_elasticsearch_chat_stream_with_execution(
+                                message_list,
+                                schema_context={req.index_name: schema} if schema else {},
+                                model=req.model,
+                                temperature=req.temperature,
+                                conversation_id=conversation_id
+                            ):
+                                # Add debug info to first content chunk
+                                if stream_debug_info is not None and event.get("type") == "content":
+                                    event["debug"] = stream_debug_info
+                                    stream_debug_info = None  # Only send once
+                                yield (json.dumps(event) + "\n").encode("utf-8")
+                        else:
+                            # Fallback to standard context-aware streaming
+                            async for event in ai_service.generate_elasticsearch_chat_stream(
+                                message_list,
+                                schema_context={req.index_name: schema} if schema else {},
+                                model=req.model,
+                                temperature=req.temperature,
+                                conversation_id=conversation_id
+                            ):
+                                # Add debug info to first content chunk
+                                if stream_debug_info is not None and event.get("type") == "content":
+                                    event["debug"] = stream_debug_info
+                                    stream_debug_info = None  # Only send once
+                                yield (json.dumps(event) + "\n").encode("utf-8")
                     else:
                         # Free chat streaming
                         stream_generator = await ai_service.generate_chat(

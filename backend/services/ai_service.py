@@ -140,7 +140,8 @@ class AIService:
                  azure_deployment: Optional[str] = None,
                  azure_version: Optional[str] = None,
                  openai_api_key: Optional[str] = None,
-                 openai_model: Optional[str] = None
+                 openai_model: Optional[str] = None,
+                 query_executor=None  # Query executor for executing ES queries from AI responses
     ):
         # Initialize OpenTelemetry span for service initialization
         with tracer.start_as_current_span(
@@ -162,6 +163,9 @@ class AIService:
                 self.azure_version = azure_version or os.getenv('AZURE_OPENAI_API_VERSION', '2024-05-01-preview')
                 self.openai_api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
                 self.openai_model = openai_model or os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+                
+                # Store query executor for executing ES queries from AI responses
+                self.query_executor = query_executor
 
                 # Initialize client connections (lazy)
                 self.azure_client = None
@@ -1405,9 +1409,30 @@ class AIService:
 
 Available capabilities:
 1. Answer questions about data structure and schema
-2. Generate Elasticsearch queries when requested
+2. Generate and EXECUTE Elasticsearch queries when requested
 3. Explain query results and data patterns
 4. Provide general assistance and guidance
+
+**IMPORTANT: Query Execution Function**
+When you need to execute an Elasticsearch query to answer a user's question, use the `execute_elasticsearch_query` function. This function will:
+- Execute the query against the user's Elasticsearch instance
+- Return the actual results
+- Handle errors and provide feedback
+- Ensure secure query execution
+
+To use this function, format your response as:
+```
+execute_elasticsearch_query({
+  "index": "index_name",
+  "query": {
+    // Your Elasticsearch query here
+  }
+})
+```
+
+The function will be intercepted by the backend service and executed securely. You will receive the actual results to process and present to the user.
+
+NEVER say "I don't have access to your Elasticsearch instance" - you DO have access through the execute_elasticsearch_query function.
 
 """
 
@@ -1420,9 +1445,318 @@ Available capabilities:
                 else:
                     prompt += f"Schema: {json.dumps(schema, indent=2)}\n\n"
 
-        prompt += """Important: Only generate actual Elasticsearch queries when the user specifically asks for a query. For general questions about the data or schema, provide informative responses without automatically creating queries."""
+        prompt += """When users ask questions that require data analysis:
+1. First determine if you need to query the data
+2. If yes, use execute_elasticsearch_query to get the actual data
+3. Analyze the results and provide insights
+4. If the query doesn't return expected results, suggest query refinements
+
+Remember: You have the power to execute queries and analyze real data - use it effectively!"""
 
         return prompt
+
+    async def generate_elasticsearch_chat_with_execution(self, messages: List[Dict], schema_context: Dict[str, Any],
+                                                        model: Optional[str] = None, temperature: float = 0.7,
+                                                        conversation_id: Optional[str] = None,
+                                                        return_debug: bool = False, provider: str = "auto") -> Any:
+        """Generate context-aware chat response with Elasticsearch schema and query execution"""
+        # Auto-select provider if not specified
+        if provider == "auto":
+            provider = await self._get_default_provider_async()
+
+        # Validate provider availability
+        await self._validate_provider_async(provider)
+
+        with tracer.start_as_current_span("ai_elasticsearch_chat_with_execution") as current_span:
+            current_span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.conversation_id": conversation_id or "unknown",
+                "ai.schema_indices": list(schema_context.keys()) if schema_context else [],
+                "ai.query_execution_enabled": self.query_executor is not None
+            })
+
+            # Build enhanced system prompt with schema context
+            system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
+
+            # Ensure we have a system message at the beginning
+            enhanced_messages = [{"role": "system", "content": system_prompt}]
+            enhanced_messages.extend(messages)
+
+            logger.debug(f"Generating Elasticsearch chat with execution using {provider} provider")
+
+            try:
+                # Generate initial AI response
+                if provider == "azure":
+                    response = await self.azure_client.chat.completions.create(
+                        model=model or self.azure_deployment,
+                        messages=enhanced_messages,
+                        temperature=temperature,
+                        max_tokens=2000
+                    )
+                else:  # openai
+                    response = await self.openai_client.chat.completions.create(
+                        model=model or self.openai_model,
+                        messages=enhanced_messages,
+                        temperature=temperature,
+                        max_tokens=2000
+                    )
+
+                text = None
+                try:
+                    # Support both attribute-style and dict-style responses
+                    if hasattr(response, 'choices'):
+                        text = response.choices[0].message.content
+                    elif isinstance(response, dict):
+                        text = response.get('choices', [{}])[0].get('message', {}).get('content')
+                except Exception:
+                    text = None
+
+                if not text:
+                    logger.warning(f"Empty response from {provider} API")
+                    return {"text": "", "executed_queries": []}
+
+                # Check if the response contains query execution requests
+                if self.query_executor and "execute_elasticsearch_query" in text:
+                    logger.info("Detected query execution request in AI response")
+                    current_span.add_event("query_execution_detected")
+                    
+                    # Execute queries found in the response
+                    execution_result = await self.query_executor.execute_query_from_ai_response(
+                        text, conversation_id
+                    )
+                    
+                    current_span.set_attributes({
+                        "ai.queries_executed": execution_result.get("query_count", 0),
+                        "ai.execution_success": execution_result.get("executed", False)
+                    })
+                    
+                    if execution_result.get("executed", False):
+                        # Generate a follow-up response with the query results
+                        logger.info("Generating follow-up response with query results")
+                        
+                        # Create a context message with the query results
+                        query_results_message = self._format_query_results_for_ai(execution_result)
+                        
+                        # Add the query results to the conversation
+                        follow_up_messages = enhanced_messages + [
+                            {"role": "assistant", "content": text},
+                            {"role": "system", "content": query_results_message}
+                        ]
+                        
+                        # Generate final response with the actual data
+                        if provider == "azure":
+                            final_response = await self.azure_client.chat.completions.create(
+                                model=model or self.azure_deployment,
+                                messages=follow_up_messages,
+                                temperature=temperature,
+                                max_tokens=2000
+                            )
+                        else:  # openai
+                            final_response = await self.openai_client.chat.completions.create(
+                                model=model or self.openai_model,
+                                messages=follow_up_messages,
+                                temperature=temperature,
+                                max_tokens=2000
+                            )
+                        
+                        final_text = None
+                        try:
+                            if hasattr(final_response, 'choices'):
+                                final_text = final_response.choices[0].message.content
+                            elif isinstance(final_response, dict):
+                                final_text = final_response.get('choices', [{}])[0].get('message', {}).get('content')
+                        except Exception:
+                            final_text = text  # Fallback to original response
+                        
+                        if return_debug:
+                            return {
+                                "text": final_text or text,
+                                "executed_queries": execution_result.get("results", []),
+                                "query_execution_metadata": execution_result,
+                                "original_response": text,
+                                "debug_info": {
+                                    "provider": provider,
+                                    "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                                    "conversation_id": conversation_id,
+                                    "schema_indices": list(schema_context.keys()) if schema_context else []
+                                }
+                            }
+                        else:
+                            return final_text or text
+                    else:
+                        # Query execution failed, return original response with error info
+                        if return_debug:
+                            return {
+                                "text": text,
+                                "executed_queries": [],
+                                "query_execution_error": execution_result.get("error"),
+                                "debug_info": {
+                                    "provider": provider,
+                                    "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                                    "conversation_id": conversation_id,
+                                    "schema_indices": list(schema_context.keys()) if schema_context else []
+                                }
+                            }
+                        else:
+                            return text
+                else:
+                    # No query execution needed, return original response
+                    if return_debug:
+                        return {
+                            "text": text,
+                            "executed_queries": [],
+                            "debug_info": {
+                                "provider": provider,
+                                "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                                "conversation_id": conversation_id,
+                                "schema_indices": list(schema_context.keys()) if schema_context else []
+                            }
+                        }
+                    else:
+                        return text
+
+            except Exception as e:
+                logger.error(f"Error in elasticsearch_chat_with_execution: {e}")
+                current_span.record_exception(e)
+                raise ValueError(f"Failed to generate Elasticsearch chat with execution using {provider}: {str(e)}") from e
+
+    def _format_query_results_for_ai(self, execution_result: Dict[str, Any]) -> str:
+        """Format query execution results for AI consumption"""
+        if not execution_result.get("executed", False):
+            return "Query execution failed. Please try a different approach."
+        
+        results = execution_result.get("results", [])
+        if not results:
+            return "No query results to process."
+        
+        formatted_results = []
+        for i, result in enumerate(results):
+            if result.get("success", False):
+                query_result = result.get("result", {})
+                hits = query_result.get("hits", {})
+                total_hits = hits.get("total", {}).get("value", 0)
+                result_hits = hits.get("hits", [])
+                
+                formatted_results.append(f"""
+Query {i+1} Results:
+- Total matching documents: {total_hits}
+- Returned documents: {len(result_hits)}
+- Execution time: {result.get("metadata", {}).get("execution_time_ms", 0)}ms
+- Index: {result.get("index", "unknown")}
+
+Sample documents:
+{json.dumps(result_hits[:3], indent=2) if result_hits else "No documents returned"}
+""")
+            else:
+                formatted_results.append(f"""
+Query {i+1} Error:
+- Error: {result.get("error", "Unknown error")}
+- Query data: {json.dumps(result.get("query_data", {}), indent=2)}
+""")
+        
+        return f"""Query execution completed. Here are the results:
+
+{chr(10).join(formatted_results)}
+
+Please analyze these results and provide insights to the user. If queries failed, suggest alternative approaches.
+"""
+
+    async def generate_elasticsearch_chat_stream_with_execution(self, messages: List[Dict], schema_context: Dict[str, Any],
+                                                             model: Optional[str] = None, temperature: float = 0.7,
+                                                             conversation_id: Optional[str] = None, provider: str = "auto"):
+        """Stream context-aware chat response with Elasticsearch schema and query execution capabilities"""
+        if not self.query_executor:
+            # Fallback to standard streaming if no query executor available
+            async for chunk in self.generate_elasticsearch_chat_stream(messages, schema_context, model, temperature, conversation_id, provider):
+                yield chunk
+            return
+
+        with tracer.start_as_current_span("ai_elasticsearch_chat_stream_with_execution", kind=SpanKind.CLIENT) as current_span:
+            # Auto-select provider if not specified
+            if provider == "auto":
+                provider = await self._get_default_provider_async()
+
+            # Validate provider availability
+            await self._validate_provider_async(provider)
+
+            current_span.set_attributes({
+                "ai.provider": provider,
+                "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "ai.query_execution_enabled": True,
+                "ai.conversation_id": conversation_id or "unknown"
+            })
+
+            try:
+                logger.debug(f"Starting enhanced Elasticsearch chat stream with execution using {provider} provider")
+
+                # Build enhanced system prompt with schema context and query execution
+                system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
+                
+                # Add query execution instructions to the system prompt
+                enhanced_system_prompt = f"""{system_prompt}
+
+IMPORTANT: When generating Elasticsearch queries for the user, you can execute them directly to provide real results.
+When you want to execute a query, format it as a JSON code block with triple backticks and specify the index.
+For example:
+```json
+{{
+  "index": "your_index_name",
+  "query": {{
+    "match": {{"field": "value"}}
+  }}
+}}
+```
+
+I will execute these queries and provide you with the actual results to analyze and present to the user.
+"""
+
+                # Ensure we have a system message at the beginning
+                enhanced_messages = [{"role": "system", "content": enhanced_system_prompt}]
+                enhanced_messages.extend(messages)
+
+                # Start streaming the AI response
+                full_response = ""
+                async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
+                    if chunk.get("type") == "content":
+                        content = chunk.get("delta", "")
+                        full_response += content
+                        yield chunk
+                    elif chunk.get("type") == "done":
+                        # Before sending done, check if we need to execute any queries
+                        if "```json" in full_response and self.query_executor:
+                            # Extract and execute queries from the response
+                            execution_result = await self.query_executor.execute_query_from_ai_response(
+                                full_response,
+                                conversation_id=conversation_id
+                            )
+                            
+                            if execution_result and execution_result.get("executed", False):
+                                # Format the results for AI consumption
+                                query_results = self._format_query_results_for_ai(execution_result)
+                                
+                                # Send query results as additional content
+                                yield {
+                                    "type": "content",
+                                    "delta": f"\n\n{query_results}"
+                                }
+                        
+                        # Now send the done event
+                        yield chunk
+                    else:
+                        # Pass through other chunk types (error, etc.)
+                        yield chunk
+
+            except Exception as e:
+                logger.error(f"Error in elasticsearch_chat_stream_with_execution: {e}")
+                current_span.record_exception(e)
+                yield {
+                    "type": "error",
+                    "error": {
+                        "code": "chat_execution_failed",
+                        "message": f"Failed to generate enhanced Elasticsearch chat stream: {str(e)}"
+                    }
+                }
 
     async def generate_elasticsearch_chat_stream(self, messages: List[Dict], schema_context: Dict[str, Any],
                                                model: Optional[str] = None, temperature: float = 0.7,
