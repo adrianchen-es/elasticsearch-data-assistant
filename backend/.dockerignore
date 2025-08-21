@@ -1,0 +1,79 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.nox/
+.tox/
+coverage.xml
+
+# Environment and config files
+.env
+.env.*
+!.env.example
+.venv/
+ENV/
+env/
+venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+*.md
+docs/
+README*
+
+# Frontend and other component files
+../frontend/
+../gateway/
+../middleware/
+../test/
+../tools/
+
+# Docker and CI files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.github/
+.gitignore
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+.tmp/
