@@ -1693,59 +1693,53 @@ Please analyze these results and provide insights to the user. If queries failed
                 # Build enhanced system prompt with schema context and query execution
                 system_prompt = self._build_elasticsearch_chat_system_prompt(schema_context)
                 
-                # Add query execution instructions to the system prompt
-                enhanced_system_prompt = f"""{system_prompt}
-
-IMPORTANT: When generating Elasticsearch queries for the user, you can execute them directly to provide real results.
-When you want to execute a query, format it as a JSON code block with triple backticks and specify the index.
-For example:
-```json
-{{
-  "index": "your_index_name",
-  "query": {{
-    "match": {{"field": "value"}}
-  }}
-}}
-```
-
-I will execute these queries and provide you with the actual results to analyze and present to the user.
-"""
-
                 # Ensure we have a system message at the beginning
-                enhanced_messages = [{"role": "system", "content": enhanced_system_prompt}]
+                enhanced_messages = [{"role": "system", "content": system_prompt}]
                 enhanced_messages.extend(messages)
 
-                # Start streaming the AI response
-                full_response = ""
-                async for chunk in self._stream_chat_response(enhanced_messages, model, temperature, provider):
-                    if chunk.get("type") == "content":
-                        content = chunk.get("delta", "")
-                        full_response += content
-                        yield chunk
-                    elif chunk.get("type") == "done":
-                        # Before sending done, check if we need to execute any queries
-                        if "```json" in full_response and self.query_executor:
-                            # Extract and execute queries from the response
-                            execution_result = await self.query_executor.execute_query_from_ai_response(
-                                full_response,
-                                conversation_id=conversation_id
-                            )
-                            
-                            if execution_result and execution_result.get("executed", False):
-                                # Format the results for AI consumption
-                                query_results = self._format_query_results_for_ai(execution_result)
-                                
-                                # Send query results as additional content
-                                yield {
-                                    "type": "content",
-                                    "delta": f"\n\n{query_results}"
-                                }
-                        
-                        # Now send the done event
-                        yield chunk
-                    else:
-                        # Pass through other chunk types (error, etc.)
-                        yield chunk
+                # First, get the initial AI response (non-streaming to check for queries)
+                logger.debug("Generating initial AI response to check for query execution")
+                
+                initial_response_result = await self.generate_elasticsearch_chat_with_execution(
+                    messages, schema_context, model, temperature, conversation_id, return_debug=True, provider=provider
+                )
+                
+                # Check if we have executed queries
+                if isinstance(initial_response_result, dict) and initial_response_result.get("executed_queries"):
+                    executed_queries = initial_response_result.get("executed_queries", [])
+                    final_text = initial_response_result.get("text", "")
+                    
+                    logger.info(f"Found {len(executed_queries)} executed queries, streaming final response with results")
+                    
+                    # Stream the final response with executed queries
+                    yield {
+                        "type": "content",
+                        "delta": final_text
+                    }
+                    
+                    # Include executed queries in debug info
+                    yield {
+                        "type": "debug", 
+                        "debug": {
+                            "executed_queries": executed_queries,
+                            "query_execution_metadata": initial_response_result.get("query_execution_metadata", {}),
+                            **initial_response_result.get("debug_info", {})
+                        }
+                    }
+                    
+                    yield {"type": "done"}
+                    
+                else:
+                    # No queries to execute, stream normally
+                    response_text = initial_response_result.get("text") if isinstance(initial_response_result, dict) else initial_response_result
+                    
+                    # Stream the response
+                    yield {
+                        "type": "content",
+                        "delta": response_text
+                    }
+                    
+                    yield {"type": "done"}
 
             except Exception as e:
                 logger.error(f"Error in elasticsearch_chat_stream_with_execution: {e}")

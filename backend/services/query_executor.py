@@ -96,23 +96,58 @@ class QueryExecutor:
     def _extract_query_calls(self, response: str) -> List[Dict[str, Any]]:
         """Extract execute_elasticsearch_query function calls from AI response"""
         # Pattern to match execute_elasticsearch_query function calls
-        pattern = r'execute_elasticsearch_query\s*\(\s*({[^}]*})\s*\)'
+        # Use a more flexible approach to handle nested JSON structures
+        pattern = r'execute_elasticsearch_query\s*\(\s*(\{.*?\})\s*\)'
         
         queries = []
-        matches = re.finditer(pattern, response, re.DOTALL | re.IGNORECASE)
         
-        for match in matches:
+        # Find all potential matches
+        for match in re.finditer(pattern, response, re.DOTALL | re.IGNORECASE):
             try:
                 query_str = match.group(1)
-                # Clean up the query string
-                query_str = self._clean_query_string(query_str)
-                query_data = json.loads(query_str)
-                queries.append(query_data)
+                
+                # Try to parse the JSON, handling nested braces
+                # Use a simple brace counter to find the complete JSON object
+                json_content = self._extract_complete_json(response, match.start(1))
+                
+                if json_content:
+                    query_data = json.loads(json_content)
+                    queries.append(query_data)
+                    logger.debug(f"Successfully extracted query: {query_data}")
+                else:
+                    # Fallback to the original match
+                    query_str = self._clean_query_string(query_str)
+                    query_data = json.loads(query_str)
+                    queries.append(query_data)
+                    logger.debug(f"Extracted query using fallback: {query_data}")
+                    
             except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse query JSON: {e}")
+                logger.warning(f"Failed to parse query JSON: {e}, content: {match.group(1)[:100]}...")
                 continue
         
+        logger.info(f"Extracted {len(queries)} queries from AI response")
         return queries
+    
+    def _extract_complete_json(self, text: str, start_pos: int) -> Optional[str]:
+        """Extract a complete JSON object starting from the given position"""
+        if start_pos >= len(text) or text[start_pos] != '{':
+            return None
+        
+        brace_count = 0
+        i = start_pos
+        
+        while i < len(text):
+            char = text[i]
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    # Found the end of the JSON object
+                    return text[start_pos:i+1]
+            i += 1
+        
+        return None
     
     def _clean_query_string(self, query_str: str) -> str:
         """Clean and normalize query string for JSON parsing"""
