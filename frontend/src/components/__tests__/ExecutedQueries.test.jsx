@@ -57,7 +57,7 @@ describe('ChatInterface - Executed Queries Display', () => {
         })
         .mockResolvedValueOnce({
           done: false,
-          value: new TextEncoder().encode('{"type": "debug", "debug": {"executed_queries": [{"index": "test-index", "success": true, "query_data": {"match_all": {}}, "result": {"hits": {"total": {"value": 5}, "hits": []}}, "metadata": {"execution_time_ms": 15}}]}}\n')
+          value: new TextEncoder().encode('{"type": "debug", "debug": {"executed_queries": [{"index": "test-index", "success": true, "query_data": {"match_all": {}}, "result": {"hits": {"total": {"value": 5}, "hits": []}, "took": 15}, "metadata": {"execution_time_ms": 15}}]}}\n')
         })
         .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('{"type": "done"}\n') })
         .mockResolvedValueOnce({ done: true, value: undefined }),
@@ -98,7 +98,7 @@ describe('ChatInterface - Executed Queries Display', () => {
             index: 'test-index',
             success: true,
             query_data: { match_all: {} },
-            result: { hits: { total: { value: 3 }, hits: [] } },
+            result: { hits: { total: { value: 3 }, hits: [] }, took: 22 },
             metadata: { execution_time_ms: 22 }
           }]
         }
@@ -124,7 +124,7 @@ describe('ChatInterface - Executed Queries Display', () => {
     await waitFor(() => expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Query Executed & Analyzed'));
-    await waitFor(() => expect(screen.getByText('\u2713 Success')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Success')).toBeInTheDocument());
     const resultsSummaryContainer = screen.getByText('Results Summary:').parentElement;
     expect(resultsSummaryContainer.textContent).toMatch(/Took:\s*22ms/);
   });

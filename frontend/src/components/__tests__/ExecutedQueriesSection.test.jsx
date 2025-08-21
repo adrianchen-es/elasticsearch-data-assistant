@@ -70,7 +70,7 @@ describe('ExecutedQueriesSection', () => {
       index: 'test-index',
       success: true,
       query_data: { match_all: {} },
-      result: { hits: { total: { value: 5 }, hits: [] } },
+      result: { hits: { total: { value: 5 }, hits: [] }, took: 15 },
       metadata: { execution_time_ms: 15 }
     }];
 

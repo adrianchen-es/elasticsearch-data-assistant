@@ -42,7 +42,7 @@ describe('ChatInterface - Executed Queries Display', () => {
     const mockReader = {
       read: vi.fn()
         .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('{"type": "content", "delta": "Here are your results:"}\n') })
-        .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('{"type": "debug", "debug": {"executed_queries": [{"index": "test-index", "success": true, "query_data": {"match_all": {}}, "result": {"hits": {"total": {"value": 5}, "hits": []}}, "metadata": {"execution_time_ms": 15}}]}}\n') })
+        .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('{"type": "debug", "debug": {"executed_queries": [{"index": "test-index", "success": true, "query_data": {"match_all": {}}, "result": {"hits": {"total": {"value": 5}, "hits": []}, "took": 15}, "metadata": {"execution_time_ms": 15}}]}}\n') })
         .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('{"type": "done"}\n') })
         .mockResolvedValueOnce({ done: true, value: undefined }),
       releaseLock: vi.fn()
@@ -71,7 +71,7 @@ describe('ChatInterface - Executed Queries Display', () => {
     const resultsSummaryContainer = screen.getByText('Results Summary:').parentElement;
     expect(resultsSummaryContainer).toBeTruthy();
     expect(resultsSummaryContainer.textContent).toMatch(/Total hits:\s*5/);
-    expect(resultsSummaryContainer.textContent).toMatch(/Execution time:\s*15ms/);
+    expect(resultsSummaryContainer.textContent).toMatch(/Took:\s*15ms/);
   });
 
   it('should not display executed queries section when no queries are executed', async () => {
