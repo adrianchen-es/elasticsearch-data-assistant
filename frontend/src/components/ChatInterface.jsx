@@ -894,7 +894,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                            <details className="mt-4">
                              <summary className="cursor-pointer font-bold">Raw Response</summary>
                              <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">
-                               {JSON.stringify(debugInfo.model_info, null, 2)}
+                               {JSON.stringify(debugInfo.model_info.raw_response || debugInfo.model_info, null, 2)}
                              </pre>
                            </details>
                          )}

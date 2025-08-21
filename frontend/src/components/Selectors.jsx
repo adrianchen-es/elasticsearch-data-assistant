@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Database, Cpu, RefreshCw, Layers } from 'lucide-react';
 import { fetchIndices } from '../utils/indicesCache';
 
-export const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
-  const providers = [
-    { value: 'azure', label: 'Azure AI', available: true },
-    { value: 'openai', label: 'OpenAI', available: true }
+export const ProviderSelector = ({ selectedProvider, onProviderChange, providers }) => {
+  // Default providers if none provided
+  const defaultProviders = [
+    { id: 'azure', name: 'Azure AI', configured: true, healthy: true },
+    { id: 'openai', name: 'OpenAI', configured: true, healthy: true }
   ];
+
+  const providersToUse = providers || defaultProviders;
 
   return (
     <div className="relative">
@@ -17,9 +20,9 @@ export const ProviderSelector = ({ selectedProvider, onProviderChange }) => {
           onChange={(e) => onProviderChange(e.target.value)}
           className="appearance-none bg-white border border-gray-300 rounded-md pl-3 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-32"
         >
-          {providers.map((provider) => (
-            <option key={provider.value} value={provider.value} disabled={!provider.available}>
-              {provider.label}
+          {providersToUse.map((provider) => (
+            <option key={provider.id} value={provider.id} disabled={!provider.configured || !provider.healthy}>
+              {provider.name} {!provider.healthy ? '(Unavailable)' : ''}
             </option>
           ))}
         </select>
