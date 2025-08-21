@@ -75,17 +75,17 @@ describe('ChatInterface - Executed Queries Display', () => {
     fireEvent.click(sendButton);
 
     await waitFor(() => expect(screen.getByText('Here are your results:')).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText('Query Executed')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument());
 
     // Expand
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
 
     await waitFor(() => expect(screen.getByText('Query Details')).toBeInTheDocument());
 
     const resultsSummaryContainer = screen.getByText('Results Summary:').parentElement;
     expect(resultsSummaryContainer).toBeTruthy();
     expect(resultsSummaryContainer.textContent).toMatch(/Total hits:\s*5/);
-    expect(resultsSummaryContainer.textContent).toMatch(/Execution time:\s*15ms/);
+    expect(resultsSummaryContainer.textContent).toMatch(/Took:\s*15ms/);
   });
 
   it('should work with non-streaming responses', async () => {
@@ -121,11 +121,11 @@ describe('ChatInterface - Executed Queries Display', () => {
     fireEvent.click(sendButton);
 
     await waitFor(() => expect(screen.getByText('Non-streaming response with queries')).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText('Query Executed')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
     await waitFor(() => expect(screen.getByText('\u2713 Success')).toBeInTheDocument());
     const resultsSummaryContainer = screen.getByText('Results Summary:').parentElement;
-    expect(resultsSummaryContainer.textContent).toMatch(/Execution time:\s*22ms/);
+    expect(resultsSummaryContainer.textContent).toMatch(/Took:\s*22ms/);
   });
 });

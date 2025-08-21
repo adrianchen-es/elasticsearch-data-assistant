@@ -14,7 +14,7 @@ describe('ExecutedQueriesSection', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('should render "Query Executed" for single query', () => {
+  it('should render "Query Executed & Analyzed" for single query', () => {
     const queries = [{
       index: 'test-index',
       success: true,
@@ -25,7 +25,7 @@ describe('ExecutedQueriesSection', () => {
 
     render(React.createElement(ExecutedQueriesSection, { queries }));
     
-    expect(screen.getByText('Query Executed')).toBeInTheDocument();
+    expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument();
   });
 
   it('should expand and show query details when clicked', () => {
@@ -40,12 +40,12 @@ describe('ExecutedQueriesSection', () => {
     render(React.createElement(ExecutedQueriesSection, { queries }));
     
     // Click to expand
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
     
     // Check that details are now visible
     expect(screen.getByText('Query Details')).toBeInTheDocument();
     expect(screen.getByText('Results Summary:')).toBeInTheDocument();
     expect(screen.getByText(/Total hits:/)).toBeInTheDocument();
-    expect(screen.getByText(/Execution time:/)).toBeInTheDocument();
+    expect(screen.getByText(/Took:/)).toBeInTheDocument();
   });
 });

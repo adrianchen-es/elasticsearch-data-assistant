@@ -59,9 +59,9 @@ describe('ChatInterface - Executed Queries Display', () => {
     fireEvent.click(sendButton);
 
     await waitFor(() => expect(screen.getByText('Here are your results:')).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText('Query Executed')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
 
     await waitFor(() => {
       expect(screen.getByText('Query Details')).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe('ChatInterface - Executed Queries Display', () => {
 
     await waitFor(() => expect(screen.getByText('This is a regular response')).toBeInTheDocument());
 
-    expect(screen.queryByText('Query Executed')).not.toBeInTheDocument();
+    expect(screen.queryByText('Query Executed & Analyzed')).not.toBeInTheDocument();
     expect(screen.queryByText('Queries Executed')).not.toBeInTheDocument();
   });
 });

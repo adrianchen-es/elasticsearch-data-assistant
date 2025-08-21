@@ -14,7 +14,7 @@ describe('ExecutedQueriesSection', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('should render "Query Executed" for single query', () => {
+  it('should render "Query Executed & Analyzed" for single query', () => {
     const queries = [{
       index: 'test-index',
       success: true,
@@ -25,10 +25,10 @@ describe('ExecutedQueriesSection', () => {
 
     render(<ExecutedQueriesSection queries={queries} />);
     
-    expect(screen.getByText('Query Executed')).toBeInTheDocument();
+    expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument();
   });
 
-  it('should render "2 Queries Executed" for multiple queries', () => {
+  it('should render "2 Queries Executed & Analyzed" for multiple queries', () => {
     const queries = [
       {
         index: 'test-index',
@@ -46,7 +46,7 @@ describe('ExecutedQueriesSection', () => {
 
     render(<ExecutedQueriesSection queries={queries} />);
     
-    expect(screen.getByText('2 Queries Executed')).toBeInTheDocument();
+    expect(screen.getByText('2 Queries Executed & Analyzed')).toBeInTheDocument();
   });
 
   it('should be collapsed by default', () => {
@@ -60,7 +60,7 @@ describe('ExecutedQueriesSection', () => {
 
     render(<ExecutedQueriesSection queries={queries} />);
     
-    expect(screen.getByText('Query Executed')).toBeInTheDocument();
+    expect(screen.getByText('Query Executed & Analyzed')).toBeInTheDocument();
     expect(screen.queryByText('Query Details')).not.toBeInTheDocument();
     expect(screen.queryByText('Results Summary:')).not.toBeInTheDocument();
   });
@@ -77,7 +77,7 @@ describe('ExecutedQueriesSection', () => {
     render(<ExecutedQueriesSection queries={queries} />);
     
     // Click to expand
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
     
   // Check that details are now visible
   expect(screen.getByText('Query Details')).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('ExecutedQueriesSection', () => {
   // Results summary text may be split across spans; check the combined text content
   const resultsText = screen.getByText('Results Summary:').parentElement.textContent;
   expect(resultsText).toMatch(/Total hits:\s*5/);
-  expect(resultsText).toMatch(/Execution time:\s*15\s*ms/);
+  expect(resultsText).toMatch(/Took:\s*15\s*ms/);
   });
 
   it('should show success status for successful queries', () => {
@@ -99,9 +99,9 @@ describe('ExecutedQueriesSection', () => {
     render(<ExecutedQueriesSection queries={queries} />);
     
     // Expand to see details
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
     
-    expect(screen.getByText('✓ Success')).toBeInTheDocument();
+    expect(screen.getByText('Success')).toBeInTheDocument();
   });
 
   it('should show failure status and error for failed queries', () => {
@@ -115,9 +115,9 @@ describe('ExecutedQueriesSection', () => {
     render(<ExecutedQueriesSection queries={queries} />);
     
     // Expand to see details
-    fireEvent.click(screen.getByText('Query Executed'));
+    fireEvent.click(screen.getByText('Query Executed & Analyzed'));
     
-    expect(screen.getByText('✗ Failed')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toBeInTheDocument();
     expect(screen.getByText('Error:')).toBeInTheDocument();
     expect(screen.getByText('Invalid query syntax')).toBeInTheDocument();
   });
@@ -142,7 +142,7 @@ describe('ExecutedQueriesSection', () => {
     render(<ExecutedQueriesSection queries={queries} />);
     
     // Expand to see all details
-    fireEvent.click(screen.getByText('2 Queries Executed'));
+    fireEvent.click(screen.getByText('2 Queries Executed & Analyzed'));
     
   // Check that both queries are shown (use combined body text to account for split nodes)
   const bodyText = document.body.textContent;
@@ -150,8 +150,8 @@ describe('ExecutedQueriesSection', () => {
   expect(bodyText).toMatch(/Query\s*2\s*- Index:\s*test-index/);
 
   // Check success/failure indicators
-  expect(screen.getByText('✓ Success')).toBeInTheDocument();
-  expect(screen.getByText('✗ Failed')).toBeInTheDocument();
+  expect(screen.getByText('Success')).toBeInTheDocument();
+  expect(screen.getByText('Failed')).toBeInTheDocument();
 
   // Check specific details via combined text
   expect(bodyText).toMatch(/Total hits:\s*3/);
@@ -168,7 +168,7 @@ describe('ExecutedQueriesSection', () => {
 
     render(<ExecutedQueriesSection queries={queries} />);
     
-    const toggleButton = screen.getByText('Query Executed');
+    const toggleButton = screen.getByText('Query Executed & Analyzed');
     
     // Expand
     fireEvent.click(toggleButton);

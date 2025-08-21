@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { IndexSelector, TierSelector } from './Selectors.jsx';
 import CollapsibleList from './CollapsibleList.jsx';
 import MappingDisplay from './MappingDisplay.jsx';
@@ -52,20 +55,28 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
 
-  // Very small markdown-safe renderer: escape HTML and transform basic **bold** and `code`.
-  const escapeHtml = (str) => str
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-  const renderSafeMarkdown = (text) => {
-    if (!text) return '';
-    const escaped = escapeHtml(String(text));
-    // Bold and inline code minimal support
-    const withBold = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    const withCode = withBold.replace(/`([^`]+)`/g, '<code>$1</code>');
-    return withCode;
+  // Markdown components for safe rendering
+  const markdownComponents = {
+    // Limit allowed elements for security
+    p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+    strong: ({children}) => <strong className="font-semibold">{children}</strong>,
+    em: ({children}) => <em className="italic">{children}</em>,
+    code: ({children, inline}) => 
+      inline 
+        ? <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+        : <pre className="bg-gray-100 p-2 rounded text-sm font-mono overflow-x-auto my-2"><code>{children}</code></pre>,
+    ul: ({children}) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+    ol: ({children}) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+    li: ({children}) => <li className="mb-1">{children}</li>,
+    blockquote: ({children}) => <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">{children}</blockquote>,
+    // Disable potentially dangerous elements
+    img: () => null,
+    a: ({children}) => <span className="text-blue-600 underline">{children}</span>, // Links as plain text
+    h1: ({children}) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+    h2: ({children}) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+    h3: ({children}) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
   };
-  
+
   // Query Tester actions
   const validateManualQuery = async () => {
     setQueryValidationMsg('');
@@ -413,7 +424,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   } else if (event.type === "error") {
                     setError(event.error?.message || "Streaming error occurred");
                   } else if (event.type === "done") {
-                    if (streamDebugInfo && streamDebugInfo.executed_queries) {
+                    const currentDebugInfo = streamDebugInfo;
+                    if (currentDebugInfo && currentDebugInfo.executed_queries) {
                       setMessages(prev => {
                         const newMessages = [...prev];
                         const lastIndex = newMessages.length - 1;
@@ -422,8 +434,8 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                             ...newMessages[lastIndex],
                             meta: {
                               ...newMessages[lastIndex].meta,
-                              executed_queries: streamDebugInfo.executed_queries,
-                              query_execution_metadata: streamDebugInfo.query_execution_metadata
+                              executed_queries: currentDebugInfo.executed_queries,
+                              query_execution_metadata: currentDebugInfo.query_execution_metadata
                             }
                           };
                         }
@@ -435,7 +447,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                     setDebugInfo(event.debug);
                   }
                 } catch (parseError) {
-                  import('../lib/logging.js').then(({ error }) => error('Error parsing stream chunk:', parseError, line)).catch(() => {});
+                  getFeLogger().then(({ error }) => error('Error parsing stream chunk:', parseError, line)).catch(() => {});
                 }
               }
             }
@@ -508,14 +520,14 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       if (error.name === 'AbortError') {
         setError("Request was cancelled");
       } else {
-        import('../lib/logging.js').then(({ error }) => error('Chat error:', error)).catch(() => {});
+        getFeLogger().then(({ error }) => error('Chat error:', error)).catch(() => {});
         setError(`Network error: ${error.message}`);
       }
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk]);
+  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk, autoRunGeneratedQueries, mappingResponseFormat, precision, recall, selectedProvider?.name]);
   
   const cancelRequest = () => {
     if (abortControllerRef.current) {
@@ -786,7 +798,17 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
               <div className="text-sm font-medium mb-1 opacity-75">
                 {message.role === 'user' ? 'You' : 'Assistant'}
               </div>
-              <div className="whitespace-pre-wrap prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(message.content) }} />
+              <div className="prose prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeSanitize]}
+                  components={markdownComponents}
+                  disallowedElements={['script', 'iframe', 'object', 'embed', 'form', 'input', 'button']}
+                  unwrapDisallowed={true}
+                >
+                  {message.content || ''}
+                </ReactMarkdown>
+              </div>
               
               {/* Show executed queries if available */}
               {message.meta && message.meta.executed_queries && message.meta.executed_queries.length > 0 && (

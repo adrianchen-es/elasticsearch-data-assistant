@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Cpu, RefreshCw, Layers } from 'lucide-react';
+import { Database, Cpu } from 'lucide-react';
 import { fetchIndices } from '../utils/indicesCache';
 
 export const ProviderSelector = ({ selectedProvider, onProviderChange, providers }) => {
@@ -33,7 +33,6 @@ export const ProviderSelector = ({ selectedProvider, onProviderChange, providers
 };
 
 export const IndexSelector = ({ selectedIndex, onIndexChange, variant = 'default', disabled = false, showLabel = true, showStatus = true, className = '', fetchIndicesOnMount = true, selectedTiers = [] }) => {
-  const [availableIndices, setAvailableIndices] = useState([]);
   const [filteredIndices, setFilteredIndices] = useState([]);
   const [indicesLoading, setIndicesLoading] = useState(false);
   const [indicesError, setIndicesError] = useState(null);
@@ -47,7 +46,6 @@ export const IndexSelector = ({ selectedIndex, onIndexChange, variant = 'default
         const data = await fetchIndices();
         if (mounted) {
           const list = Array.isArray(data) ? data : (data.indices || []);
-          setAvailableIndices(list);
           setFilteredIndices(list);
         }
       } catch (e) {
