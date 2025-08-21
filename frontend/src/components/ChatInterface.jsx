@@ -3,6 +3,7 @@ import { IndexSelector, TierSelector } from './Selectors.jsx';
 import CollapsibleList from './CollapsibleList.jsx';
 import MappingDisplay from './MappingDisplay.jsx';
 import ExecutedQueriesSection from './ExecutedQueriesSection.jsx';
+import { parseCollapsedJsonFromString } from '../utils/mappingParser';
 // lightweight logger helper to avoid multiple inline dynamic imports
 let feLogger = null;
 const getFeLogger = async () => {
@@ -15,28 +16,6 @@ const STORAGE_KEYS = {
   CURRENT_ID: 'elasticsearch_chat_current_id',
   SETTINGS: 'elasticsearch_chat_settings'
 };
-
-// Parse the collapsed JSON block emitted by the backend between
-// [COLLAPSED_MAPPING_JSON] and [/COLLAPSED_MAPPING_JSON]
-export function parsedCollapsedJsonFromString(text) {
-  if (!text || typeof text !== 'string') return null;
-  const start = text.indexOf('[COLLAPSED_MAPPING_JSON]');
-  const end = text.indexOf('[/COLLAPSED_MAPPING_JSON]');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const jsonText = text.substring(start + '[COLLAPSED_MAPPING_JSON]'.length, end).trim();
-  try {
-    const parsed = JSON.parse(jsonText);
-    if (parsed && typeof parsed === 'object') {
-      if (parsed.fields) return parsed;
-      // If it's a flat mapping dict, convert to {fields: [...]}
-      const fields = Object.keys(parsed).map(k => ({ name: k, es_type: parsed[k] }));
-      return { fields, is_long: Object.keys(parsed).length > 40 };
-    }
-  } catch (e) {
-    return null;
-  }
-  return null;
-}
 
 export default function ChatInterface({ selectedProvider, selectedIndex, setSelectedIndex, providers, tuning }) {
   // Core chat state
@@ -893,24 +872,80 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           </div>
         )}
         
-  {debugInfo && showDebug && (
+        {debugInfo && showDebug && (
            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-             <div className="text-gray-800 font-medium mb-2">Debug Information</div>
-             <div className="text-xs font-mono text-gray-600">
-               <div className="grid grid-cols-2 gap-4">
-                 <div>
-                   <strong>Request ID:</strong> {debugInfo.request_id}<br/>
-                   <strong>Mode:</strong> {debugInfo.mode}<br/>
-                   <strong>Model:</strong> {debugInfo.model_info?.model || 'N/A'}<br/>
-                   <strong>Temperature:</strong> {debugInfo.request_details?.temperature || 'N/A'}
+                       <div className="text-gray-800 font-medium mb-2">Debug Information</div>
+                       <div className="text-xs font-mono text-gray-600">
+                         <div className="grid grid-cols-2 gap-4">
+                           <div>
+                             <strong>Request ID:</strong> {debugInfo.request_id}<br/>
+                             <strong>Mode:</strong> {debugInfo.mode}<br/>
+                             <strong>Model:</strong> {debugInfo.model_info?.model || 'N/A'}<br/>
+                             <strong>Temperature:</strong> {debugInfo.request_details?.temperature || 'N/A'}
+                           </div>
+                           <div>
+                             <strong>Timings:</strong><br/>
+                             {Object.entries(debugInfo.timings || {}).map(([key, value]) => (
+                               <div key={key}>• {key}: {value}ms</div>
+                             ))}
+                           </div>
+                         </div>
+                         {debugInfo.model_info && (
+                           <details className="mt-4">
+                             <summary className="cursor-pointer font-bold">Raw Response</summary>
+                             <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">
+                               {JSON.stringify(debugInfo.model_info, null, 2)}
+                             </pre>
+                           </details>
+                         )}
+                       </div>
+                     </div>
+                   )}
+                   
+                   {/* Mapping display: prefer structured debug mapping, otherwise try to parse embedded JSON markers */}
+                   {(() => {
+                     const structured = debugInfo?.mapping_response;
+                     const rawReply = debugInfo?.mapping_raw_reply || (messages.length ? messages[messages.length-1]?.content : null);
+                     const parsed = structured || parseCollapsedJsonFromString(rawReply);
+                     if (parsed) {
+                       return <MappingToggleSection mapping={parsed} />;
+                     }
+                     return null;
+                   })()}
+                   
+                   <div ref={messagesEndRef} />
                  </div>
-                 <div>
-                   <strong>Timings:</strong><br/>
-                   {Object.entries(debugInfo.timings || {}).map(([key, value]) => (
-                     <div key={key}>• {key}: {value}ms</div>
-                   ))}
+                 
+                 {/* Input area */}
+                 <div className="bg-white border-t border-gray-200 p-4">
+                   <div className="flex space-x-3">
+                     <textarea
+                       value={input}
+                       onChange={(e) => setInput(e.target.value)}
+                       onKeyPress={handleKeyPress}
+                       placeholder={
+                         chatMode === "free" 
+                           ? "Ask me anything..." 
+                           : selectedIndex
+                             ? `Ask about your ${selectedIndex} data...`
+                             : "Select an index first..."
+                       }
+                       className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       rows={input.split('\n').length}
+                       disabled={isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
+                     />
+                     <button
+                       onClick={sendMessage}
+                       disabled={!input.trim() || isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
+                       className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                     >
+                       {isStreaming ? "..." : "Send"}
+                     </button>
+                   </div>
+                   <div className="mt-2 text-xs text-gray-500">
+                     Press Enter to send, Shift+Enter for new line
+                   </div>
                  </div>
                </div>
-               {debugInfo.model_info && (
-                 <details className="mt-4">
-*** End Patch
+             );
+           }
