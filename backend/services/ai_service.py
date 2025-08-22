@@ -1425,10 +1425,37 @@ To use this function, format your response as:
 execute_elasticsearch_query({
   "index": "index_name",
   "query": {
-    // Your Elasticsearch query here
+    // Your Elasticsearch query here - this should be a valid Elasticsearch query body
   }
 })
 ```
+
+**IMPORTANT QUERY GUIDELINES:**
+1. **For counting documents** (questions like "How many records/documents are available?"):
+   - Use `"size": 0` in your query for efficient counting
+   - OR simply omit the "size" field and the system will optimize it automatically
+   - Example: `{"query": {"match_all": {}}}`
+
+2. **Query structure must be valid Elasticsearch JSON**:
+   - ✅ Correct: `{"query": {"match_all": {}}}`
+   - ❌ Wrong: `{"query": {"query": {"match_all": {}}}}`  // Don't nest "query" inside "query"
+
+3. **Use the most efficient query type**:
+   - For simple counts: `{"match_all": {}}`
+   - For filtered counts: `{"bool": {"filter": [...]}}`
+   - For searching specific terms: `{"match": {"field": "value"}}`
+
+4. **Common query patterns**:
+   ```
+   // Count all documents
+   {"query": {"match_all": {}}}
+   
+   // Count with date range
+   {"query": {"range": {"@timestamp": {"gte": "2023-01-01"}}}}
+   
+   // Search for specific value
+   {"query": {"match": {"status": "active"}}}
+   ```
 
 The function will be intercepted by the backend service and executed securely. You will receive the actual results to process and present to the user.
 

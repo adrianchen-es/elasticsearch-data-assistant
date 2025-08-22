@@ -337,6 +337,67 @@ class ElasticsearchService:
         """
         return await self.execute_query(index_name=index, query=body)
 
+    @trace_async_function("elasticsearch.count", include_args=True)
+    async def count(self, index: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Execute a count query for better performance when only document count is needed.
+        
+        Args:
+            index: The index name to count documents in
+            body: Optional query body (if None, counts all documents)
+            
+        Returns:
+            The count response with count field
+        """
+        with tracer.start_as_current_span("elasticsearch.count", attributes={"db.operation": "count", "db.elasticsearch.index": index}):
+            span = trace.get_current_span()
+            try:
+                # Add sanitized query as db.statement
+                try:
+                    sanitized_query = sanitizer.sanitize_value(body) if body else "match_all"
+                    if not isinstance(sanitized_query, str):
+                        try:
+                            sanitized_query = json.dumps(sanitized_query)
+                        except Exception:
+                            sanitized_query = str(sanitized_query)
+                    span.set_attribute("db.statement", sanitized_query)
+                    span.add_event("db.count_query", {"query": sanitized_query})
+                except Exception:
+                    span.set_attribute("db.statement", "<unavailable>")
+
+                # Add timeout for count queries
+                count_timeout = float(os.getenv("ELASTICSEARCH_COUNT_TIMEOUT", "10"))
+                
+                if body:
+                    response = await asyncio.wait_for(
+                        self.client.count(index=index, body=body),
+                        timeout=count_timeout
+                    )
+                else:
+                    response = await asyncio.wait_for(
+                        self.client.count(index=index),
+                        timeout=count_timeout
+                    )
+                
+                # Mark span as successful
+                try:
+                    span.set_status(Status(StatusCode.OK))
+                except Exception:
+                    try:
+                        span.set_status(StatusCode.OK)
+                    except Exception:
+                        pass
+                        
+                return response
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout executing count query on index {index}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(body) if body else 'match_all'}")
+                raise ConnectionTimeout(f"Timeout executing count query on index {index}")
+            except Exception as e:
+                logger.error(f"Error executing count query on index {index}: {e}")
+                logger.debug(f"Sanitized query: {sanitizer.sanitize_data(body) if body else 'match_all'}")
+                raise
+
     @trace_async_function("elasticsearch.validate_query", include_args=True)
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
         """Validate a query without executing it with timeout handling"""

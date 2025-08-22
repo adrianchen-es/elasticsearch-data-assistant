@@ -53,46 +53,41 @@ class QueryExecutor:
             })
             
             try:
-                # Extract query function calls from AI response
-                queries = self._extract_query_calls(ai_response)
+                # Extract queries from the AI response
+                queries = self._extract_queries_from_response(ai_response)
                 
                 if not queries:
                     return {
-                        "executed": False,
-                        "message": "No query execution requests found in response",
-                        "original_response": ai_response
+                        "success": False,
+                        "error": "No valid Elasticsearch queries found in AI response",
+                        "error_type": "no_queries_found"
                     }
                 
-                results = []
-                for query_data in queries:
-                    result = await self._execute_single_query(query_data, conversation_id)
-                    results.append(result)
+                # For now, execute the first valid query
+                # TODO: Support multiple query execution
+                query_data = queries[0]
                 
-                span.set_attributes({
-                    "queries_executed": len(results),
-                    "success": all(r.get("success", False) for r in results)
-                })
+                # Add context for better query optimization
+                query_data["_context"] = ai_response
                 
-                return {
-                    "executed": True,
-                    "query_count": len(results),
-                    "results": results,
-                    "original_response": ai_response,
-                    "conversation_id": conversation_id
-                }
+                return await self._execute_single_query(query_data, conversation_id)
                 
             except Exception as e:
-                span.record_exception(e)
-                span.set_status(StatusCode.ERROR)
-                logger.error(f"Query execution failed: {e}")
-                
+                logger.error(f"Error processing AI response: {e}")
+                span.set_attributes({
+                    "success": False,
+                    "error": str(e)
+                })
                 return {
-                    "executed": False,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "original_response": ai_response
+                    "success": False,
+                    "error": f"Failed to process AI response: {str(e)}",
+                    "error_type": type(e).__name__
                 }
-    
+
+    def _extract_queries_from_response(self, response: str) -> List[Dict[str, Any]]:
+        """Extract execute_elasticsearch_query function calls from AI response"""
+        return self._extract_query_calls(response)
+
     def _extract_query_calls(self, response: str) -> List[Dict[str, Any]]:
         """Extract execute_elasticsearch_query function calls from AI response"""
         # Pattern to match execute_elasticsearch_query function calls
@@ -187,21 +182,48 @@ class QueryExecutor:
                         "security_violation"
                     )
                 
-                # Apply safety limits
+                # Apply safety limits and detect query type
                 safe_query = self._apply_safety_limits(query_data)
                 
                 # Execute the query
                 index = safe_query["index"]
                 query_body = safe_query["query"]
+                use_count_api = safe_query.get("_use_count_api", False)
                 
-                logger.info(f"Executing query on index '{index}' (execution_id: {execution_id})")
+                logger.info(f"Executing {'count' if use_count_api else 'search'} query on index '{index}' (execution_id: {execution_id})")
                 
-                # Use the elasticsearch service to execute the query
-                result = await self.es_service.search(
-                    index=index,
-                    body=query_body,
-                    timeout=self.timeout
-                )
+                # Choose the appropriate Elasticsearch API
+                if use_count_api:
+                    # Use count API for better performance
+                    count_body = {}
+                    if "query" in query_body and query_body["query"]:
+                        count_body["query"] = query_body["query"]
+                    elif any(key in query_body for key in ["match_all", "match", "term", "range", "bool"]):
+                        # The query_body is actually the query part
+                        count_body["query"] = query_body
+                    
+                    result = await self.es_service.count(
+                        index=index,
+                        body=count_body if count_body else None
+                    )
+                    
+                    # Transform count result to look like search result for consistency
+                    result = {
+                        "hits": {
+                            "total": {"value": result.get("count", 0), "relation": "eq"},
+                            "hits": []
+                        },
+                        "took": result.get("took", 0),
+                        "_shards": result.get("_shards", {}),
+                        "timed_out": result.get("timed_out", False)
+                    }
+                else:
+                    # Use search API
+                    result = await self.es_service.search(
+                        index=index,
+                        body=query_body,
+                        timeout=self.timeout
+                    )
                 
                 # Process and sanitize results
                 processed_result = self._process_query_result(result)
@@ -310,15 +332,34 @@ class QueryExecutor:
         return {"safe": True}
     
     def _apply_safety_limits(self, query_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply safety limits to query"""
+        """Apply safety limits to query and fix query structure"""
         safe_query = query_data.copy()
-        query_body = safe_query["query"].copy()
         
-        # Ensure size limit
-        if "size" not in query_body:
-            query_body["size"] = min(100, self.max_size)  # Default to 100 docs
+        # Extract the query body - fix nested query structure
+        if "query" in safe_query and isinstance(safe_query["query"], dict):
+            query_body = safe_query["query"].copy()
         else:
-            query_body["size"] = min(query_body["size"], self.max_size)
+            # If no query specified, default to match_all
+            query_body = {"match_all": {}}
+        
+        # Check if this is a count-only request (size 0 or asking for count)
+        is_count_request = (
+            query_body.get("size") == 0 or 
+            "size" not in query_body and self._is_count_question(safe_query.get("_context", ""))
+        )
+        
+        # For count requests, prefer the count API
+        if is_count_request:
+            safe_query["_use_count_api"] = True
+            # Remove size parameter for count API
+            if "size" in query_body:
+                del query_body["size"]
+        else:
+            # Ensure size limit for search requests
+            if "size" not in query_body:
+                query_body["size"] = min(100, self.max_size)  # Default to 100 docs
+            else:
+                query_body["size"] = min(query_body["size"], self.max_size)
         
         # Add timeout if not present
         if "timeout" not in query_body:
@@ -326,6 +367,15 @@ class QueryExecutor:
         
         safe_query["query"] = query_body
         return safe_query
+    
+    def _is_count_question(self, context: str) -> bool:
+        """Determine if the user is asking for a count/total"""
+        count_keywords = [
+            "how many", "count", "total", "number of", 
+            "records are", "documents are", "entries are",
+            "available", "exist", "present"
+        ]
+        return any(keyword in context.lower() for keyword in count_keywords)
     
     def _process_query_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Process and sanitize query results"""
