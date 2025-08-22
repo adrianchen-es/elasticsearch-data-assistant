@@ -323,6 +323,20 @@ class ElasticsearchService:
                 logger.debug(f"Sanitized query: {sanitizer.sanitize_data(query)}")
                 raise
 
+    async def search(self, index: str, body: Dict[str, Any], timeout: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Backward compatibility method for search queries.
+        
+        Args:
+            index: The index name to search
+            body: The query body
+            timeout: Optional timeout (not used as we have global timeouts)
+            
+        Returns:
+            The search response
+        """
+        return await self.execute_query(index_name=index, query=body)
+
     @trace_async_function("elasticsearch.validate_query", include_args=True)
     async def validate_query(self, index_name: str, query: Dict[str, Any]) -> bool:
         """Validate a query without executing it with timeout handling"""
