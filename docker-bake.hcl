@@ -26,6 +26,7 @@ group "default" {
 target "backend" {
   context = "./backend"
   dockerfile = "Dockerfile"
+  target = "production"
   tags = [
     "${REGISTRY}elasticsearch-data-assistant-backend:${TAG}",
     "${REGISTRY}elasticsearch-data-assistant-backend:latest"
@@ -44,6 +45,7 @@ target "backend" {
 target "gateway" {
   context = "./gateway"
   dockerfile = "Dockerfile"
+  target = "production"
   tags = [
     "${REGISTRY}elasticsearch-data-assistant-gateway:${TAG}",
     "${REGISTRY}elasticsearch-data-assistant-gateway:latest"
@@ -62,6 +64,7 @@ target "gateway" {
 target "frontend" {
   context = "./frontend"
   dockerfile = "Dockerfile"
+  target = "production"
   tags = [
     "${REGISTRY}elasticsearch-data-assistant-frontend:${TAG}",
     "${REGISTRY}elasticsearch-data-assistant-frontend:latest"
@@ -81,9 +84,11 @@ group "dev" {
   targets = ["backend-dev", "gateway-dev", "frontend-dev"]
 }
 
-# Development variants with different cache strategies
+# Development variants with different cache strategies and BuildKit optimizations
 target "backend-dev" {
   inherits = ["backend"]
+  target = "development"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-backend:dev"]
   cache-from = ["type=local,src=/tmp/.buildx-cache-backend"]
   cache-to = ["type=local,dest=/tmp/.buildx-cache-backend,mode=max"]
@@ -91,6 +96,8 @@ target "backend-dev" {
 
 target "gateway-dev" {
   inherits = ["gateway"]
+  target = "development"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-gateway:dev"]
   cache-from = ["type=local,src=/tmp/.buildx-cache-gateway"]
   cache-to = ["type=local,dest=/tmp/.buildx-cache-gateway,mode=max"]
@@ -98,6 +105,8 @@ target "gateway-dev" {
 
 target "frontend-dev" {
   inherits = ["frontend"]
+  target = "development"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-frontend:dev"]
   cache-from = ["type=local,src=/tmp/.buildx-cache-frontend"]
   cache-to = ["type=local,dest=/tmp/.buildx-cache-frontend,mode=max"]
@@ -110,6 +119,8 @@ group "prod" {
 
 target "backend-prod" {
   inherits = ["backend"]
+  target = "production"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-backend:prod"]
   cache-from = [
     "type=local,src=/tmp/.buildx-cache-backend",
@@ -124,6 +135,8 @@ target "backend-prod" {
 
 target "gateway-prod" {
   inherits = ["gateway"]
+  target = "production"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-gateway:prod"]
   cache-from = [
     "type=local,src=/tmp/.buildx-cache-gateway",
@@ -138,6 +151,8 @@ target "gateway-prod" {
 
 target "frontend-prod" {
   inherits = ["frontend"]
+  target = "production"
+  dockerfile = "Dockerfile.buildkit"
   tags = ["elasticsearch-data-assistant-frontend:prod"]
   cache-from = [
     "type=local,src=/tmp/.buildx-cache-frontend",

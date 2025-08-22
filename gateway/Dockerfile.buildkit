@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.4
+FROM node:20-alpine as base
+WORKDIR /srv
+
+# Development stage
+FROM base as development
+# Clean npm cache with mount cache
+RUN --mount=type=cache,target=/root/.npm \
+    npm cache clean --force
+
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
+
+COPY src ./src
+
+ENV NODE_ENV=development \
+    PORT=3100 \
+    OTEL_SERVICE_NAME=es-data-assistant-gateway \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+EXPOSE 3100
+CMD ["npm", "run", "dev"]
+
+# Production stage
+FROM base as production
+# Clean npm cache with mount cache
+RUN --mount=type=cache,target=/root/.npm \
+    npm cache clean --force
+
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --omit=dev
+
+COPY src ./src
+
+ENV NODE_ENV=production \
+    PORT=3100 \
+    OTEL_SERVICE_NAME=es-data-assistant-gateway \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+EXPOSE 3100
+CMD ["node", "src/server.js"]
+
+# Default stage for backward compatibility
+FROM production as default
