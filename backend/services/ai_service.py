@@ -1618,6 +1618,7 @@ Remember: You have the power to execute queries and analyze real data - use it e
                                 "text": text,
                                 "executed_queries": [],
                                 "query_execution_error": execution_result.get("error"),
+                                "original_response": text,
                                 "debug_info": {
                                     "provider": provider,
                                     "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),

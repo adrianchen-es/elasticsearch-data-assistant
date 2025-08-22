@@ -58,9 +58,10 @@ class QueryExecutor:
                 
                 if not queries:
                     return {
-                        "success": False,
+                        "executed": False,
                         "error": "No valid Elasticsearch queries found in AI response",
-                        "error_type": "no_queries_found"
+                        "error_type": "no_queries_found",
+                        "results": []
                     }
                 
                 # For now, execute the first valid query
@@ -70,7 +71,22 @@ class QueryExecutor:
                 # Add context for better query optimization
                 query_data["_context"] = ai_response
                 
-                return await self._execute_single_query(query_data, conversation_id)
+                single_result = await self._execute_single_query(query_data, conversation_id)
+                
+                all_results = [single_result]
+                
+                final_result = {
+                    "executed": any(r.get("success") for r in all_results),
+                    "query_count": len(all_results),
+                    "results": all_results
+                }
+                
+                span.set_attributes({
+                    "success": final_result["executed"],
+                    "query_count": final_result["query_count"]
+                })
+                
+                return final_result
                 
             except Exception as e:
                 logger.error(f"Error processing AI response: {e}")
@@ -79,9 +95,10 @@ class QueryExecutor:
                     "error": str(e)
                 })
                 return {
-                    "success": False,
+                    "executed": False,
                     "error": f"Failed to process AI response: {str(e)}",
-                    "error_type": type(e).__name__
+                    "error_type": type(e).__name__,
+                    "results": []
                 }
 
     def _extract_queries_from_response(self, response: str) -> List[Dict[str, Any]]:
