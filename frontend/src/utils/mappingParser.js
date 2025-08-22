@@ -23,7 +23,7 @@ export function parseCollapsedMapping(text) {
   // Remove multiple leading fences and optional language hint like ```json
   payload = payload.replace(/^(```+\s*[a-zA-Z0-9-_]*\s*\n)+/g, '');
   // Remove multiple trailing fences
-  payload = payload.replace(/(\n\s*```+\s*)+$/g, '');
+  payload = payload.replace(/(\n[ \t]*```+[ \t]*)+$/g, '');
   payload = payload.trim();
   // If payload is a single-line fenced block like ```{"a":1}``` remove inline fences
   if (payload.startsWith('```') && payload.indexOf('\n') === -1) {
