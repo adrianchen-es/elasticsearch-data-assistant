@@ -1,0 +1,49 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "jest": true
+  },
+  "extends": [
+    "react-app",
+    "react-app/jest"
+  ],
+  "rules": {
+    "react/prop-types": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/__tests__/**",
+        "**/*.test.{js,jsx}",
+        "src/**/__tests__/**"
+      ],
+      "rules": {
+        "react/prop-types": "off",
+        "no-unused-vars": [
+          "error",
+          {
+            "argsIgnorePattern": "^_"
+          }
+        ]
+      }
+    }
+    ,
+    {
+      "files": ["**/*.cy.js", "**/__tests__/*.cy.js"],
+      "globals": { "cy": "readonly", "Cypress": "readonly" }
+    }
+    ,
+    {
+      "files": ["**/*.cy.js"],
+      "rules": {
+        "testing-library/await-async-utils": "off",
+        "testing-library/no-node-access": "off",
+  "testing-library/no-wait-for-multiple-assertions": "off",
+  "jest/valid-expect-in-promise": "off",
+  "jest/valid-expect": "off",
+  "no-unused-expressions": "off"
+      }
+    }
+  ]
+}

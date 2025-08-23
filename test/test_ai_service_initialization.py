@@ -17,14 +17,36 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 # AIService raises expected errors when no providers are configured.
 os.environ.pop('OTEL_TEST_MODE', None)
 
-from services.ai_service import AIService
+from backend.services.ai_service import AIService
 
 
 class TestAIServiceInitialization:
     """Test AI Service initialization and client readiness"""
 
-    def test_ai_service_basic_init(self):
-        """Test basic AIService initialization without API keys"""
+    @patch('backend.services.ai_service.trace.get_tracer_provider')
+    def test_ai_service_basic_init(self, mock_get_tracer_provider, monkeypatch):
+        """Test basic AIService initialization without API keys raises ValueError"""
+        # Ensure the tracer provider doesn't look like a test one, preventing the test bypass.
+        mock_provider = MagicMock()
+        mock_provider.__class__.__name__ = 'ProductionTracerProvider'
+        
+        # Make sure the mock doesn't have attributes that would trigger the test bypass
+        # by setting them to a non-callable value like None.
+        mock_provider.get_finished_spans = None
+        mock_provider._processors = None
+        mock_provider._active_span_processor = None
+        mock_provider._span_processors = None
+
+        mock_get_tracer_provider.return_value = mock_provider
+
+        # Temporarily remove API keys from environment for this test
+        monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("OTEL_TEST_MODE", "false")
+
+        # AIService should raise a ValueError if no providers are configured and
+        # we are not in a test-mode environment (which this test ensures).
         with pytest.raises(ValueError, match="No AI providers configured"):
             AIService()
 
@@ -52,7 +74,16 @@ class TestAIServiceInitialization:
         status = ai_service.get_initialization_status()
         assert status["service_initialized"] is True
         assert status["azure_configured"] is True
-        assert status["openai_configured"] is False
+        # With the new logic, openai_configured can be false if only azure is set.
+        # Let's assume an environment where OPENAI_API_KEY is not set.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            ai_service_azure_only = AIService(
+                azure_api_key="test-key",
+                azure_endpoint="https://test.openai.azure.com",
+                azure_deployment="test-deployment"
+            )
+            status_azure_only = ai_service_azure_only.get_initialization_status()
+            assert status_azure_only["openai_configured"] is False
         assert status["clients_created"] is False  # Clients not created yet
         assert len(status["errors"]) == 0
 
@@ -173,9 +204,15 @@ class TestAIServiceInitialization:
         ai_service = AIService(openai_api_key="test-key")
         
         # Mock client creation to raise an exception
-        with patch('services.ai_service.AsyncOpenAI', side_effect=Exception("Connection failed")):
+        with patch('backend.services.ai_service.AsyncOpenAI', side_effect=Exception("Connection failed")):
             with pytest.raises(ValueError, match="Failed to initialize AI clients"):
-                await ai_service.initialize_async()
+                await ai_service._ensure_clients_initialized_async()
+            
+            # Verify that the status reflects the failure
+            status = ai_service.get_initialization_status()
+            assert status["clients_created"] is False
+            assert len(status["errors"]) > 0
+            assert "Failed to create OpenAI client" in status["errors"][0]
             
             # Check that error was recorded
             status = ai_service.get_initialization_status()

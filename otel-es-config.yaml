@@ -60,6 +60,14 @@ connectors:
         pipelines: [metrics/infra/ecs, metrics/otel]
   elasticapm: 
 processors:
+    # processor name: cumulativetodelta
+  cumulativetodelta:
+    # Convert cumulative sum or histogram metrics to delta
+    # if and only if 'metric' is in the name
+    include:
+        metrics:
+            - ".*metric.*"
+        match_type: regexp
   batch:
     send_batch_size: 1000
     timeout: 1s
@@ -148,17 +156,17 @@ service:
 
     metrics/fromsdk:
       receivers: [otlp/fromsdk]
-      processors: [batch]
+      processors: [cumulativetodelta, batch]
       exporters: [elasticsearch/otel]
 
     metrics/hostmetrics:
       receivers: [hostmetrics/system]
-      processors: [resourcedetection, attributes/dataset, resource/process, batch]
+      processors: [cumulativetodelta, resourcedetection, attributes/dataset, resource/process, batch]
       exporters: [elasticsearch/otel]
 
     metrics/aggregated-metrics:
       receivers: [elasticapm]
-      processors: []
+      processors: [cumulativetodelta, batch]
       exporters: [elasticsearch/otel]
 
     logs/fromsdk:

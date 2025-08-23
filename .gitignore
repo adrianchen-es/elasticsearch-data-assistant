@@ -211,3 +211,7 @@ __marimo__/
 # node
 */node_modules/
 node_modules/
+
+# Advoid committing environment vars
+*.env
+*.secret

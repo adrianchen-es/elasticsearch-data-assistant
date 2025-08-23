@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import ChatInterface from '../../test-stubs/ChatInterface';
 
@@ -55,17 +55,17 @@ describe('ChatInterface auto-run regenerate behavior', () => {
     fireEvent.click(sendButton);
 
     // Wait for assistant reply to show
-    await waitFor(() => expect(screen.getByText('Assistant')).toBeInTheDocument());
+    await screen.findByText('Assistant');
 
     // Wait for the system message about generated query failure
-    await waitFor(() => expect(screen.getByText(/Generated query execution failed/)).toBeInTheDocument());
+    await screen.findByText(/Generated query execution failed/);
 
     // Click View Details
     const viewButton = screen.getByRole('button', { name: /View Details/i });
     fireEvent.click(viewButton);
 
     // Modal should show attempt details
-    await waitFor(() => expect(screen.getByText(/Attempt Details/)).toBeInTheDocument());
+    await screen.findByText(/Attempt Details/);
     expect(screen.getByText(/test-index/)).toBeInTheDocument();
     expect(screen.getByText(/simulated error/)).toBeInTheDocument();
   });

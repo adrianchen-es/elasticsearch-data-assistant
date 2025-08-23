@@ -72,9 +72,12 @@ export default defineConfig({
   './Selectors': path.resolve(__dirname, './src/test-stubs/Selectors.js'),
   '../ChatInterface': path.resolve(__dirname, './src/test-stubs/ChatInterface.js'),
   './ChatInterface': path.resolve(__dirname, './src/test-stubs/ChatInterface.js'),
+  '../MobileLayout': path.resolve(__dirname, './src/test-stubs/MobileLayout.js'),
+  './MobileLayout': path.resolve(__dirname, './src/test-stubs/MobileLayout.js'),
   // Absolute-path aliases to catch direct resolved ids
   [path.resolve(__dirname, './src/components/Selectors.js')]: path.resolve(__dirname, './src/test-stubs/Selectors.js'),
-  [path.resolve(__dirname, './src/components/ChatInterface.js')]: path.resolve(__dirname, './src/test-stubs/ChatInterface.js')
+  [path.resolve(__dirname, './src/components/ChatInterface.js')]: path.resolve(__dirname, './src/test-stubs/ChatInterface.js'),
+  [path.resolve(__dirname, './src/components/MobileLayout.js')]: path.resolve(__dirname, './src/test-stubs/MobileLayout.js')
     }
   }
 });

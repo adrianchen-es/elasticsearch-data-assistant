@@ -12,8 +12,39 @@ setup-external: ## Setup with external Elasticsearch
 	@chmod +x setup-external-es.sh
 	@./setup-external-es.sh
 
-build: ## Build all services
+build: ## Build all services (legacy docker-compose)
 	@docker compose build
+
+# Docker Buildx Bake commands for improved performance
+bake-setup: ## Setup Docker Buildx for bake
+	@echo "Setting up Docker Buildx..."
+	@docker buildx create --name elasticsearch-builder --use --bootstrap || true
+	@docker buildx inspect --bootstrap
+
+bake-build: ## Build all services using Docker Bake (faster, parallel)
+	@echo "Building with Docker Bake for improved performance..."
+	@export COMPOSE_BAKE=true && docker buildx bake
+
+bake-build-dev: ## Build development versions using Docker Bake
+	@echo "Building development images with Docker Bake..."
+	@docker buildx bake dev
+
+bake-build-prod: ## Build production versions using Docker Bake (multi-platform)
+	@echo "Building production images with Docker Bake..."
+	@docker buildx bake prod
+
+bake-build-backend: ## Build only backend service
+	@docker buildx bake backend
+
+bake-build-frontend: ## Build only frontend service
+	@docker buildx bake frontend
+
+bake-build-gateway: ## Build only gateway service
+	@docker buildx bake gateway
+
+bake-clean-cache: ## Clean buildx cache
+	@echo "Cleaning Docker Buildx cache..."
+	@docker buildx prune -f
 
 up: ## Start all services
 	@docker compose up -d

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { IndexSelector, ProviderSelector } from '../../test-stubs/Selectors';
 
@@ -39,10 +39,8 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
 
-      // Wait for indices to load
-      await waitFor(() => {
-        expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
-      });
+  // Wait for indices to load
+  await screen.findByText('Data Tier Filter');
 
       // Check tier filter options with counts
       const tierFilter = screen.getByDisplayValue(/All Tiers/);
@@ -59,24 +57,21 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
 
-      await waitFor(() => {
-        expect(screen.getByText('Data Tier Filter')).toBeInTheDocument();
-      });
+  await screen.findByText('Data Tier Filter');
 
       // Change to frozen tier filter
       const tierFilter = screen.getByDisplayValue(/All Tiers/);
       fireEvent.change(tierFilter, { target: { value: 'frozen' } });
 
       // Check that only frozen indices are shown
-      await waitFor(() => {
-        const indexSelect = screen.getByRole('combobox', { name: /select an index/i });
-        const options = Array.from(indexSelect.querySelectorAll('option'));
+  // Use Testing Library queries to avoid direct node access
+  const indexSelect = await screen.findByRole('combobox', { name: /select an index/i });
+  const options = within(indexSelect).getAllByRole('option');
 
-        // Should have placeholder + 2 frozen indices
-        expect(options).toHaveLength(3);
-        expect(options[1].textContent).toContain('partial-frozen-index-1');
-        expect(options[2].textContent).toContain('partial-frozen-index-2');
-      });
+  // Should have placeholder + 2 frozen indices
+  expect(options).toHaveLength(3);
+  expect(options[1].textContent).toContain('partial-frozen-index-1');
+  expect(options[2].textContent).toContain('partial-frozen-index-2');
     });
 
     it('should show tier badges for non-hot indices', async () => {
@@ -84,9 +79,7 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: 'restored-cold-index-1', onIndexChange: mockOnChange, variant: 'detailed', showStatus: true }));
 
-      await waitFor(() => {
-        expect(screen.getByText(/cold tier/)).toBeInTheDocument();
-      });
+  await screen.findByText(/cold tier/);
     });
   });
 
@@ -100,10 +93,8 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
 
-      await waitFor(() => {
-        expect(screen.getByText(/Error loading indices/)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-      });
+  await screen.findByText(/Error loading indices/);
+  expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     });
 
     it('should allow retrying after error', async () => {
@@ -119,19 +110,15 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'detailed' }));
 
-      // Wait for error to appear
-      await waitFor(() => {
-        expect(screen.getByText(/Error loading indices/)).toBeInTheDocument();
-      });
+  // Wait for error to appear
+  await screen.findByText(/Error loading indices/);
 
-      // Click retry button
-      const retryButton = screen.getByRole('button', { name: /retry/i });
-      fireEvent.click(retryButton);
+  // Click retry button
+  const retryButton = screen.getByRole('button', { name: /retry/i });
+  fireEvent.click(retryButton);
 
-      // Wait for successful load
-      await waitFor(() => {
-        expect(screen.getByText('test-index')).toBeInTheDocument();
-      });
+  // Wait for successful load
+  await screen.findByText('test-index');
     });
   });
 
@@ -148,22 +135,19 @@ describe('IndexSelector', () => {
 
   render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, variant: 'compact', showLabel: true }));
 
-      expect(screen.getByText('Index:')).toBeInTheDocument();
+  expect(screen.getByText('Index:')).toBeInTheDocument();
 
-      await waitFor(() => {
-        expect(screen.getByRole('combobox', { name: /select an index/i })).toBeInTheDocument();
-      });
+  await screen.findByRole('combobox', { name: /select an index/i });
     });
 
     it('should render default variant correctly', async () => {
       const mockOnChange = vi.fn();
 
-  render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
+      render(React.createElement(IndexSelector, { selectedIndex: '', onIndexChange: mockOnChange, showStatus: true }));
 
-      await waitFor(() => {
-        expect(screen.getByText('Elasticsearch Index')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
-      });
+  // Wait for the index label and refresh button to appear
+  await screen.findByText('Elasticsearch Index');
+  await screen.findByRole('button', { name: /refresh/i });
     });
   });
 });
@@ -177,11 +161,11 @@ describe('ProviderSelector', () => {
     expect(screen.getByText('AI Provider')).toBeInTheDocument();
     expect(screen.getByDisplayValue('azure')).toBeInTheDocument();
 
-    const select = screen.getByRole('combobox');
-    const options = Array.from(select.querySelectorAll('option'));
-    expect(options).toHaveLength(2);
-    expect(options[0].value).toBe('azure');
-    expect(options[1].value).toBe('openai');
+  const select = screen.getByRole('combobox');
+  const options = within(select).getAllByRole('option');
+  expect(options).toHaveLength(2);
+  expect(options[0].value).toBe('azure');
+  expect(options[1].value).toBe('openai');
   });
 
   it('should call onChange when provider changes', () => {

@@ -8,4 +8,5 @@ export const Cpu = Icon;
 export const RefreshCw = Icon;
 export const Layers = Icon;
 
-export default {};
+const LucideTestIcons = { Database, Cpu, RefreshCw, Layers };
+export default LucideTestIcons;
