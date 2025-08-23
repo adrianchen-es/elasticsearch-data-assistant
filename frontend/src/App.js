@@ -6,10 +6,9 @@ import { setupTelemetryWeb } from './telemetry/setup';
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
 // ProviderSelector is not used here; selectors are provided by child components
-// import ChatInterface from './components/ChatInterface';
+import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 import MobileLayout from './components/MobileLayout';
-import MobileTestComponent from './components/MobileTestComponent';
 
 const HEALTH_CACHE_KEYS = {
   backend: 'health_backend',
@@ -299,7 +298,13 @@ function App() {
   enhancedAvailable={Boolean((backendHealth && backendHealth.services && backendHealth.services.enhanced) || (backendHealth && backendHealth.message && backendHealth.message.toLowerCase().includes('enhanced')))}
     >
       {currentView === 'chat' && (
-        <MobileTestComponent />
+        <ChatInterface
+          selectedProvider={selectedProvider}
+          selectedIndex={selectedIndex}
+          setSelectedIndex={setSelectedIndex}
+          providers={providers}
+          tuning={tuning}
+        />
       )}
       {currentView === 'query' && (
         <QueryEditor

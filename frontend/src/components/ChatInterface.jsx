@@ -2,8 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
-import { LucideChevronDown, LucideChevronUp, LucidePlus, LucideTrash2, LucideSettings, LucideLoader, LucideSend, LucideFileWarning, LucideSearch, LucideTestTube, LucideClipboard, LucideCheck, LucideX, LucideHistory, LucideBot, LucideUser, LucideBrainCircuit, LucideDatabase, LucideFlipHorizontal, LucideWand2 } from 'lucide-react';
-import { ConversationManager } from './ConversationManager.jsx';
+import { LucideSettings, LucideSend, LucideBot, LucideUser, LucideBrainCircuit } from 'lucide-react';
+import ConversationManager from './ConversationManager.jsx';
+import CollapsibleList from './CollapsibleList.jsx';
+import MappingDisplay from './MappingDisplay.jsx';
+import { IndexSelector, TierSelector } from './Selectors.jsx';
+import ExecutedQueriesSection from './ExecutedQueriesSection.jsx';
 import { parseCollapsedJsonFromString } from '../utils/mappingParser';
 // import { useMobileDetection, getTouchFriendlySize, getMobileTextSize, getMobileSpacing } from '../utils/mobileUtils';
 // import '../styles/responsive.css';
@@ -202,6 +206,35 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       return false;
     }
   }, []);
+
+  // Start a fresh conversation and persist
+  const startNewConversation = () => {
+    const newId = generateConversationId();
+    setConversationId(newId);
+    setMessages([]);
+    try {
+      saveConversationToStorage({ id: newId, messages: [], mode: 'free', index: '', title: 'Conversation' });
+    } catch (e) {}
+  };
+
+  // Load a conversation by id (or null to load current stored)
+  const loadConversation = (id) => {
+    try {
+      const conversationsData = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+      if (!conversationsData) return false;
+      const conversations = JSON.parse(conversationsData);
+      const cid = id || localStorage.getItem(STORAGE_KEYS.CURRENT_ID);
+      if (!cid || !conversations[cid]) return false;
+      const conv = conversations[cid];
+      setConversationId(cid);
+      setMessages(conv.messages || []);
+      setChatMode(conv.mode || 'free');
+      setSelectedIndex(conv.index || '');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
