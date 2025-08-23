@@ -3,7 +3,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { ZoneContextManager } from '@opentelemetry/context-zone';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { trace, context, diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
@@ -20,7 +20,7 @@ diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
 
 // --- Resource Definition ---
-const resource = new Resource({
+const resource = new resourceFromAttributes({
   [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
   [SemanticResourceAttributes.SERVICE_VERSION]: SERVICE_VERSION,
   [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: DEPLOYMENT_ENV,
