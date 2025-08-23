@@ -382,11 +382,18 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
             # Keep original AI service for backward compatibility
             container.register("ai_service", lambda: ai_service)
 
-            # Register ChatService
-            async def chat_service_factory(ai_service, query_executor):
-                return ChatService(ai_service, query_executor)
+            # Register Intelligent Mode Detector
+            async def intelligent_mode_detector_factory(es_service, mapping_cache_service):
+                from services.intelligent_mode_service import IntelligentModeDetector
+                return IntelligentModeDetector(es_service, mapping_cache_service)
+            container.register("intelligent_mode_detector", intelligent_mode_detector_factory,
+                             dependencies=["es_service", "mapping_cache_service"])
+            
+            # Register ChatService with intelligent mode detector
+            async def chat_service_factory(ai_service, query_executor, intelligent_mode_detector):
+                return ChatService(ai_service, query_executor, intelligent_mode_detector)
             container.register("chat_service", chat_service_factory,
-                             dependencies=["ai_service", "query_executor"])
+                             dependencies=["ai_service", "query_executor", "intelligent_mode_detector"])
             
             # Register enhanced search service if available
             try:

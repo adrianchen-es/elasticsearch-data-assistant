@@ -5,9 +5,10 @@ import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
 // ProviderSelector is not used here; selectors are provided by child components
-import ChatInterface from './components/ChatInterface';
+// import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 import MobileLayout from './components/MobileLayout';
+import MobileTestComponent from './components/MobileTestComponent';
 
 const HEALTH_CACHE_KEYS = {
   backend: 'health_backend',
@@ -181,7 +182,7 @@ function App() {
     // this component in current architecture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // (justification: mount-only effects; dependencies are stable primitives)
-    setupTelemetryWeb();
+    // setupTelemetryWeb();
     // Fetch provider statuses to gate selection by availability
     (async () => {
       try {
@@ -297,13 +298,7 @@ function App() {
   enhancedAvailable={Boolean((backendHealth && backendHealth.services && backendHealth.services.enhanced) || (backendHealth && backendHealth.message && backendHealth.message.toLowerCase().includes('enhanced')))}
     >
       {currentView === 'chat' && (
-        <ChatInterface
-          selectedProvider={selectedProvider}
-          selectedIndex={selectedIndex}
-          setSelectedIndex={setSelectedIndex}
-          providers={providers}
-      tuning={tuning}
-        />
+        <MobileTestComponent />
       )}
       {currentView === 'query' && (
         <QueryEditor

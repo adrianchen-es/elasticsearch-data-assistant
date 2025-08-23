@@ -5,6 +5,8 @@ import rehypeSanitize from 'rehype-sanitize';
 import { LucideChevronDown, LucideChevronUp, LucidePlus, LucideTrash2, LucideSettings, LucideLoader, LucideSend, LucideFileWarning, LucideSearch, LucideTestTube, LucideClipboard, LucideCheck, LucideX, LucideHistory, LucideBot, LucideUser, LucideBrainCircuit, LucideDatabase, LucideFlipHorizontal, LucideWand2 } from 'lucide-react';
 import { ConversationManager } from './ConversationManager.jsx';
 import { parseCollapsedJsonFromString } from '../utils/mappingParser';
+// import { useMobileDetection, getTouchFriendlySize, getMobileTextSize, getMobileSpacing } from '../utils/mobileUtils';
+// import '../styles/responsive.css';
 // lightweight logger helper to avoid multiple inline dynamic imports
 let feLogger = null;
 const getFeLogger = async () => {
@@ -19,6 +21,9 @@ const STORAGE_KEYS = {
 };
 
 export default function ChatInterface({ selectedProvider, selectedIndex, setSelectedIndex, providers, tuning }) {
+  // Mobile detection hook
+  // const { isMobile, isTablet, screenSize } = useMobileDetection();
+  
   // Core chat state
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -26,10 +31,12 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
   const [error, setError] = useState(null);
   
   // Enhanced features state
-  const [chatMode, setChatMode] = useState("free"); // "free" or "elasticsearch"
+  const [chatMode, setChatMode] = useState("free"); // "free", "elasticsearch", or "auto"
   const [conversationId, setConversationId] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
+  const [detectedMode, setDetectedMode] = useState(null); // Result from intelligent mode detection
+  const [modeDetectionInfo, setModeDetectionInfo] = useState(null);
   const [selectedTiers, setSelectedTiers] = useState(['hot']); // Default to hot tier
   // include_context is now a per-message setting stored on message.meta.include_context
   
@@ -371,7 +378,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       };
   requestBody.mapping_response_format = mappingResponseFormat;
       
-      if (chatMode === "elasticsearch") {
+      if (chatMode === "elasticsearch" || (chatMode === "auto" && detectedMode === "elasticsearch")) {
         requestBody.index_name = selectedIndex;
       }
       
@@ -419,6 +426,24 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   
                   if (event.type === "content" && event.delta) {
                     appendAssistantChunk(event.delta);
+                  } else if (event.type === "mode_detected") {
+                    // Handle intelligent mode detection
+                    setDetectedMode(event.mode);
+                    setModeDetectionInfo({
+                      confidence: event.confidence,
+                      intent: event.intent,
+                      reasoning: event.reasoning,
+                      relevantIndices: event.relevant_indices || []
+                    });
+                    if (event.mode === 'elasticsearch' && event.relevant_indices && event.relevant_indices.length > 0 && !selectedIndex) {
+                      // Auto-suggest the best index if none selected
+                      setSelectedIndex(event.relevant_indices[0]);
+                    }
+                  } else if (event.type === "index_suggestion") {
+                    // Handle index suggestions from intelligent mode
+                    if (!selectedIndex && event.suggested_index) {
+                      setSelectedIndex(event.suggested_index);
+                    }
                   } else if (event.type === "error") {
                     setError(event.error?.message || "Streaming error occurred");
                   } else if (event.type === "done") {
@@ -526,6 +551,14 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       abortControllerRef.current = null;
     }
   }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk, autoRunGeneratedQueries, mappingResponseFormat, precision, recall, selectedProvider?.name]);
+
+  // Reset detection state when manually changing modes
+  useEffect(() => {
+    if (chatMode !== "auto") {
+      setDetectedMode(null);
+      setModeDetectionInfo(null);
+    }
+  }, [chatMode]);
   
   const cancelRequest = () => {
     if (abortControllerRef.current) {
@@ -574,34 +607,75 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      {/* Header with controls */}
-      <div className="bg-white border-b border-gray-200 p-4 space-y-4">
-        {/* Chat mode toggle */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      {/* Header with controls - mobile responsive */}
+      <div className="bg-white border-b border-gray-200 p-3 sm:p-4 space-y-3 sm:space-y-4">
+        {/* Chat mode toggle - responsive layout */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
             <div className="flex items-center space-x-2">
-              <label className="text-sm font-medium text-gray-700">Chat Mode:</label>
+              <label className="text-sm font-medium text-gray-700 flex-shrink-0">Mode:</label>
               <select 
                 value={chatMode}
                 onChange={(e) => setChatMode(e.target.value)}
-                className="w-40 px-3 py-1 border border-gray-300 rounded-md text-sm"
+                className="flex-1 sm:w-40 px-2 sm:px-3 py-1 border border-gray-300 rounded-md text-sm touch-manipulation"
                 disabled={isStreaming}
               >
                 <option value="free">Free Chat</option>
                 <option value="elasticsearch">Elasticsearch Context</option>
+                <option value="auto">🧠 Auto-Detect Mode</option>
               </select>
             </div>
             
-            {chatMode === "elasticsearch" && (
-              <div className="space-y-3">
-                <IndexSelector
-                  selectedIndex={selectedIndex}
-                  onIndexChange={setSelectedIndex}
-                  variant="compact"
-                  disabled={isStreaming}
-                  showLabel={true}
-                  showStatus={false}
-                />
+            {/* Intelligent mode detection indicator - responsive */}
+            {chatMode === "auto" && modeDetectionInfo && (
+              <div className="flex items-center space-x-2 px-2 sm:px-3 py-1 bg-blue-50 border border-blue-200 rounded-md text-xs sm:text-sm">
+                <LucideBrainCircuit className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600 flex-shrink-0" />
+                <span className="text-blue-700 truncate">
+                  {detectedMode === "elasticsearch" ? `Data Query (${(modeDetectionInfo.confidence * 100).toFixed(0)}%)` :
+                   detectedMode === "free" ? `General Chat (${(modeDetectionInfo.confidence * 100).toFixed(0)}%)` :
+                   "Analyzing..."}
+                </span>
+                {modeDetectionInfo.intent && (
+                  <span className="hidden sm:inline text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded flex-shrink-0">
+                    {modeDetectionInfo.intent.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Settings and conversation controls - mobile friendly */}
+          <div className="flex items-center justify-end space-x-1 sm:space-x-2">
+            <ConversationManager 
+              onNewConversation={startNewConversation}
+              onLoadConversation={loadConversation}
+              currentConversationId={conversationId}
+            />
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 touch-manipulation"
+              title="Settings"
+            >
+              <LucideSettings className="h-4 w-4 sm:h-5 sm:w-5" />
+            </button>
+          </div>
+        </div>
+        
+        {/* Index selector section - mobile responsive */}
+        {(chatMode === "elasticsearch" || (chatMode === "auto" && detectedMode === "elasticsearch")) && (
+          <div className="space-y-2 sm:space-y-3">
+            <IndexSelector
+              selectedIndex={selectedIndex}
+              onIndexChange={setSelectedIndex}
+              variant="compact"
+              disabled={isStreaming}
+              showLabel={true}
+              showStatus={false}
+            />
+            
+            {/* Tier selector and controls - responsive layout */}
+            {selectedIndex && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
                 <TierSelector
                   selectedTiers={selectedTiers}
                   onTierChange={handleTierChange}
@@ -609,37 +683,31 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   disabled={isStreaming}
                   showLabel={true}
                 />
+                
+                <div className="flex items-center space-x-1 sm:space-x-2">
+                  <button
+                    onClick={() => setShowQueryTester(v => !v)}
+                    className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 rounded-md touch-manipulation"
+                  >
+                    {showQueryTester ? 'Hide Tester' : 'Query Tester'}
+                  </button>
+                  <button
+                    onClick={clearConversation}
+                    className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-md touch-manipulation"
+                    disabled={isStreaming}
+                  >
+                    Clear Chat
+                  </button>
+                </div>
               </div>
             )}
           </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
-            >
-              Settings
-            </button>
-            <button
-              onClick={() => setShowQueryTester(v => !v)}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
-            >
-              {showQueryTester ? 'Hide Tester' : 'Query Tester'}
-            </button>
-            <button
-              onClick={clearConversation}
-              className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-md"
-              disabled={isStreaming}
-            >
-              Clear Chat
-            </button>
-          </div>
-        </div>
+        )}
         
-        {/* Settings panel */}
+        {/* Settings panel - mobile responsive */}
         {showSettings && (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
-            <div className="grid grid-cols-3 gap-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4 space-y-3 sm:space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Temperature: {temperature}
@@ -651,7 +719,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   step="0.1"
                   value={temperature}
                   onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full"
+                  className="w-full touch-manipulation"
                 />
               </div>
               <div className="flex items-center">
@@ -660,76 +728,81 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   id="streamEnabled"
                   checked={streamEnabled}
                   onChange={(e) => setStreamEnabled(e.target.checked)}
-                  className="mr-2"
+                  className="mr-2 touch-manipulation"
                 />
                 <label htmlFor="streamEnabled" className="text-sm font-medium text-gray-700">
                   Enable Streaming
                 </label>
               </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="showDebug"
-                    checked={showDebug}
-                    onChange={(e) => setShowDebug(e.target.checked)}
-                    className="mr-2"
-                  />
-                  <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
-                    Show Debug Info
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <label className="text-sm font-medium text-gray-700 mr-2">Mapping response:</label>
-                  <select
-                    value={mappingResponseFormat}
-                    onChange={(e) => setMappingResponseFormat(e.target.value)}
-                    className="px-2 py-1 border border-gray-300 rounded text-sm"
-                  >
-                    <option value="both">Both (dict + JSON)</option>
-                    <option value="dict">Dict only</option>
-                    <option value="json">JSON only</option>
-                  </select>
-                </div>
-                {/* Tuning toggles: persisted in App; we display their current values read-only here */}
-                <div className="flex items-center">
-                  <label className="text-sm font-medium text-gray-700 mr-2">Tuning:</label>
-                  <span className="text-sm text-gray-700">Precision {precision ? 'ON' : 'off'} · Recall {recall ? 'ON' : 'off'}</span>
-                </div>
-            </div>
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="autoRunGeneratedQueries"
-                checked={autoRunGeneratedQueries}
-                onChange={(e) => setAutoRunGeneratedQueries(e.target.checked)}
-                className="mr-2"
-              />
-              <label htmlFor="autoRunGeneratedQueries" className="text-sm font-medium text-gray-700">
-                Auto-run generated queries
-              </label>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="showDebug"
+                  checked={showDebug}
+                  onChange={(e) => setShowDebug(e.target.checked)}
+                  className="mr-2 touch-manipulation"
+                />
+                <label htmlFor="showDebug" className="text-sm font-medium text-gray-700">
+                  Show Debug Info
+                </label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700 flex-shrink-0">Mapping:</label>
+                <select
+                  value={mappingResponseFormat}
+                  onChange={(e) => setMappingResponseFormat(e.target.value)}
+                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm touch-manipulation"
+                >
+                  <option value="both">Both (dict + JSON)</option>
+                  <option value="dict">Dict only</option>
+                  <option value="json">JSON only</option>
+                </select>
+              </div>
+              {/* Tuning toggles: persisted in App; we display their current values read-only here */}
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700 flex-shrink-0">Tuning:</label>
+                <span className="text-sm text-gray-700">Precision {precision ? 'ON' : 'off'} · Recall {recall ? 'ON' : 'off'}</span>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="autoRunGeneratedQueries"
+                  checked={autoRunGeneratedQueries}
+                  onChange={(e) => setAutoRunGeneratedQueries(e.target.checked)}
+                  className="mr-2 touch-manipulation"
+                />
+                <label htmlFor="autoRunGeneratedQueries" className="text-sm font-medium text-gray-700">
+                  Auto-run generated queries
+                </label>
+              </div>
             </div>
           </div>
         )}
         
-        {/* Status indicators */}
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <div>
-            Mode: <span className="font-medium text-gray-700">
-              {chatMode === "free" ? "Free Chat" : `Elasticsearch (${selectedIndex || "no index"})`}
-            </span>
-            {conversationId && (
-              <span className="ml-4">
-                ID: <span className="font-mono text-xs">{conversationId.slice(-8)}</span>
+        {/* Status indicators - mobile responsive */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0 text-sm text-gray-500">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-4">
+            <div>
+              Mode: <span className="font-medium text-gray-700">
+                {chatMode === "auto" ? 
+                  `🧠 Auto (${detectedMode === "elasticsearch" ? `ES: ${selectedIndex || "detecting..."}` : detectedMode || "detecting..."})` :
+                  chatMode === "free" ? "Free Chat" : `Elasticsearch (${selectedIndex || "no index"})`
+                }
               </span>
+            </div>
+            {conversationId && (
+              <div className="text-xs sm:text-sm">
+                ID: <span className="font-mono">{conversationId.slice(-8)}</span>
+              </div>
             )}
           </div>
           {isStreaming && (
             <div className="flex items-center space-x-2">
               <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-              <span className="text-blue-600">Processing...</span>
+              <span className="text-blue-600 text-xs sm:text-sm">Processing...</span>
               <button
                 onClick={cancelRequest}
-                className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
+                className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded touch-manipulation"
               >
                 Cancel
               </button>
@@ -738,41 +811,65 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
           {!isStreaming && isBackgroundSearch && (
             <div className="flex items-center space-x-2">
               <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>
-              <span className="text-emerald-700">Background search on {bgSearchIndex || 'index'}...</span>
+              <span className="text-emerald-700 text-xs sm:text-sm">Background search on {bgSearchIndex || 'index'}...</span>
             </div>
           )}
         </div>
       </div>
       
-      {/* Query Tester Panel */}
+      {/* Query Tester Panel - mobile responsive */}
       {showQueryTester && chatMode === 'elasticsearch' && (
-        <div className="bg-white border-b border-gray-200 p-4">
+        <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
           <div className="text-sm font-medium text-gray-700 mb-2">Query Tester</div>
           <textarea
             value={queryJson}
             onChange={(e) => setQueryJson(e.target.value)}
             placeholder="Paste or edit an Elasticsearch query JSON here"
-            className="w-full h-28 border border-gray-300 rounded p-2 font-mono text-xs"
+            className="w-full h-28 sm:h-32 border border-gray-300 rounded p-2 font-mono text-xs sm:text-sm touch-manipulation"
+            rows="6"
           />
-          <div className="mt-2 flex items-center space-x-2">
-            <button onClick={async ()=>{ setQueryJson(prev=>{
-                try { return JSON.stringify(JSON.parse(prev||'{}'), null, 2);} catch { return prev; }
-              }); await Promise.resolve(); }} className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded">Format</button>
-            <button onClick={validateManualQuery} className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded">Validate</button>
-            <button onClick={()=>executeManualQuery(false)} className="px-2 py-1 text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded">Execute</button>
-            <button onClick={()=>executeManualQuery(true)} className="px-2 py-1 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 rounded">Execute & Replace</button>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button 
+              onClick={async ()=>{ 
+                setQueryJson(prev=>{
+                  try { return JSON.stringify(JSON.parse(prev||'{}'), null, 2);} catch { return prev; }
+                }); 
+                await Promise.resolve(); 
+              }} 
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 rounded touch-manipulation"
+            >
+              Format
+            </button>
+            <button 
+              onClick={validateManualQuery} 
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 rounded touch-manipulation"
+            >
+              Validate
+            </button>
+            <button 
+              onClick={()=>executeManualQuery(false)} 
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded touch-manipulation"
+            >
+              Execute
+            </button>
+            <button 
+              onClick={()=>executeManualQuery(true)} 
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-amber-100 hover:bg-amber-200 text-amber-800 rounded touch-manipulation"
+            >
+              Execute & Replace
+            </button>
           </div>
           {queryValidationMsg && (
-            <div className="mt-2 text-xs text-gray-600">{queryValidationMsg}</div>
+            <div className="mt-2 text-xs sm:text-sm text-gray-600 break-words">{queryValidationMsg}</div>
           )}
         </div>
       )}
 
-      {/* Messages container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages container - mobile responsive */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
         {messages.length === 0 && (
-          <div className="text-center text-gray-500 mt-8">
-            <h3 className="text-lg font-medium mb-2">
+          <div className="text-center text-gray-500 mt-8 px-4">
+            <h3 className="text-lg sm:text-xl font-medium mb-2">
               {chatMode === "free" ? "Start a conversation" : "Chat with your Elasticsearch data"}
             </h3>
             <p className="text-sm">
@@ -788,15 +885,25 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         
         {messages.map((message, index) => (
           <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-3xl rounded-lg px-4 py-2 ${
+            <div className={`max-w-full sm:max-w-3xl rounded-lg px-3 sm:px-4 py-2 sm:py-3 ${
               message.role === 'user' 
                 ? 'bg-blue-500 text-white' 
                 : 'bg-white border border-gray-200 text-gray-900'
             }`}>
-              <div className="text-sm font-medium mb-1 opacity-75">
-                {message.role === 'user' ? 'You' : 'Assistant'}
+              <div className="text-xs sm:text-sm font-medium mb-1 opacity-75 flex items-center space-x-1">
+                {message.role === 'user' ? (
+                  <>
+                    <LucideUser className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>You</span>
+                  </>
+                ) : (
+                  <>
+                    <LucideBot className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>Assistant</span>
+                  </>
+                )}
               </div>
-              <div className="prose prose-sm max-w-none">
+              <div className="prose prose-sm sm:prose max-w-none text-sm sm:text-base">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeSanitize]}
@@ -893,79 +1000,80 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
         )}
         
         {debugInfo && showDebug && (
-           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                       <div className="text-gray-800 font-medium mb-2">Debug Information</div>
-                       <div className="text-xs font-mono text-gray-600">
-                         <div className="grid grid-cols-2 gap-4">
-                           <div>
-                             <strong>Request ID:</strong> {debugInfo.request_id}<br/>
-                             <strong>Mode:</strong> {debugInfo.mode}<br/>
-                             <strong>Model:</strong> {debugInfo.model_info?.model || 'N/A'}<br/>
-                             <strong>Temperature:</strong> {debugInfo.request_details?.temperature || 'N/A'}
-                           </div>
-                           <div>
-                             <strong>Timings:</strong><br/>
-                             {Object.entries(debugInfo.timings || {}).map(([key, value]) => (
-                               <div key={key}>• {key}: {value}ms</div>
-                             ))}
-                           </div>
-                         </div>
-                         {debugInfo.model_info && (
-                           <details className="mt-4">
-                             <summary className="cursor-pointer font-bold">Raw Response</summary>
-                             <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">
-                               {JSON.stringify(debugInfo.model_info.raw_response || debugInfo.model_info, null, 2)}
-                             </pre>
-                           </details>
-                         )}
-                       </div>
-                     </div>
-                   )}
-                   
-                   {/* Mapping display: prefer structured debug mapping, otherwise try to parse embedded JSON markers */}
-                   {(() => {
-                     const structured = debugInfo?.mapping_response;
-                     const rawReply = debugInfo?.mapping_raw_reply || (messages.length ? messages[messages.length-1]?.content : null);
-                     const parsed = structured || parseCollapsedJsonFromString(rawReply);
-                     if (parsed) {
-                       return <MappingToggleSection mapping={parsed} />;
-                     }
-                     return null;
-                   })()}
-                   
-                   <div ref={messagesEndRef} />
-                 </div>
-                 
-                 {/* Input area */}
-                 <div className="bg-white border-t border-gray-200 p-4">
-                   <div className="flex space-x-3">
-                     <textarea
-                       value={input}
-                       onChange={(e) => setInput(e.target.value)}
-                       onKeyPress={handleKeyPress}
-                       placeholder={
-                         chatMode === "free" 
-                           ? "Ask me anything..." 
-                           : selectedIndex
-                             ? `Ask about your ${selectedIndex} data...`
-                             : "Select an index first..."
-                       }
-                       className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                       rows={input.split('\n').length}
-                       disabled={isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
-                     />
-                     <button
-                       onClick={sendMessage}
-                       disabled={!input.trim() || isStreaming || (chatMode === "elasticsearch" && !selectedIndex)}
-                       className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                     >
-                       {isStreaming ? "..." : "Send"}
-                     </button>
-                   </div>
-                   <div className="mt-2 text-xs text-gray-500">
-                     Press Enter to send, Shift+Enter for new line
-                   </div>
-                 </div>
-               </div>
-             );
-           }
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <div className="text-gray-800 font-medium mb-2">Debug Information</div>
+            <div className="text-xs font-mono text-gray-600">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <strong>Request ID:</strong> {debugInfo.request_id}<br/>
+                  <strong>Mode:</strong> {debugInfo.mode}<br/>
+                  <strong>Model:</strong> {debugInfo.model_info?.model || 'N/A'}<br/>
+                  <strong>Temperature:</strong> {debugInfo.request_details?.temperature || 'N/A'}
+                </div>
+                <div>
+                  <strong>Timings:</strong><br/>
+                  {Object.entries(debugInfo.timings || {}).map(([key, value]) => (
+                    <div key={key}>• {key}: {value}ms</div>
+                  ))}
+                </div>
+              </div>
+              {debugInfo.model_info && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer font-bold">Raw Response</summary>
+                  <pre className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-auto max-h-40">
+                    {JSON.stringify(debugInfo.model_info.raw_response || debugInfo.model_info, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Mapping display: prefer structured debug mapping, otherwise try to parse embedded JSON markers */}
+        {(() => {
+          const structured = debugInfo?.mapping_response;
+          const rawReply = debugInfo?.mapping_raw_reply || (messages.length ? messages[messages.length-1]?.content : null);
+          const parsed = structured || parseCollapsedJsonFromString(rawReply);
+          if (parsed) {
+            return <MappingToggleSection mapping={parsed} />;
+          }
+          return null;
+        })()}
+        
+              <div ref={messagesEndRef} />
+            </div>
+      
+            {/* Input area - mobile responsive */}
+            <div className="bg-white border-t border-gray-200 p-3 sm:p-4">
+              <div className="flex space-x-2 sm:space-x-3">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder={
+                    chatMode === "free"
+                      ? "Ask me anything..."
+                      : selectedIndex
+                        ? `Ask about your ${selectedIndex} data...`
+                        : "Select an index first..."
+                  }
+                  className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent touch-manipulation"
+                  rows={Math.max(1, Math.min(4, input.split('\n').length))}
+                  disabled={isStreaming || ((chatMode === "elasticsearch" || (chatMode === "auto" && detectedMode === "elasticsearch")) && !selectedIndex)}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={!input.trim() || isStreaming || ((chatMode === "elasticsearch" || (chatMode === "auto" && detectedMode === "elasticsearch")) && !selectedIndex)}
+                  className="px-4 sm:px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation flex-shrink-0 flex items-center"
+                >
+                  <LucideSend className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">{isStreaming ? "..." : "Send"}</span>
+                </button>
+              </div>
+              <div className="mt-2 text-xs sm:text-sm text-gray-500">
+                Press Enter to send, Shift+Enter for new line
+              </div>
+            </div>
+          </div>
+        );
+      }
