@@ -359,11 +359,8 @@ class QueryExecutor:
             # If no query specified, default to match_all
             query_body = {"match_all": {}}
         
-        # Check if this is a count-only request (size 0 or asking for count)
-        is_count_request = (
-            query_body.get("size") == 0 or 
-            "size" not in query_body and self._is_count_question(safe_query.get("_context", ""))
-        )
+        # Check if this is a count-only request
+        is_count_request = self._is_count_request(query_data)
         
         # For count requests, prefer the count API
         if is_count_request:
@@ -376,7 +373,7 @@ class QueryExecutor:
             if "size" not in query_body:
                 query_body["size"] = min(100, self.max_size)  # Default to 100 docs
             else:
-                query_body["size"] = min(query_body["size"], self.max_size)
+                query_body["size"] = min(int(query_body.get("size", self.max_size)), self.max_size)
         
         # Add timeout if not present
         if "timeout" not in query_body:
@@ -384,6 +381,19 @@ class QueryExecutor:
         
         safe_query["query"] = query_body
         return safe_query
+    
+    def _is_count_request(self, query_data: Dict[str, Any]) -> bool:
+        """Determine if the request is for a count total"""
+        # Check for size 0 in the query
+        if query_data.get("size") == 0:
+            return True
+        
+        # Check for size 0 in the nested query body
+        if isinstance(query_data.get("query"), dict) and query_data["query"].get("size") == 0:
+            return True
+            
+        # Check for keywords in the context
+        return self._is_count_question(query_data.get("_context", ""))
     
     def _is_count_question(self, context: str) -> bool:
         """Determine if the user is asking for a count/total"""

@@ -13,6 +13,7 @@ from opentelemetry.context import set_value, get_current
 from services.elasticsearch_service import ElasticsearchService
 from services.mapping_cache_service import MappingCacheService
 from services.ai_service import AIService
+from services.chat_service import ChatService
 from services.security_service import SecurityService
 from services.container import ServiceContainer
 from config.settings import settings
@@ -380,6 +381,12 @@ async def _setup_service_container(es_service, ai_service, mapping_cache_service
             
             # Keep original AI service for backward compatibility
             container.register("ai_service", lambda: ai_service)
+
+            # Register ChatService
+            async def chat_service_factory(ai_service, query_executor):
+                return ChatService(ai_service, query_executor)
+            container.register("chat_service", chat_service_factory,
+                             dependencies=["ai_service", "query_executor"])
             
             # Register enhanced search service if available
             try:
@@ -506,6 +513,7 @@ async def lifespan(app: FastAPI):
                 app.state.security_service = await container.get("security_service")
                 app.state.query_executor = await container.get("query_executor")
                 app.state.enhanced_ai_service = await container.get("enhanced_ai_service")
+                app.state.chat_service = await container.get("chat_service")
 
                 try:
                     app.state.enhanced_search_service = await container.get("enhanced_search_service")

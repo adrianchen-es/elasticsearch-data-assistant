@@ -43,7 +43,14 @@ class Settings(BaseSettings):
     filter_closed_indices: bool = os.getenv("ELASTICSEARCH_FILTER_CLOSED_INDICES", "true").lower() == "true"
     show_data_streams: bool = os.getenv("ELASTICSEARCH_SHOW_DATA_STREAMS", "true").lower() == "true"
 
+    # Docker and agent settings from environment, optional
+    host_filesystem: Optional[str] = os.getenv("HOST_FILESYSTEM")
+    docker_sock: Optional[str] = os.getenv("DOCKER_SOCK")
+    elastic_agent_otel: Optional[str] = os.getenv("ELASTIC_AGENT_OTEL")
+    collector_contrib_image: Optional[str] = os.getenv("COLLECTOR_CONTRIB_IMAGE")
+    otel_collector_config: Optional[str] = os.getenv("OTEL_COLLECTOR_CONFIG")
+
     # Pydantic v2 configuration style
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

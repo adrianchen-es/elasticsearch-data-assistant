@@ -2,10 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
-import { IndexSelector, TierSelector } from './Selectors.jsx';
-import CollapsibleList from './CollapsibleList.jsx';
-import MappingDisplay from './MappingDisplay.jsx';
-import ExecutedQueriesSection from './ExecutedQueriesSection.jsx';
+import { LucideChevronDown, LucideChevronUp, LucidePlus, LucideTrash2, LucideSettings, LucideLoader, LucideSend, LucideFileWarning, LucideSearch, LucideTestTube, LucideClipboard, LucideCheck, LucideX, LucideHistory, LucideBot, LucideUser, LucideBrainCircuit, LucideDatabase, LucideFlipHorizontal, LucideWand2 } from 'lucide-react';
+import { ConversationManager } from './ConversationManager.jsx';
 import { parseCollapsedJsonFromString } from '../utils/mappingParser';
 // lightweight logger helper to avoid multiple inline dynamic imports
 let feLogger = null;

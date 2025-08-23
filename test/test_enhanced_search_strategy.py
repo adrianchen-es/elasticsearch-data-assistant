@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 from unittest.mock import AsyncMock
 from backend.services.enhanced_search_service import SearchOptimization
 
@@ -26,7 +27,8 @@ async def _fake_execute(index_name, query, optimization, explain, profile):
     return type("R", (), {"hits": [], "total_hits": 0, "max_score": 0.0, "took_ms": 1, "timed_out": False, "shards_info": {}, "aggregations": {}, "analysis": None, "metrics": None, "suggestions": [], "related_queries": []})
 
 
-def test_enhanced_service_called(monkeypatch):
+@pytest.mark.asyncio
+async def test_enhanced_service_called(monkeypatch):
     # Replace EnhancedSearchService.execute_enhanced_search with fake
     fake = AsyncMock(side_effect=_fake_execute)
     class FakeEnhanced:
@@ -42,9 +44,6 @@ def test_enhanced_service_called(monkeypatch):
         _apply_tuning_to_query = lambda q, t: q
 
     # Call fake execute through assembly
-    import asyncio
-    async def runner():
-        svc = FakeEnhanced()
-        await svc.execute_enhanced_search('idx', {'query': {}}, optimization=SearchOptimization.ACCURACY, explain=True, profile=False)
+    svc = FakeEnhanced()
+    await svc.execute_enhanced_search('idx', {'query': {}}, optimization=SearchOptimization.ACCURACY, explain=True, profile=False)
 
-    asyncio.get_event_loop().run_until_complete(runner())
