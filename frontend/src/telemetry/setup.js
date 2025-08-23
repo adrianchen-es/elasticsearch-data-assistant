@@ -1,105 +1,135 @@
-import { WebTracerProvider, BatchSpanProcessor, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
-import { registerInstrumentations } from '@opentelemetry/instrumentation';
-import { ZoneContextManager } from '@opentelemetry/context-zone';
+import { BatchSpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_HTTP_ROUTE } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { ZoneContextManager } from '@opentelemetry/context-zone';
+import { WebTracerProvider, ConsoleSpanExporter } from '@opentelemetry/sdk-trace-web';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { registerInstrumentations } from '@opentelemetry/instrumentation';
+import { B3Propagator, B3InjectEncoding } from '@opentelemetry/propagator-b3';
+import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
+import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { trace, context, diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
 
-// --- Configuration ---
-const SERVICE_NAME = "elasticsearch-ai-frontend";
-const SERVICE_VERSION = process.env.REACT_APP_VERSION || '1.1.0';
-const OTEL_TRACE_ENDPOINT = process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://localhost:3000/v1/traces';
-const DEPLOYMENT_ENV = process.env.NODE_ENV || 'development';
+// Enable debug logging
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
 
-// --- Setup Logging ---
-diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
+// Enable debug logging
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
+// Setup OpenTelemetry for web
+export const setupTelemetryWeb = () => {
+  try {
+    // Define resource attributes for better observability
+    const resource = resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: "elasticsearch-ai-frontend",
+      [ATTR_SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
+      // use the non-deprecated deployment attribute name directly
+      'deployment.environment': process.env.NODE_ENV || 'development',
+      // browser attributes are not part of the core Resource semantic constants in some OTEL versions;
+      // use stable string keys and guard navigator for SSR
+      'browser.user_agent': (typeof navigator !== 'undefined' && navigator.userAgent) || 'unknown',
+      'browser.language': (typeof navigator !== 'undefined' && navigator.language) || 'unknown',
+    });
 
-// --- Resource Definition ---
-const resource = new resourceFromAttributes({
-  [SemanticResourceAttributes.SERVICE_NAME]: SERVICE_NAME,
-  [SemanticResourceAttributes.SERVICE_VERSION]: SERVICE_VERSION,
-  [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: DEPLOYMENT_ENV,
-});
+    // Configure OTLP trace exporter
+    const otlpTraceExporter = new OTLPTraceExporter({
+      url: process.env.REACT_APP_OTEL_TRACE_ENDPOINT || 'http://otel-collector:4318/v1/traces',
+    });
 
+    // Configure OTLP metric exporter
+    const otlpMetricExporter = new OTLPMetricExporter({
+      url: process.env.REACT_APP_OTEL_METRIC_ENDPOINT || 'http://otel-collector:4318/v1/metrics',
+    });
 
-// --- Exporter ---
-const traceExporter = new OTLPTraceExporter({
-  url: OTEL_TRACE_ENDPOINT,
-});
+    // Setup WebTracerProvider with 100% sampling (adjust in prod)
+    // Prepare span processors first so we don't need to call addSpanProcessor on the provider
+    const spanProcessors = [
+      // Tune BatchSpanProcessor for throughput/latency tradeoffs
+      new BatchSpanProcessor(otlpTraceExporter, {
+        maxQueueSize: 2048,
+        scheduledDelayMillis: 5000,
+        maxExportBatchSize: 512,
+        exportTimeoutMillis: 30000,
+      }),
+    ];
 
-// --- Span Processor ---
-const spanProcessor = new BatchSpanProcessor(traceExporter);
+    // Add ConsoleSpanExporter for development
+    if (process.env.NODE_ENV === 'development') {
+      spanProcessors.push(new BatchSpanProcessor(new ConsoleSpanExporter()));
+    }
 
+    const tracerProvider = new WebTracerProvider({
+      resource: resource,
+      spanProcessors: spanProcessors,
+      sampler: new TraceIdRatioBasedSampler(1.0),
+    });
 
-// --- Tracer Provider ---
-const spanProcessors = [spanProcessor];
+  // Setup MeterProvider for metrics
+  const meterProvider = new MeterProvider({
+      resource: resource,
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: otlpMetricExporter,
+          exportIntervalMillis: 10000, // Export metrics every 10 seconds
+        }),
+      ],
+    });
 
-// --- Development Console Exporter ---
-if (DEPLOYMENT_ENV === 'development') {
-  // Add a console exporter in development for local debugging
-  spanProcessors.push(new BatchSpanProcessor(new ConsoleSpanExporter()));
-}
+    // Create custom metrics (high-cardinality-safe counters)
+    const meter = meterProvider.getMeter('frontend-metrics');
+    const pageLoadTime = meter.createHistogram('page_load_time', {
+      description: 'Time taken to load the page',
+    });
+    const userInteractionCounter = meter.createCounter('user_interaction_count', {
+      description: 'Count of user interactions by type (labelled)'
+    });
+    const fetchErrorCounter = meter.createCounter('fetch_error_count', {
+      description: 'Count of fetch errors from frontend requests'
+    });
 
-const provider = new WebTracerProvider({
-  resource: resource,
-  spanProcessors: spanProcessors,
-});
+    // Record page load time
+    window.addEventListener('load', () => {
+      const loadTime = performance.now();
+      pageLoadTime.record(loadTime);
+    });
 
-const meterProvider = new MeterProvider({
-  resource: resource,
-  readers: [
-    new PeriodicExportingMetricReader({
-      exporter: otlpMetricExporter,
-      exportIntervalMillis: 10000, // Export metrics every 10 seconds
-    }),
-  ],
-});
+    // Configure context propagation
+    const propagator = new CompositePropagator({
+      propagators: [
+        new W3CTraceContextPropagator(), // W3C trace context
+        new B3Propagator({ injectEncoding: B3InjectEncoding.MULTI_HEADER }), // B3 propagation for backend compatibility
+      ],
+    });
 
-// Create custom metrics (high-cardinality-safe counters)
-const meter = meterProvider.getMeter('frontend-metrics');
-const pageLoadTime = meter.createHistogram('page_load_time', {
-  description: 'Time taken to load the page',
-});
-const userInteractionCounter = meter.createCounter('user_interaction_count', {
-  description: 'Count of user interactions by type (labelled)'
-});
-// Counter for fetch errors (not referenced yet by code paths below)
-// eslint-disable-next-line no-unused-vars
-const fetchErrorCounter = meter.createCounter('fetch_error_count', {
-  description: 'Count of fetch errors from frontend requests'
-});
+    // Register tracer provider with context manager and propagator
+    tracerProvider.register({
+      contextManager: new ZoneContextManager(),
+      propagator: propagator,
+    });
 
-// Record page load time
-window.addEventListener('load', () => {
-  const loadTime = performance.now();
-  pageLoadTime.record(loadTime);
-});
-
-// --- Register Provider & Context Manager ---
-provider.register({
-  contextManager: new ZoneContextManager(),
-});
-
-
-// --- Instrumentations ---
-registerInstrumentations({
-  instrumentations: [
-    getWebAutoInstrumentations({
-      '@opentelemetry/instrumentation-fetch': {
-        propagateTraceHeaderCorsUrls: [/.+/g], // Propagate headers to all origins
-        clearTimingResources: true,
-        semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
-        applyCustomAttributesOnSpan: (span, request, result) => {
-          if (result.error) {
-            span.setAttribute('http.error_message', result.error.message);
-            span.setAttribute('http.error_stack', result.error.stack);
-          }
-        },
+    // Register instrumentations
+    registerInstrumentations({
+      instrumentations: [
+        getWebAutoInstrumentations({
+          '@opentelemetry/instrumentation-fetch': {
+            propagateTraceHeaderCorsUrls: /.*/,
+            clearTimingResources: true,
+            semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
+            //semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
+            applyCustomAttributesOnSpan: (span, request) => {
+              // Better span naming and sanitized attributes for HTTP requests
+              try {
+                span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
+                span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
+              } catch (e) {
+                // Best-effort only
+              }
+            },
+          },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
             clearTimingResources: true,
@@ -111,9 +141,8 @@ registerInstrumentations({
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
               //span.updateName('Document Load');
-                try {
-                  // eslint-disable-next-line no-unused-vars
-                  const loadEvent = (performance && performance.timing) || {};
+              try {
+                const loadEvent = (performance && performance.timing) || {};
                 // record a coarse load indicator (not granular timings here)
                 span.setAttribute('document.visibilityState', document.visibilityState || 'unknown');
                 // keep the resource size trimmed if present
@@ -148,38 +177,38 @@ registerInstrumentations({
               }
             },
           },
-      },
-    }),
-  ],
-});
-
-
-// --- Custom Tracer ---
-const tracer = trace.getTracer(SERVICE_NAME, SERVICE_VERSION);
-
-export const withTracedExecution = (name, func) => {
-  return async (...args) => {
-    const span = tracer.startSpan(name);
-    return context.with(trace.setSpan(context.active(), span), async () => {
-      try {
-        const result = await func(...args);
-        span.setStatus({ code: 1 }); // OK
-        return result;
-      } catch (error) {
-        span.setStatus({ code: 2, message: error.message }); // ERROR
-        span.recordException(error);
-        throw error;
-      } finally {
-        span.end();
-      }
+        }),
+      ],
+      tracerProvider: tracerProvider,
+      meterProvider: meterProvider,
     });
-  };
-};
 
-export const traceSpan = (name, attributes = {}) => {
-  const span = tracer.startSpan(name, { attributes });
-  return {
-    end: () => span.end(),
-    recordException: (e) => span.recordException(e),
-  };
+    // Wrap global fetch to propagate X-Http-Route header into active span as ATTR_HTTP_ROUTE
+    try {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const resp = await nativeFetch(...args);
+        try {
+          const route = resp.headers.get('x-http-route') || resp.headers.get('X-Http-Route');
+          if (route) {
+            const span = trace.getSpan(context.active());
+            if (span) {
+              try { span.setAttribute(ATTR_HTTP_ROUTE, route); } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // best-effort
+        }
+        return resp;
+      };
+    } catch (e) {
+      // ignore if fetch cannot be wrapped in some environments
+    }
+
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ info }) => info('OpenTelemetry initialized for frontend')).catch(() => {});
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    import('../lib/logging.js').then(({ error: logError }) => logError('Failed to setup telemetry:', error)).catch(() => {});
+  }
 };

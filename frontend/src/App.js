@@ -1,6 +1,7 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { setupTelemetryWeb } from './telemetry/setup';
 
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
@@ -182,7 +183,7 @@ function App() {
     // this component in current architecture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // (justification: mount-only effects; dependencies are stable primitives)
-    // setupTelemetryWeb();
+    setupTelemetryWeb();
     // Fetch provider statuses to gate selection by availability
     (async () => {
       try {
