@@ -18,7 +18,6 @@ coverage/
 .pytest_cache/
 
 # Environment files
-.env
 .env.*
 !.env.example
 
