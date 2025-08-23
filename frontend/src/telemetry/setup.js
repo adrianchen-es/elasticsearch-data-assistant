@@ -50,6 +50,35 @@ const provider = new WebTracerProvider({
   spanProcessors: spanProcessors,
 });
 
+const meterProvider = new MeterProvider({
+  resource: resource,
+  readers: [
+    new PeriodicExportingMetricReader({
+      exporter: otlpMetricExporter,
+      exportIntervalMillis: 10000, // Export metrics every 10 seconds
+    }),
+  ],
+});
+
+// Create custom metrics (high-cardinality-safe counters)
+const meter = meterProvider.getMeter('frontend-metrics');
+const pageLoadTime = meter.createHistogram('page_load_time', {
+  description: 'Time taken to load the page',
+});
+const userInteractionCounter = meter.createCounter('user_interaction_count', {
+  description: 'Count of user interactions by type (labelled)'
+});
+// Counter for fetch errors (not referenced yet by code paths below)
+// eslint-disable-next-line no-unused-vars
+const fetchErrorCounter = meter.createCounter('fetch_error_count', {
+  description: 'Count of fetch errors from frontend requests'
+});
+
+// Record page load time
+window.addEventListener('load', () => {
+  const loadTime = performance.now();
+  pageLoadTime.record(loadTime);
+});
 
 // --- Register Provider & Context Manager ---
 provider.register({
