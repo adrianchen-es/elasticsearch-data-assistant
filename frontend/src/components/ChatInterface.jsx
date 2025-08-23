@@ -583,7 +583,7 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk, autoRunGeneratedQueries, mappingResponseFormat, precision, recall, selectedProvider?.name]);
+  }, [input, messages, isStreaming, chatMode, selectedIndex, temperature, streamEnabled, showDebug, conversationId, appendAssistantChunk, autoRunGeneratedQueries, mappingResponseFormat, precision, recall, selectedProvider?.name, detectedMode, setSelectedIndex]);
 
   // Reset detection state when manually changing modes
   useEffect(() => {

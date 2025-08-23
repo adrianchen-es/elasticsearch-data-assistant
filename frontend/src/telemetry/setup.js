@@ -16,6 +16,9 @@ import { trace, context, diag, DiagConsoleLogger, DiagLogLevel } from '@opentele
 // Enable debug logging
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
 
+// Configurable HTTP route response header key (lowercase)
+const ROUTE_HEADER_KEY = (process.env.REACT_APP_OTEL_ROUTE_HEADER || 'x-http-route').toLowerCase();
+
 
 // Enable debug logging
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG);
@@ -79,7 +82,7 @@ export const setupTelemetryWeb = () => {
       ],
     });
 
-    // Create custom metrics (high-cardinality-safe counters)
+  // Create custom metrics (high-cardinality-safe counters)
     const meter = meterProvider.getMeter('frontend-metrics');
     const pageLoadTime = meter.createHistogram('page_load_time', {
       description: 'Time taken to load the page',
@@ -189,7 +192,6 @@ export const setupTelemetryWeb = () => {
               // Preserve a clear span name and record important metrics
               //span.updateName('Document Load');
               try {
-                const loadEvent = (performance && performance.timing) || {};
                 // record a coarse load indicator (not granular timings here)
                 span.setAttribute('document.visibilityState', document.visibilityState || 'unknown');
                 // keep the resource size trimmed if present
@@ -232,6 +234,7 @@ export const setupTelemetryWeb = () => {
 
     // Wrap global fetch to propagate X-Http-Route header into active span as ATTR_HTTP_ROUTE
     try {
+      // runtime-configurable header key; module-scoped constant is defined below
       const nativeFetch = window.fetch.bind(window);
       window.fetch = async (...args) => {
         // attempt to extract method/url from args for naming when response header not present
@@ -246,9 +249,15 @@ export const setupTelemetryWeb = () => {
           else if (input && input.method) method = input.method || method;
         } catch (e) {}
 
-        const resp = await nativeFetch(...args);
+        let resp;
         try {
-          const route = resp.headers.get('x-http-route') || resp.headers.get('X-Http-Route');
+          resp = await nativeFetch(...args);
+        } catch (err) {
+          try { fetchErrorCounter.add(1); } catch (e) {}
+          throw err;
+        }
+        try {
+          const route = resp.headers.get(ROUTE_HEADER_KEY);
           const span = trace.getSpan(context.active());
           if (span) {
             if (route) {
@@ -287,9 +296,9 @@ export const setupTelemetryWeb = () => {
       const origSend = XMLHttpRequest.prototype.send;
       XMLHttpRequest.prototype.send = function(body) {
         try {
-          this.addEventListener('load', function() {
+              this.addEventListener('load', function() {
             try {
-              const route = this.getResponseHeader && (this.getResponseHeader('x-http-route') || this.getResponseHeader('X-Http-Route'));
+              const route = this.getResponseHeader && this.getResponseHeader(ROUTE_HEADER_KEY);
               const span = trace.getSpan(context.active());
               const method = this.__ot_method || 'GET';
               if (span) {
