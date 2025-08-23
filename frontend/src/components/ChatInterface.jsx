@@ -459,6 +459,42 @@ export default function ChatInterface({ selectedProvider, selectedIndex, setSele
                   
                   if (event.type === "content" && event.delta) {
                     appendAssistantChunk(event.delta);
+                  } else if (event.type === "query_results") {
+                    // Received structured query results from the backend. Add the
+                    // human-readable summary to the assistant's visible content and
+                    // attach the structured results into the message meta so the UI
+                    // can render details.
+                    const visibleText = event.message || '';
+                    // Append visible text as assistant content (keeps streaming UX)
+                    appendAssistantChunk(visibleText);
+
+                    // Attach structured metadata to the last assistant message so
+                    // existing components (ExecutedQueriesSection) can pick it up.
+                    setMessages(prev => {
+                      if (!prev || prev.length === 0) return prev;
+                      const copy = [...prev];
+                      const lastIdx = copy.length - 1;
+                      const last = copy[lastIdx];
+                      if (!last || last.role !== 'assistant') {
+                        // If there's no assistant message, create one with meta
+                        copy.push({ role: 'assistant', content: visibleText, meta: {
+                          executed_queries: event.results || [],
+                          query_execution_metadata: event.query_execution_metadata || {}
+                        }});
+                      } else {
+                        copy[lastIdx] = {
+                          ...last,
+                          meta: {
+                            ...(last.meta || {}),
+                            executed_queries: event.results || [],
+                            query_execution_metadata: event.query_execution_metadata || {}
+                          }
+                        };
+                      }
+                      return copy;
+                    });
+                    // Also update debug info so tests / debug UI can show execution metadata
+                    setDebugInfo(prev => ({ ...(prev || {}), last_query_results: event.query_execution_metadata || {} }));
                   } else if (event.type === "mode_detected") {
                     // Handle intelligent mode detection
                     setDetectedMode(event.mode);

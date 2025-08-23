@@ -1,5 +1,6 @@
 # backend/services/chat_service.py
 from typing import Dict, Any, Optional, List, AsyncGenerator
+import os
 import json
 import logging
 from opentelemetry import trace
@@ -105,13 +106,76 @@ class ChatService:
             system_prompt = self._build_system_prompt(actual_mode, enhanced_schema_context, detection_result)
             enhanced_messages = [{"role": "system", "content": system_prompt}] + messages
 
-            response_stream = await self.ai_service.generate_chat(
-                enhanced_messages,
-                model=model,
-                temperature=temperature,
-                stream=True,
-                conversation_id=conversation_id,
-            )
+            # Development helper: optionally simulate an AI-generated
+            # `execute_elasticsearch_query` call for local testing. This is
+            # gated by the environment variable `ENABLE_SIMULATED_EXECUTE` to
+            # avoid accidentally shipping a special token in production.
+            simulate = False
+            try:
+                enabled = os.getenv('ENABLE_SIMULATED_EXECUTE', 'false').lower() in ('1', 'true', 'yes')
+                if enabled:
+                    for m in messages:
+                        if isinstance(m, dict) and '__SIMULATE_EXECUTE_QUERY__' in str(m.get('content', '')):
+                            simulate = True
+                            break
+            except Exception:
+                simulate = False
+
+            if simulate:
+                async def _simulated_response():
+                    # Craft a simple execute_elasticsearch_query payload
+                    index_to_use = messages[0].get('meta', {}).get('index_name') if messages else None
+                    index_to_use = index_name or index_to_use or 'test-index'
+                    payload = (
+                        'execute_elasticsearch_query({"index": "' + index_to_use + '", "query": {"match_all": {}}, "size": 0})'
+                    )
+                    # stream a content chunk that contains the function call
+                    yield {"type": "content", "delta": payload}
+
+                    # Simulate a successful query execution: construct fake results
+                    fake_results = [
+                        {
+                            "success": True,
+                            "attempt": 1,
+                            "result": {
+                                "hits": {
+                                    "total": {"value": 42},
+                                    "hits": [
+                                        {"_id": "1", "_source": {"message": "sample"}}
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+
+                    # Add telemetry event to current span indicating results will be sent
+                    try:
+                        current_span = trace.get_current_span()
+                        if current_span is not None:
+                            current_span.add_event("query_results_sent", {"executed": True, "query_count": 1, "successful_attempt": 1})
+                    except Exception:
+                        logger.debug("Failed to add telemetry event for simulated query_results_sent")
+
+                    yield {
+                        "type": "query_results",
+                        "message": "Query execution completed. 42 documents matched. Sample: [{\"_id\": \"1\", \"_source\": {\"message\": \"sample\"}}]",
+                        "results": fake_results,
+                        "query_count": 1,
+                        "query_execution_metadata": {"successful_attempt": 1}
+                    }
+
+                    # finally done
+                    yield {"type": "done"}
+
+                response_stream = _simulated_response()
+            else:
+                response_stream = await self.ai_service.generate_chat(
+                    enhanced_messages,
+                    model=model,
+                    temperature=temperature,
+                    stream=True,
+                    conversation_id=conversation_id,
+                )
 
             async for event in self._handle_response_stream(response_stream, enhanced_messages, model, temperature, conversation_id, debug):
                 yield event
@@ -146,21 +210,52 @@ class ChatService:
             )
 
             if execution_result.get("executed"):
-                query_results_message = self._format_query_results_for_ai(execution_result)
-                follow_up_messages = messages + [
-                    {"role": "assistant", "content": initial_response_text},
-                    {"role": "system", "content": query_results_message},
-                ]
-                
-                follow_up_stream = await self.ai_service.generate_chat(
-                    follow_up_messages,
-                    model=model,
-                    temperature=temperature,
-                    stream=True,
-                    conversation_id=conversation_id,
-                )
-                async for event in follow_up_stream:
-                    yield event
+                    # Format results for the AI and also send them immediately to the client
+                    query_results_message = self._format_query_results_for_ai(execution_result)
+
+                    # Emit an OpenTelemetry event on the current chat span to signal that
+                    # the query results are being sent to the client. This is useful for
+                    # tracing and debugging end-to-end query execution latency.
+                    try:
+                        current_span = trace.get_current_span()
+                        if current_span is not None:
+                            current_span.add_event("query_results_sent", {
+                                "executed": True,
+                                "query_count": execution_result.get("query_count", 0),
+                                "successful_attempt": execution_result.get("successful_attempt")
+                            })
+                    except Exception:
+                        # Non-fatal: span instrumentation should not break normal flow
+                        logger.debug("Failed to add telemetry event for query_results_sent")
+
+                    # Immediately send the structured query results as a distinct event so the
+                    # frontend can treat query results separately from generic assistant content.
+                    yield {
+                        "type": "query_results",
+                        "message": query_results_message,
+                        "results": execution_result.get("results", []),
+                        "query_count": execution_result.get("query_count", 0),
+                        "query_execution_metadata": {
+                            "successful_attempt": execution_result.get("successful_attempt")
+                        }
+                    }
+
+                    # Then request a follow-up analysis from the AI, using the original assistant output
+                    # plus the structured results as system context. We stream any events the AI returns
+                    follow_up_messages = messages + [
+                        {"role": "assistant", "content": initial_response_text},
+                        {"role": "system", "content": query_results_message},
+                    ]
+
+                    follow_up_stream = await self.ai_service.generate_chat(
+                        follow_up_messages,
+                        model=model,
+                        temperature=temperature,
+                        stream=True,
+                        conversation_id=conversation_id,
+                    )
+                    async for event in follow_up_stream:
+                        yield event
             else:
                 error_message = f"I tried to execute a query, but it failed with the following error: {execution_result.get('error', 'Unknown error')}. Please check the query and try again."
                 yield {"type": "content", "delta": error_message}
