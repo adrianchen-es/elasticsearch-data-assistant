@@ -117,14 +117,46 @@ export const setupTelemetryWeb = () => {
         getWebAutoInstrumentations({
           '@opentelemetry/instrumentation-fetch': {
             propagateTraceHeaderCorsUrls: /.*/,
-            clearTimingResources: true,
+            //clearTimingResources: true,
             semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
-            //semconvStabilityOptIn: 'http', // https://opentelemetry.io/schemas/semantic-conventions/v1.20.0
             applyCustomAttributesOnSpan: (span, request) => {
               // Better span naming and sanitized attributes for HTTP requests
               try {
                 span.setAttribute('frontend.version', process.env.REACT_APP_VERSION || 'unknown');
                 span.setAttribute('frontend.environment', process.env.NODE_ENV || 'development');
+
+                // Derive a useful span name from method + pathname (best-effort)
+                try {
+                  let method = 'GET';
+                  let url = undefined;
+                  // request can be a string, Request, or [input, init]
+                  if (typeof request === 'string') {
+                    url = request;
+                  } else if (request && typeof request === 'object') {
+                    // If instrumentation passes an array [input, init]
+                    if (Array.isArray(request)) {
+                      url = request[0];
+                      if (request[1] && request[1].method) method = request[1].method;
+                    } else if (request instanceof Request) {
+                      url = request.url;
+                      method = request.method || method;
+                    } else {
+                      url = request.url || undefined;
+                      method = request.method || method;
+                    }
+                  }
+
+                  if (url) {
+                    try {
+                      const pathname = new URL(url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                      span.updateName(`${method} ${pathname}`);
+                    } catch (e) {
+                      // ignore malformed urls
+                    }
+                  }
+                } catch (e) {
+                  // best-effort
+                }
               } catch (e) {
                 // Best-effort only
               }
@@ -132,11 +164,24 @@ export const setupTelemetryWeb = () => {
           },
           '@opentelemetry/instrumentation-xml-http-request': {
             propagateTraceHeaderCorsUrls: /.*/,
-            clearTimingResources: true,
+            //clearTimingResources: true,
             semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
+            // Name XHR spans with method + path when possible
+            applyCustomAttributesOnSpan: (span, xhr) => {
+              try {
+                const method = xhr && (xhr.__ot_method || xhr.method) ? (xhr.__ot_method || xhr.method) : 'GET';
+                const url = xhr && (xhr.__ot_url || xhr.responseURL || xhr.url);
+                if (url) {
+                  try {
+                    const pathname = new URL(url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                    span.updateName(`${method} ${pathname}`);
+                  } catch (e) {}
+                }
+              } catch (e) {}
+            },
           },
           '@opentelemetry/instrumentation-document-load': {
-            clearTimingResources: true,
+            //clearTimingResources: true,
             semconvStabilityOptIn: 'http',//opentelemetry.io/schemas/semantic-conventions/v1.20.0,
             applyCustomAttributesOnSpan: (span, event) => {
               // Preserve a clear span name and record important metrics
@@ -187,13 +232,33 @@ export const setupTelemetryWeb = () => {
     try {
       const nativeFetch = window.fetch.bind(window);
       window.fetch = async (...args) => {
+        // attempt to extract method/url from args for naming when response header not present
+        let method = 'GET';
+        let reqUrl;
+        try {
+          const input = args[0];
+          const init = args[1];
+          if (typeof input === 'string') reqUrl = input;
+          else if (input && typeof input === 'object') reqUrl = input.url || undefined;
+          if (init && init.method) method = init.method;
+          else if (input && input.method) method = input.method || method;
+        } catch (e) {}
+
         const resp = await nativeFetch(...args);
         try {
           const route = resp.headers.get('x-http-route') || resp.headers.get('X-Http-Route');
-          if (route) {
-            const span = trace.getSpan(context.active());
-            if (span) {
-              try { span.setAttribute(ATTR_HTTP_ROUTE, route); } catch (e) {}
+          const span = trace.getSpan(context.active());
+          if (span) {
+            if (route) {
+              try {
+                span.setAttribute(ATTR_HTTP_ROUTE, route);
+                span.updateName(`${method} ${route}`);
+              } catch (e) {}
+            } else if (reqUrl) {
+              try {
+                const pathname = new URL(reqUrl, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                span.updateName(`${method} ${pathname}`);
+              } catch (e) {}
             }
           }
         } catch (e) {
@@ -203,6 +268,47 @@ export const setupTelemetryWeb = () => {
       };
     } catch (e) {
       // ignore if fetch cannot be wrapped in some environments
+    }
+
+    // Patch XMLHttpRequest open/send so we can read response headers and update span names with route information
+    try {
+      const origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+        try {
+          this.__ot_method = method;
+          this.__ot_url = url;
+        } catch (e) {}
+        return origOpen.apply(this, arguments);
+      };
+
+      const origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function(body) {
+        try {
+          this.addEventListener('load', function() {
+            try {
+              const route = this.getResponseHeader && (this.getResponseHeader('x-http-route') || this.getResponseHeader('X-Http-Route'));
+              const span = trace.getSpan(context.active());
+              const method = this.__ot_method || 'GET';
+              if (span) {
+                if (route) {
+                  try {
+                    span.setAttribute(ATTR_HTTP_ROUTE, route);
+                    span.updateName(`${method} ${route}`);
+                  } catch (e) {}
+                } else if (this.__ot_url) {
+                  try {
+                    const pathname = new URL(this.__ot_url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                    span.updateName(`${method} ${pathname}`);
+                  } catch (e) {}
+                }
+              }
+            } catch (e) {}
+          });
+        } catch (e) {}
+        return origSend.apply(this, arguments);
+      };
+    } catch (e) {
+      // best-effort
     }
 
     // eslint-disable-next-line no-console
