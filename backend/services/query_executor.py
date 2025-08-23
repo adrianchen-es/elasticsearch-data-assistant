@@ -64,21 +64,38 @@ class QueryExecutor:
                         "results": []
                     }
                 
-                # For now, execute the first valid query
-                # TODO: Support multiple query execution
-                query_data = queries[0]
-                
-                # Add context for better query optimization
-                query_data["_context"] = ai_response
-                
-                single_result = await self._execute_single_query(query_data, conversation_id)
-                
-                all_results = [single_result]
-                
+                # Allow the AI to provide multiple iterations of the query.
+                # We'll attempt up to 3 extracted queries (in order) and stop on the first successful execution.
+                all_results = []
+                max_attempts = min(3, len(queries))
+                successful_attempt = None
+                for i in range(max_attempts):
+                    query_data = queries[i]
+                    # Add context for better query optimization and tracing
+                    query_data["_context"] = ai_response
+                    single_result = await self._execute_single_query(query_data, conversation_id)
+                    # Annotate attempt index (1-based) for observability
+                    single_result["attempt"] = i + 1
+                    all_results.append(single_result)
+                    # Log which attempt succeeded
+                    if single_result.get("success"):
+                        successful_attempt = i + 1
+                        try:
+                            logger.info(f"QueryExecutor: successful attempt {successful_attempt} for conversation {conversation_id}, index={single_result.get('index')}")
+                        except Exception:
+                            pass
+                        # Set span attribute indicating which attempt succeeded
+                        try:
+                            span.set_attribute("query_executor.successful_attempt", successful_attempt)
+                        except Exception:
+                            pass
+                        break
+
                 final_result = {
                     "executed": any(r.get("success") for r in all_results),
                     "query_count": len(all_results),
-                    "results": all_results
+                    "results": all_results,
+                    "successful_attempt": successful_attempt
                 }
                 
                 span.set_attributes({
@@ -308,8 +325,18 @@ class QueryExecutor:
         
         if "index" not in query_data:
             raise QueryExecutionError("Query must specify an index")
-        
+        # Allow count-only requests that omit a top-level `query` object
+        # e.g., { "index": "my-index", "size": 0 } should be treated as a count request
+        # Also allow shorthand top-level query forms like {"match_all": {}} or {"term": {...}}
+        query_keys = ["match_all", "match", "term", "range", "bool"]
         if "query" not in query_data:
+            # If size==0 (explicit count request) allow it
+            if "size" in query_data and query_data.get("size") == 0:
+                return
+            # If any well-known query key is present at top-level, allow it
+            if any(k in query_data for k in query_keys):
+                return
+            # Otherwise it's invalid
             raise QueryExecutionError("Query must contain a query object")
         
         index = query_data["index"]
@@ -356,8 +383,14 @@ class QueryExecutor:
         if "query" in safe_query and isinstance(safe_query["query"], dict):
             query_body = safe_query["query"].copy()
         else:
-            # If no query specified, default to match_all
-            query_body = {"match_all": {}}
+            # If no explicit 'query' key, but common query keys exist at top-level, extract them
+            query_keys = ["match_all", "match", "term", "range", "bool"]
+            found = {k: safe_query[k] for k in query_keys if k in safe_query}
+            if found:
+                query_body = found
+            else:
+                # If no query specified, default to match_all
+                query_body = {"match_all": {}}
         
         # Check if this is a count-only request
         is_count_request = self._is_count_request(query_data)
