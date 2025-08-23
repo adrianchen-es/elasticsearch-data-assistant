@@ -148,7 +148,8 @@ export const setupTelemetryWeb = () => {
 
                   if (url) {
                     try {
-                      const pathname = new URL(url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                      const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
+                      const pathname = new URL(url, base).pathname;
                       span.updateName(`${method} ${pathname}`);
                     } catch (e) {
                       // ignore malformed urls
@@ -173,7 +174,8 @@ export const setupTelemetryWeb = () => {
                 const url = xhr && (xhr.__ot_url || xhr.responseURL || xhr.url);
                 if (url) {
                   try {
-                    const pathname = new URL(url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                    const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
+                    const pathname = new URL(url, base).pathname;
                     span.updateName(`${method} ${pathname}`);
                   } catch (e) {}
                 }
@@ -256,7 +258,8 @@ export const setupTelemetryWeb = () => {
               } catch (e) {}
             } else if (reqUrl) {
               try {
-                const pathname = new URL(reqUrl, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
+                const pathname = new URL(reqUrl, base).pathname;
                 span.updateName(`${method} ${pathname}`);
               } catch (e) {}
             }
@@ -297,7 +300,8 @@ export const setupTelemetryWeb = () => {
                   } catch (e) {}
                 } else if (this.__ot_url) {
                   try {
-                    const pathname = new URL(this.__ot_url, typeof location !== 'undefined' ? location.href : undefined).pathname;
+                    const base = (typeof window !== 'undefined' && window.location) ? window.location.href : undefined;
+                    const pathname = new URL(this.__ot_url, base).pathname;
                     span.updateName(`${method} ${pathname}`);
                   } catch (e) {}
                 }
