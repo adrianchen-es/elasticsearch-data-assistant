@@ -8,6 +8,7 @@ from opentelemetry import trace
 from services.ai_service import AIService
 from services.query_executor import QueryExecutor
 from services.intelligent_mode_service import IntelligentModeDetector, ModeDetectionResult
+from services.ai_tools import get_elasticsearch_tools, parse_function_arguments, validate_elasticsearch_query
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -169,12 +170,18 @@ class ChatService:
 
                 response_stream = _simulated_response()
             else:
+                # Get tools for function calling in elasticsearch mode
+                tools = None
+                if actual_mode == "elasticsearch":
+                    tools = get_elasticsearch_tools()
+                
                 response_stream = await self.ai_service.generate_chat(
                     enhanced_messages,
                     model=model,
                     temperature=temperature,
                     stream=True,
                     conversation_id=conversation_id,
+                    tools=tools,
                 )
 
             async for event in self._handle_response_stream(response_stream, enhanced_messages, model, temperature, conversation_id, debug):
@@ -194,54 +201,120 @@ class ChatService:
         conversation_id: Optional[str],
         debug: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Handles the AI response stream, including query execution."""
+        """Handles the AI response stream, including query execution via function calls or text parsing."""
         initial_response_text = ""
+        function_calls = []
+        
         async for event in response_stream:
             if event['type'] == 'content':
                 initial_response_text += event['delta']
-            yield event
+                yield event
+            elif event['type'] == 'tool_call':
+                # Handle function call during streaming
+                function_calls.append(event['tool_call'])
+                logger.info(f"Function call detected: {event['tool_call']['function']['name']}")
+                
+                # Execute the function call immediately
+                if event['tool_call']['function']['name'] == 'execute_elasticsearch_query':
+                    try:
+                        # Parse and validate function arguments
+                        args_str = event['tool_call']['function']['arguments']
+                        query_args = parse_function_arguments(args_str)
+                        query_args = validate_elasticsearch_query(query_args)
+                        
+                        # Execute the query using the query executor directly
+                        execution_result = await self.query_executor.execute_elasticsearch_query(
+                            **query_args, conversation_id=conversation_id
+                        )
+                        
+                        if execution_result.get("executed"):
+                            # Format results for the AI and send to client
+                            query_results_message = self._format_query_results_for_ai(execution_result)
+
+                            # Add telemetry event
+                            try:
+                                current_span = trace.get_current_span()
+                                if current_span is not None:
+                                    current_span.add_event("query_results_sent", {
+                                        "executed": True,
+                                        "query_count": execution_result.get("query_count", 0),
+                                        "successful_attempt": execution_result.get("successful_attempt"),
+                                        "via_function_call": True
+                                    })
+                            except Exception:
+                                logger.debug("Failed to add telemetry event for query_results_sent")
+
+                            # Send structured query results
+                            yield {
+                                "type": "query_results",
+                                "message": query_results_message,
+                                "results": execution_result.get("results", []),
+                                "query_count": execution_result.get("query_count", 0),
+                                "query_execution_metadata": {
+                                    "successful_attempt": execution_result.get("successful_attempt"),
+                                    "via_function_call": True
+                                }
+                            }
+                        else:
+                            # Handle execution error
+                            error_message = f"Query execution failed: {execution_result.get('error', 'Unknown error')}"
+                            logger.error(error_message)
+                            yield {
+                                "type": "content", 
+                                "delta": f"\n\n{error_message}. Please check the query and try again."
+                            }
+                            
+                    except Exception as e:
+                        error_message = f"Function call execution failed: {str(e)}"
+                        logger.error(error_message)
+                        yield {
+                            "type": "content",
+                            "delta": f"\n\n{error_message}"
+                        }
+            else:
+                yield event
+                
             if event['type'] == 'done':
                 break
 
-        if self.query_executor and "execute_elasticsearch_query" in initial_response_text:
-            logger.info("Query execution detected in AI response.")
+        # Fallback: check for text-based query execution if no function calls were made
+        if not function_calls and self.query_executor and "execute_elasticsearch_query" in initial_response_text:
+            logger.info("Query execution detected in AI response text (fallback parsing).")
             execution_result = await self.query_executor.execute_query_from_ai_response(
                 initial_response_text, conversation_id
             )
 
             if execution_result.get("executed"):
-                    # Format results for the AI and also send them immediately to the client
-                    query_results_message = self._format_query_results_for_ai(execution_result)
+                # Format results for the AI and send to client
+                query_results_message = self._format_query_results_for_ai(execution_result)
 
-                    # Emit an OpenTelemetry event on the current chat span to signal that
-                    # the query results are being sent to the client. This is useful for
-                    # tracing and debugging end-to-end query execution latency.
-                    try:
-                        current_span = trace.get_current_span()
-                        if current_span is not None:
-                            current_span.add_event("query_results_sent", {
-                                "executed": True,
-                                "query_count": execution_result.get("query_count", 0),
-                                "successful_attempt": execution_result.get("successful_attempt")
-                            })
-                    except Exception:
-                        # Non-fatal: span instrumentation should not break normal flow
-                        logger.debug("Failed to add telemetry event for query_results_sent")
+                # Add telemetry event
+                try:
+                    current_span = trace.get_current_span()
+                    if current_span is not None:
+                        current_span.add_event("query_results_sent", {
+                            "executed": True,
+                            "query_count": execution_result.get("query_count", 0),
+                            "successful_attempt": execution_result.get("successful_attempt"),
+                            "via_function_call": False
+                        })
+                except Exception:
+                    logger.debug("Failed to add telemetry event for query_results_sent")
 
-                    # Immediately send the structured query results as a distinct event so the
-                    # frontend can treat query results separately from generic assistant content.
-                    yield {
-                        "type": "query_results",
-                        "message": query_results_message,
-                        "results": execution_result.get("results", []),
-                        "query_count": execution_result.get("query_count", 0),
-                        "query_execution_metadata": {
-                            "successful_attempt": execution_result.get("successful_attempt")
-                        }
+                # Send structured query results
+                yield {
+                    "type": "query_results",
+                    "message": query_results_message,
+                    "results": execution_result.get("results", []),
+                    "query_count": execution_result.get("query_count", 0),
+                    "query_execution_metadata": {
+                        "successful_attempt": execution_result.get("successful_attempt"),
+                        "via_function_call": False
                     }
+                }
 
-                    # Then request a follow-up analysis from the AI, using the original assistant output
-                    # plus the structured results as system context. We stream any events the AI returns
+                # Request follow-up analysis from AI if we have results
+                if function_calls or initial_response_text.strip():
                     follow_up_messages = messages + [
                         {"role": "assistant", "content": initial_response_text},
                         {"role": "system", "content": query_results_message},
@@ -257,29 +330,37 @@ class ChatService:
                     async for event in follow_up_stream:
                         yield event
             else:
-                error_message = f"I tried to execute a query, but it failed with the following error: {execution_result.get('error', 'Unknown error')}. Please check the query and try again."
+                error_message = f"Query execution failed: {execution_result.get('error', 'Unknown error')}. Please check the query and try again."
                 yield {"type": "content", "delta": error_message}
                 yield {"type": "done"}
 
     def _build_elasticsearch_chat_system_prompt(self, schema_context: Optional[Dict[str, Any]], detection_result: Optional[ModeDetectionResult] = None) -> str:
         """Builds the system prompt for Elasticsearch-enabled chat."""
-        prompt = """You are an AI assistant with access to Elasticsearch data. You can help users understand their data, generate queries, and analyze results.
+        prompt = """You are an AI assistant with direct access to Elasticsearch data through function calling. You can help users understand their data, generate queries, and analyze results.
 
-When you need to execute an Elasticsearch query, use the `execute_elasticsearch_query` function like this:
-```
-execute_elasticsearch_query({
-  "index": "index_name",
-  "query": { ... }
-})
-```
+When you need to execute an Elasticsearch query, call the `execute_elasticsearch_query` function with proper parameters:
 
-**IMPORTANT QUERY GUIDELINES:**
-1. For counting documents, use `"size": 0`.
-2. Ensure the query structure is valid JSON. Do not nest "query" inside "query".
-3. Use efficient query types like `match_all`, `bool`, `match`, etc.
-4. Always specify the correct index name based on the user's context.
+**Function Parameters:**
+- `query` (required): The Elasticsearch query DSL object
+- `size`: Number of documents to return (default: 10, max: 10000)
+- `from`: Starting offset for pagination (default: 0)
+- `sort`: Sort order specification (optional)
+- `aggs`: Aggregations to perform (optional)
+- `_source`: Fields to include/exclude (optional)
 
-The function will be executed by the backend, and you will receive the results to analyze. NEVER say you don't have access to Elasticsearch.
+**Example function calls:**
+- Search documents: `execute_elasticsearch_query({"query": {"match": {"title": "search term"}}, "size": 10})`
+- Count documents: `execute_elasticsearch_query({"query": {"match_all": {}}, "size": 0})`
+- Aggregation: `execute_elasticsearch_query({"query": {"match_all": {}}, "size": 0, "aggs": {"avg_price": {"avg": {"field": "price"}}}})`
+
+**IMPORTANT GUIDELINES:**
+1. Always use proper Elasticsearch query DSL syntax
+2. For counting only, set `"size": 0`
+3. Use efficient queries like `match_all`, `bool`, `match`, `range`, etc.
+4. The system will automatically select the best available index if not specified
+5. Function calls are executed directly - no need for text formatting
+
+You will receive the actual query results and can analyze them for the user. NEVER say you don't have access to Elasticsearch - you have direct function calling access.
 """
         
         # Add intelligent context from mode detection

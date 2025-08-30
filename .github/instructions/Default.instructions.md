@@ -10,6 +10,7 @@ Provide project context and coding guidelines that AI should follow when generat
 
 2. **Coding Guidelines**:
    - Follow the existing code style and conventions used in the project.
+   - Follow the existing folder structure and naming conventions.
    - Write clear, maintainable code with appropriate comments and documentation.
    - Ensure that all new code is covered by tests, and existing tests are not broken by changes.
    - Optimize for performance and efficiency, especially when dealing with large datasets or complex queries.

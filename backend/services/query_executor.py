@@ -118,6 +118,89 @@ class QueryExecutor:
                     "results": []
                 }
 
+    async def execute_elasticsearch_query(self, query: Dict[str, Any], size: int = 10, 
+                                        from_: int = 0, sort: Optional[List[Dict]] = None, 
+                                        aggs: Optional[Dict] = None, _source: Optional[Any] = None,
+                                        conversation_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """Execute an Elasticsearch query directly from function call parameters"""
+        with tracer.start_as_current_span("query_executor_execute_direct") as span:
+            span.set_attributes({
+                "conversation_id": conversation_id or "unknown",
+                "query_type": "function_call"
+            })
+            
+            try:
+                # Build query data structure similar to what _extract_queries_from_response produces
+                query_data = {
+                    "query": query,
+                    "size": size,
+                    "from": from_,
+                }
+                
+                # Add optional parameters
+                if sort is not None:
+                    query_data["sort"] = sort
+                if aggs is not None:
+                    query_data["aggs"] = aggs
+                if _source is not None:
+                    query_data["_source"] = _source
+                
+                # Add any additional parameters
+                query_data.update(kwargs)
+                
+                # Use schema detection to find the best index if not specified
+                if "index" not in query_data:
+                    # Try to detect the best index from available schemas
+                    try:
+                        schemas = await self.es_service.get_all_index_schemas()
+                        if schemas:
+                            # Use the first available index as default
+                            query_data["index"] = list(schemas.keys())[0]
+                            logger.info(f"No index specified, using default: {query_data['index']}")
+                        else:
+                            raise ValueError("No index specified and no indices available")
+                    except Exception as e:
+                        logger.error(f"Failed to detect index: {e}")
+                        return {
+                            "executed": False,
+                            "error": f"No index specified and index detection failed: {str(e)}",
+                            "error_type": "index_detection_failed",
+                            "results": []
+                        }
+                
+                # Execute the single query
+                result = await self._execute_single_query(query_data, conversation_id)
+                result["attempt"] = 1  # Mark as single attempt
+                
+                # Format result to match the expected structure
+                final_result = {
+                    "executed": result.get("success", False),
+                    "query_count": 1,
+                    "results": [result],
+                    "successful_attempt": 1 if result.get("success") else None
+                }
+                
+                span.set_attributes({
+                    "success": final_result["executed"],
+                    "query_count": 1,
+                    "index": query_data.get("index", "unknown")
+                })
+                
+                return final_result
+                
+            except Exception as e:
+                logger.error(f"Error executing direct query: {e}")
+                span.set_attributes({
+                    "success": False,
+                    "error": str(e)
+                })
+                return {
+                    "executed": False,
+                    "error": f"Failed to execute query: {str(e)}",
+                    "error_type": type(e).__name__,
+                    "results": []
+                }
+
     def _extract_queries_from_response(self, response: str) -> List[Dict[str, Any]]:
         """Extract execute_elasticsearch_query function calls from AI response"""
         return self._extract_query_calls(response)
@@ -229,12 +312,11 @@ class QueryExecutor:
                 # Choose the appropriate Elasticsearch API
                 if use_count_api:
                     # Use count API for better performance
+                    # query_body is already properly structured from _apply_safety_limits
+                    # with {"query": {...}, "size": 0, "timeout": "30s"}
                     count_body = {}
                     if "query" in query_body and query_body["query"]:
                         count_body["query"] = query_body["query"]
-                    elif any(key in query_body for key in ["match_all", "match", "term", "range", "bool"]):
-                        # The query_body is actually the query part
-                        count_body["query"] = query_body
                     
                     result = await self.es_service.count(
                         index=index,
@@ -379,40 +461,51 @@ class QueryExecutor:
         """Apply safety limits to query and fix query structure"""
         safe_query = query_data.copy()
         
-        # Extract the query body - fix nested query structure
+        # Build a proper search body. Support three shapes from AI:
+        # 1) Full body with a top-level 'query' key (recommended)
+        # 2) Shorthand where top-level query keys (match_all, match, ...) are provided
+        # 3) No query provided -> default to match_all
+        query_keys = ["match_all", "match", "term", "range", "bool"]
+
+        # Determine the inner query content (the object that belongs under 'query')
         if "query" in safe_query and isinstance(safe_query["query"], dict):
-            query_body = safe_query["query"].copy()
+            inner_query = safe_query["query"].copy()
         else:
-            # If no explicit 'query' key, but common query keys exist at top-level, extract them
-            query_keys = ["match_all", "match", "term", "range", "bool"]
             found = {k: safe_query[k] for k in query_keys if k in safe_query}
             if found:
-                query_body = found
+                # If shorthand top-level query keys were used, wrap them under 'query'
+                # e.g. {"match_all": {}} -> {"query": {"match_all": {}}}
+                inner_query = found
             else:
-                # If no query specified, default to match_all
-                query_body = {"match_all": {}}
-        
+                inner_query = {"match_all": {}}
+
         # Check if this is a count-only request
         is_count_request = self._is_count_request(query_data)
-        
-        # For count requests, prefer the count API
+
+        # Build the final body that will be sent to Elasticsearch's search API
+        body: Dict[str, Any] = {}
+
+        # Attach the query object under the 'query' key
+        body["query"] = inner_query
+
+        # For search API, size and timeout must be top-level keys
         if is_count_request:
             safe_query["_use_count_api"] = True
-            # Remove size parameter for count API
-            if "size" in query_body:
-                del query_body["size"]
+            # Do not set size for count API here; count path will construct count body from 'body' below
         else:
-            # Ensure size limit for search requests
-            if "size" not in query_body:
-                query_body["size"] = min(100, self.max_size)  # Default to 100 docs
+            # Prefer explicit size from the original safe_query if provided, otherwise default
+            if "size" in safe_query:
+                try:
+                    body["size"] = min(int(safe_query.get("size", self.max_size)), self.max_size)
+                except Exception:
+                    body["size"] = min(100, self.max_size)
             else:
-                query_body["size"] = min(int(query_body.get("size", self.max_size)), self.max_size)
-        
+                body["size"] = min(100, self.max_size)
+
         # Add timeout if not present
-        if "timeout" not in query_body:
-            query_body["timeout"] = self.timeout
-        
-        safe_query["query"] = query_body
+        body.setdefault("timeout", self.timeout)
+
+        safe_query["query"] = body
         return safe_query
     
     def _is_count_request(self, query_data: Dict[str, Any]) -> bool:

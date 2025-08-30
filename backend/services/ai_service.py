@@ -1013,7 +1013,8 @@ class AIService:
 
     async def generate_chat(self, messages: List[Dict], *, model: Optional[str] = None,
                           temperature: float = 0.2, stream: bool = False,
-                          conversation_id: Optional[str] = None, provider: str = "auto"):
+                          conversation_id: Optional[str] = None, provider: str = "auto",
+                          tools: Optional[List[Dict]] = None):
         """Generate chat response - returns different types based on stream parameter"""
         # Auto-select provider if not specified
         if provider == "auto":
@@ -1028,18 +1029,19 @@ class AIService:
                 "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
                 "ai.stream": stream,
                 "ai.conversation_id": conversation_id or "unknown",
-                "ai.message_count": len(messages)
+                "ai.message_count": len(messages),
+                "ai.tools_enabled": bool(tools)
             })
 
-            logger.debug(f"Generating chat response using {provider} provider (streaming: {stream})")
+            logger.debug(f"Generating chat response using {provider} provider (streaming: {stream}, tools: {bool(tools)})")
 
             try:
                 if stream:
                     # For streaming, return the async generator
-                    return self._stream_chat_response(messages, model, temperature, provider)
+                    return self._stream_chat_response(messages, model, temperature, provider, tools)
                 else:
                     # For non-streaming, return the response directly
-                    return await self._get_chat_response(messages, model, temperature, provider)
+                    return await self._get_chat_response(messages, model, temperature, provider, tools)
 
             except Exception as exc:
                 current_span.set_status(StatusCode.ERROR)
@@ -1052,6 +1054,7 @@ class AIService:
                     "stream": stream,
                     "conversation_id": conversation_id,
                     "message_count": len(messages),
+                    "tools_enabled": bool(tools),
                     "error": str(exc),
                     "error_type": type(exc).__name__
                 }
@@ -1073,49 +1076,95 @@ class AIService:
                     raise ValueError(f"Failed to generate chat response using {provider}: {str(err)}") from err
 
     async def _stream_chat_response(self, messages: List[Dict], model: Optional[str],
-                                  temperature: float, provider: str):
+                                  temperature: float, provider: str, tools: Optional[List[Dict]] = None):
         """Stream chat response with tracing"""
         with tracer.start_as_current_span("ai_stream_chat_response", kind=SpanKind.CLIENT) as span:
             span.set_attributes({
                 "ai.provider": provider,
                 "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
                 "ai.stream": True,
-                "ai.message_count": len(messages)
+                "ai.message_count": len(messages),
+                "ai.tools_enabled": bool(tools)
             })
-            logger.debug(f"Starting stream chat response using {provider}")
+            logger.debug(f"Starting stream chat response using {provider} (tools: {bool(tools)})")
 
         try:
+            # Prepare common parameters
+            common_params = {
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True,
+                "max_tokens": 2000
+            }
+            
+            # Add tools if provided
+            if tools:
+                common_params["tools"] = tools
+                common_params["tool_choice"] = "auto"
+
             if provider == "azure":
                 response = await self.azure_client.chat.completions.create(
                     model=model or self.azure_deployment,
-                    messages=messages,
-                    temperature=temperature,
-                    stream=True,
-                    max_tokens=2000
+                    **common_params
                 )
 
                 async for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                        yield {
-                            "type": "content",
-                            "delta": chunk.choices[0].delta.content
-                        }
+                    if chunk.choices and chunk.choices[0].delta:
+                        delta = chunk.choices[0].delta
+                        
+                        # Handle content
+                        if delta.content:
+                            yield {
+                                "type": "content",
+                                "delta": delta.content
+                            }
+                        
+                        # Handle tool calls
+                        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                            for tool_call in delta.tool_calls:
+                                if tool_call.function:
+                                    yield {
+                                        "type": "tool_call",
+                                        "tool_call": {
+                                            "id": tool_call.id,
+                                            "function": {
+                                                "name": tool_call.function.name,
+                                                "arguments": tool_call.function.arguments
+                                            }
+                                        }
+                                    }
 
             else:  # openai
                 response = await self.openai_client.chat.completions.create(
                     model=model or self.openai_model,
-                    messages=messages,
-                    temperature=temperature,
-                    stream=True,
-                    max_tokens=2000
+                    **common_params
                 )
 
                 async for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                        yield {
-                            "type": "content",
-                            "delta": chunk.choices[0].delta.content
-                        }
+                    if chunk.choices and chunk.choices[0].delta:
+                        delta = chunk.choices[0].delta
+                        
+                        # Handle content
+                        if delta.content:
+                            yield {
+                                "type": "content",
+                                "delta": delta.content
+                            }
+                        
+                        # Handle tool calls
+                        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                            for tool_call in delta.tool_calls:
+                                if tool_call.function:
+                                    yield {
+                                        "type": "tool_call",
+                                        "tool_call": {
+                                            "id": tool_call.id,
+                                            "function": {
+                                                "name": tool_call.function.name,
+                                                "arguments": tool_call.function.arguments
+                                            }
+                                        }
+                                    }
 
             logger.debug(f"Stream completed successfully using {provider}")
             span.set_status(StatusCode.OK)
@@ -1125,6 +1174,7 @@ class AIService:
             error_context = {
                 "provider": provider,
                 "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                "tools_enabled": bool(tools),
                 "error": str(e),
                 "error_type": type(e).__name__
             }
@@ -1143,55 +1193,89 @@ class AIService:
             }
 
     async def _get_chat_response(self, messages: List[Dict], model: Optional[str],
-                               temperature: float, provider: str) -> Dict:
+                               temperature: float, provider: str, tools: Optional[List[Dict]] = None) -> Dict:
         """Get non-streaming chat response with tracing"""
         with tracer.start_as_current_span("ai_get_chat_response", kind=SpanKind.CLIENT) as span:
             span.set_attributes({
                 "ai.provider": provider,
                 "ai.model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
                 "ai.stream": False,
-                "ai.message_count": len(messages)
+                "ai.message_count": len(messages),
+                "ai.tools_enabled": bool(tools)
             })
-            logger.debug(f"Getting chat response using {provider}")
+            logger.debug(f"Getting chat response using {provider} (tools: {bool(tools)})")
 
             try:
+                # Prepare common parameters
+                common_params = {
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": 2000
+                }
+                
+                # Add tools if provided
+                if tools:
+                    common_params["tools"] = tools
+                    common_params["tool_choice"] = "auto"
+
                 if provider == "azure":
                     resp_candidate = self.azure_client.chat.completions.create(
                         model=model or self.azure_deployment,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=2000
+                        **common_params
                     )
                 else:  # openai
                     resp_candidate = self.openai_client.chat.completions.create(
                         model=model or self.openai_model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=2000
+                        **common_params
                     )
                 response = await self._maybe_await(resp_candidate)
 
+                # Extract text content
                 text = None
                 try:
                     text = response.choices[0].message.content if hasattr(response, 'choices') else (response.get('choices', [{}])[0].get('message', {}).get('content') if isinstance(response, dict) else None)
                 except Exception:
                     text = None
 
-                if not text:
+                # Extract tool calls
+                tool_calls = None
+                try:
+                    if hasattr(response, 'choices') and response.choices:
+                        message = response.choices[0].message
+                        if hasattr(message, 'tool_calls') and message.tool_calls:
+                            tool_calls = []
+                            for tool_call in message.tool_calls:
+                                tool_calls.append({
+                                    "id": tool_call.id,
+                                    "function": {
+                                        "name": tool_call.function.name,
+                                        "arguments": tool_call.function.arguments
+                                    }
+                                })
+                except Exception as e:
+                    logger.debug(f"No tool calls found or error extracting: {e}")
+
+                if not text and not tool_calls:
                     logger.warning(f"Empty response from {provider} API")
 
                 logger.debug(f"Chat response completed successfully using {provider}")
                 span.set_status(StatusCode.OK)
 
-                return {
+                result = {
                     "text": text or "",
                     "usage": response.usage.model_dump() if hasattr(response, 'usage') else (response.get('usage') if isinstance(response, dict) else None)
                 }
+                
+                if tool_calls:
+                    result["tool_calls"] = tool_calls
+
+                return result
 
             except Exception as e:
                 error_context = {
                     "provider": provider,
                     "model": model or (self.azure_deployment if provider == "azure" else self.openai_model),
+                    "tools_enabled": bool(tools),
                     "error": str(e),
                     "error_type": type(e).__name__
                 }
