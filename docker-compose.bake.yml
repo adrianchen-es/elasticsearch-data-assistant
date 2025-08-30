@@ -1,0 +1,17 @@
+# Docker Compose override for use with Docker Bake
+# This file is used when COMPOSE_BAKE=true to use pre-built images from bake
+
+version: '3.8'
+
+services:
+  backend:
+    image: elasticsearch-data-assistant-backend:latest
+    build: null  # Disable build, use pre-built image
+
+  gateway:
+    image: elasticsearch-data-assistant-gateway:latest
+    build: null  # Disable build, use pre-built image
+
+  frontend:
+    image: elasticsearch-data-assistant-frontend:latest
+    build: null  # Disable build, use pre-built image

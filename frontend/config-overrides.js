@@ -3,45 +3,45 @@ const CompressionPlugin = require('compression-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 
 module.exports = function override(config, env) {
-    // config.resolve.fallback = {
-    //     child_process: false,
-    //     fs: false,
-    //     path: false,
-    //     net: false,
-    //     tls: false,
-    //     dns: false,
-    //     http2: false,
-    //     os: false,
-    //     zlib: false,
-    //     events: false,
-    //     timers: require.resolve('timers-browserify'),
-    //     console: false,
-    //     domain: false,
-    //     async_hooks: false,
-    //     diagnostics_channel: false,
-    //     crypto: false,
-    //     querystring: require.resolve("querystring-es3"),
-    //     url: require.resolve('url/'),
-    //     assert: require.resolve('assert'),
-    //     http: require.resolve('stream-http'),
-    //     https: require.resolve('https-browserify'),
-    //     buffer: require.resolve('buffer'),
-    //     stream: require.resolve('stream-browserify'),
-    // };
-    // config.plugins.push(
-    //     new CompressionPlugin()
-    // );
-
-    // Add cache configuration
-    config.cache = {
-        type: 'filesystem',
-        buildDependencies: {
-            config: [__filename],
-        },
-    };
-
-    if (env === 'production') {
-        config.plugins.push(new CompressionPlugin());
+    // Completely disable react-refresh in development to fix runtime errors
+    if (env === 'development') {
+        // Remove any existing react-refresh plugins
+        config.plugins = config.plugins.filter(plugin => {
+            const name = plugin.constructor.name;
+            return name !== 'ReactRefreshPlugin' && name !== 'ReactRefreshWebpackPlugin';
+        });
+        
+        // Find and modify babel-loader to remove react-refresh
+        const oneOfRules = config.module.rules.find(rule => rule.oneOf);
+        if (oneOfRules) {
+            oneOfRules.oneOf.forEach(rule => {
+                if (rule.test && (rule.test.toString().includes('jsx') || rule.test.toString().includes('tsx'))) {
+                    if (rule.use && Array.isArray(rule.use)) {
+                        rule.use.forEach(loader => {
+                            if (loader.loader && loader.loader.includes('babel-loader')) {
+                                if (loader.options && loader.options.plugins) {
+                                    loader.options.plugins = loader.options.plugins.filter(plugin => {
+                                        if (typeof plugin === 'string') {
+                                            return !plugin.includes('react-refresh');
+                                        }
+                                        if (Array.isArray(plugin)) {
+                                            return !plugin[0].includes('react-refresh');
+                                        }
+                                        return true;
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            });
+        }
+        
+        // Disable fast refresh completely
+        config.resolve.alias = {
+            ...config.resolve.alias,
+            'react-refresh/runtime': false
+        };
     }
 
     // Add cache configuration

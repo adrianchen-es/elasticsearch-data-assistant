@@ -198,17 +198,26 @@ app.use('/api/chat', createProxyMiddleware({
     } catch (e) {}
   },
   onError: (err, req, res) => {
-  logError('Chat proxy error:', err && err.message ? err.message : err);
-    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+    // Log full error for diagnostics
+    try {
+      logError('Chat proxy error:', err && err.stack ? err.stack : (err && err.message ? err.message : String(err)));
+    } catch (logErr) {
+      // best-effort logging
+      console.error('Failed to log chat proxy error', logErr);
+    }
+
+    if (err && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT')) {
       res.status(504).json({
         error: 'Gateway timeout',
-        message: 'The chat request took too long to process. Please try again.',
-        timeout: chatTimeout
+        message: 'The chat request timed out or the upstream connection was reset.',
+        timeout: chatTimeout,
+        detail: err && err.message ? err.message : undefined
       });
     } else {
       res.status(500).json({ 
         error: 'Chat service unavailable',
-        message: err.message 
+        message: err && err.message ? err.message : 'Unknown proxy error',
+        detail: err && err.stack ? err.stack.split('\n').slice(0,3).join(' | ') : undefined
       });
     }
   }
@@ -228,11 +237,25 @@ app.use('/api/health', createProxyMiddleware({
     });
   },
   onError: (err, req, res) => {
-  logError('API proxy error:', err && err.message ? err.message : err);
-    res.status(500).json({ 
-      error: 'API service unavailable',
-      message: err.message 
-    });
+    try {
+      logError('API proxy error:', err && err.stack ? err.stack : (err && err.message ? err.message : String(err)));
+    } catch (logErr) {
+      console.error('Failed to log API proxy error', logErr);
+    }
+
+    if (err && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT')) {
+      res.status(504).json({
+        error: 'Gateway timeout',
+        message: 'Upstream connection reset or timed out',
+        detail: err && err.message ? err.message : undefined
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'API service unavailable',
+        message: err && err.message ? err.message : 'Unknown proxy error',
+        detail: err && err.stack ? err.stack.split('\n').slice(0,3).join(' | ') : undefined
+      });
+    }
   }
   , onProxyRes: (proxyRes, req, res) => {
     try {

@@ -1,24 +1,42 @@
 //require('./telemetry/node_tracing.js');
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, Database, Search, CheckCircle, XCircle, AlertCircle, RefreshCw, Server, Globe } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { setupTelemetryWeb } from './telemetry/setup';
+
 import { info as feInfo } from './lib/logging';
 import { readCachedHealth, writeCachedHealth } from './utils/healthCache';
-import { ProviderSelector } from './components/Selectors';
+// ProviderSelector is not used here; selectors are provided by child components
 import ChatInterface from './components/ChatInterface';
 import QueryEditor from './components/QueryEditor';
 import MobileLayout from './components/MobileLayout';
 
+const HEALTH_CACHE_KEYS = {
+  backend: 'health_backend',
+  proxy: 'health_proxy'
+};
+
+const HEALTH_TTLS = {
+  success: 15 * 60 * 1000, // 15 minutes for healthy services
+  error: 5 * 60 * 1000, // 5 minutes for unhealthy services (retry sooner)
+  manual: 30 * 1000, // 30 seconds throttle for manual refresh
+};
+
 function App() {
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [currentView, setCurrentView] = useState('chat');
-  const [indices, setIndices] = useState([]);
+  // selectedIndex is managed in child components; keep local placeholder only
   const [selectedIndex, setSelectedIndex] = useState('');
 
-  const providers = [
-    { id: 'azure', name: 'Azure OpenAI' },
-    { id: 'openai', name: 'OpenAI' }
-  ];
+  const [providers, setProviders] = useState([
+    { id: 'azure', name: 'Azure OpenAI', configured: true, healthy: true },
+    { id: 'openai', name: 'OpenAI', configured: true, healthy: true }
+  ]);
+  // User tuning for search behavior (persisted in localStorage)
+  const [tuning, setTuning] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('elasticsearch_chat_tuning') || '{}');
+    } catch { return {}; }
+  });
   
   // Backend health status state (/api/health)
   const [backendHealth, setBackendHealth] = useState({
@@ -37,16 +55,7 @@ function App() {
   });
 
   // Check backend health status
-  const HEALTH_CACHE_KEYS = {
-    backend: 'health_backend',
-    proxy: 'health_proxy'
-  };
-
-  const HEALTH_TTLS = {
-    success: 15 * 60 * 1000, // 15 minutes for healthy services
-    error: 5 * 60 * 1000, // 5 minutes for unhealthy services (retry sooner)
-    manual: 30 * 1000, // 30 seconds throttle for manual refresh
-  };
+  
 
   // Track last manual refresh to implement throttling
   const [lastManualRefresh, setLastManualRefresh] = useState({
@@ -56,7 +65,7 @@ function App() {
 
   // health cache helpers now live in ./utils/healthCache and use sessionStorage
 
-  const checkBackendHealth = async (force = false) => {
+  const checkBackendHealth = React.useCallback(async (force = false) => {
     // Implement manual refresh throttling
     if (force) {
       const now = Date.now();
@@ -104,9 +113,9 @@ function App() {
       writeCachedHealth(HEALTH_CACHE_KEYS.backend, computed, HEALTH_TTLS.error);
       setBackendHealth(computed);
     }
-  };
+  }, [lastManualRefresh]);
 
-  const checkProxyHealth = async (force = false) => {
+  const checkProxyHealth = React.useCallback(async (force = false) => {
     // Implement manual refresh throttling
     if (force) {
       const now = Date.now();
@@ -152,28 +161,69 @@ function App() {
       writeCachedHealth(HEALTH_CACHE_KEYS.proxy, computed, HEALTH_TTLS.error);
       setProxyHealth(computed);
     }
-  };
+  }, [lastManualRefresh]);
 
   // Check both health endpoints
-  const checkAllHealth = async () => {
+  const checkAllHealth = React.useCallback(async () => {
     await Promise.all([
       checkBackendHealth(),
       checkProxyHealth()
     ]);
-  };
+  }, [checkBackendHealth, checkProxyHealth]);
 
+  // We intentionally run this effect once on mount and use internal helpers;
+  // disable exhaustive-deps for this mount-only behavior.
+  // Run the following setup once on mount. The called helpers are stable in this
+  // component lifecycle and intentionally omitted from deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    // Setup telemetry
+    // Setup telemetry and initial provider/health fetch. These are intentionally
+    // performed once on mount. checkAllHealth is stable for the lifecycle of
+    // this component in current architecture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // (justification: mount-only effects; dependencies are stable primitives)
     setupTelemetryWeb();
+    // Fetch provider statuses to gate selection by availability
+    (async () => {
+      try {
+        const resp = await fetch('/api/providers');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.providers)) {
+            setProviders(data.providers.map(p => ({
+              id: p.id,
+              name: p.name || p.id,
+              configured: !!p.configured,
+              healthy: !!p.healthy
+            })));
+            // If current selection is not healthy, fallback to a healthy default
+            const selected = data.providers.find(p => p.id === selectedProvider);
+            const healthyDefault = data.providers.find(p => p.healthy) || data.providers.find(p => p.configured);
+            if (!selected || !selected.healthy) {
+              if (healthyDefault) setSelectedProvider(healthyDefault.id);
+            }
+          }
+        }
+      } catch (e) {
+        // Non-fatal: leave defaults
+      }
+    })();
     
   // Initial health checks (will use cache if available)
   checkAllHealth();
     
     // Set up periodic health checks every 30 seconds
-    const healthCheckInterval = setInterval(checkAllHealth, 30000);
+  const healthCheckInterval = setInterval(() => { checkAllHealth(); }, 30000);
     
     return () => clearInterval(healthCheckInterval);
-  }, []);
+  }, [checkAllHealth, selectedProvider]);
+
+  // Persist tuning to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('elasticsearch_chat_tuning', JSON.stringify(tuning || {}));
+    } catch {}
+  }, [tuning]);
 
   // Render health status icon
   const renderHealthIcon = (healthStatus) => {
@@ -199,25 +249,33 @@ function App() {
     return date.toLocaleTimeString();
   };
 
-  // Generate tooltip content
+  // Generate tooltip content with concise errors and per-service details for backend
   const getTooltipContent = (healthStatus, systemName) => {
-    const { status, message, lastChecked, services } = healthStatus;
-    
-    let content = `${systemName}: ${message}\nLast checked: ${formatLastChecked(lastChecked)}`;
-    
-    if (Object.keys(services).length > 0) {
-      content += `\n\n${systemName} Services:`;
-      Object.entries(services).forEach(([service, serviceStatus]) => {
-        const statusIcon = typeof serviceStatus === 'object' 
-          ? (typeof serviceStatus.status === 'string' && serviceStatus.status.startsWith('healthy') ? '✅' : '❌')
-          : (typeof serviceStatus === 'string' && serviceStatus.startsWith('healthy') ? '✅' : '❌');
-        const serviceMessage = typeof serviceStatus === 'object' 
-          ? serviceStatus.message || service
-          : service;
-        content += `\n${statusIcon} ${serviceMessage}`;
+    const { status, message, lastChecked, services } = healthStatus || {};
+
+    // Basic header
+    let content = `${systemName}: ${status === 'healthy' ? (message || 'Healthy') : (status === 'error' ? 'Unreachable' : (message || 'Server Error'))}\nLast checked: ${formatLastChecked(lastChecked)}`;
+
+    // For backend, if any service is not healthy, list per-service status.
+    if (systemName && systemName.toLowerCase() === 'backend' && services && Object.keys(services).length > 0) {
+      const entries = Object.entries(services);
+      const anyUnhealthy = entries.some(([_k, v]) => {
+        const s = typeof v === 'object' ? v.status : v;
+        return typeof s === 'string' && !s.startsWith('healthy');
       });
+
+      if (anyUnhealthy) {
+        content += `\n\nServices:`;
+        entries.forEach(([service, serviceStatus]) => {
+          const s = typeof serviceStatus === 'object' ? serviceStatus.status : serviceStatus;
+          const msg = typeof serviceStatus === 'object' ? (serviceStatus.message || service) : service;
+          const icon = (typeof s === 'string' && s.startsWith('healthy')) ? '✅' : '❌';
+          content += `\n${icon} ${service}: ${msg}`;
+        });
+      }
     }
-    
+
+    // For non-backend systems, when unhealthy or error, avoid dumping full JSON: already represented above.
     return content;
   };
 
@@ -228,16 +286,24 @@ function App() {
       backendHealth={backendHealth}
       proxyHealth={proxyHealth}
       renderHealthIcon={renderHealthIcon}
+  // Pass tooltip generator so layout buttons can show details
+  getTooltipContent={getTooltipContent}
       checkBackendHealth={checkBackendHealth}
       selectedProvider={selectedProvider}
       setSelectedProvider={setSelectedProvider}
       providers={providers}
+    tuning={tuning}
+    setTuning={setTuning}
+  // Enhanced chat availability: detect via backend health.services.enhanced or message
+  enhancedAvailable={Boolean((backendHealth && backendHealth.services && backendHealth.services.enhanced) || (backendHealth && backendHealth.message && backendHealth.message.toLowerCase().includes('enhanced')))}
     >
       {currentView === 'chat' && (
         <ChatInterface
           selectedProvider={selectedProvider}
           selectedIndex={selectedIndex}
           setSelectedIndex={setSelectedIndex}
+          providers={providers}
+          tuning={tuning}
         />
       )}
       {currentView === 'query' && (

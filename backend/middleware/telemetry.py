@@ -8,11 +8,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPGrpcSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as OTLPHttpSpanExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPGrpcSpanExporter
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as OTLPHttpMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as OTLPGrpcMetricExporter
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
@@ -53,7 +48,7 @@ def setup_telemetry():
             SemanticResourceAttrs.HOST_NAME: settings.host_name,
             SemanticResourceAttrs.CONTAINER_NAME: settings.container_name,
         })
-        
+
         # --- Tracing ---
         # Default to HTTP/OTLP protocol unless explicitly set to gRPC
         if settings.otel_exporter_grpc_protocol:
@@ -123,14 +118,14 @@ def setup_telemetry():
             )
         except Exception:
             fetch_error_counter = None
-        
+
         # Instrument other services
         ElasticsearchInstrumentor().instrument()
         OpenAIInstrumentor().instrument(enable_metrics=True)
         HTTPXClientInstrumentor().instrument()
-        
+
         logger.info(f"OpenTelemetry instrumentation setup complete - using {'gRPC' if settings.otel_exporter_grpc_protocol else 'HTTP/OTLP'} protocol")
-        
+
     except Exception as e:
         logger.error(f"Failed to setup telemetry: {e}", exc_info=True)
         # Don't fail the app if telemetry setup fails

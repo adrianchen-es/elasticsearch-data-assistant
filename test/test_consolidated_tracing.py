@@ -195,10 +195,10 @@ class TestRouterTracing:
     @patch('routers.chat.tracer')
     def test_chat_router_tracing_decorator(self, mock_tracer):
         """Test that chat router functions have tracing decorators"""
-        from routers.chat import get_schema_context
+        from routers.chat import chat_endpoint
         
         # Check if the function exists and can be called with tracing
-        assert callable(get_schema_context)
+        assert hasattr(chat_endpoint, '__call__')
         
         # Mock the span for testing
         mock_span = MagicMock()

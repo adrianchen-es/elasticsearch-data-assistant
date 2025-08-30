@@ -71,7 +71,7 @@ An advanced, production-ready web application that enables natural language inte
 
 ## Quick Start
 
-### Option 1: With Local Elasticsearch
+### Option 1: With Local Elasticsearch (Traditional)
 
 ```bash
 # Clone and setup
@@ -86,7 +86,7 @@ cp .env.example .env
 make setup
 ```
 
-### Option 2: With External Elasticsearch
+### Option 2: With External Elasticsearch (Traditional)
 
 ```bash
 # Setup for external ES
@@ -96,6 +96,26 @@ cp .env.external-es.example .env
 # Start services
 make setup-external
 ```
+
+### ⚡ Option 3: With Docker Bake (Faster Builds!)
+
+```bash
+# Enable Docker Bake for better performance
+export COMPOSE_BAKE=true
+
+# One-time setup
+make bake-setup
+
+# Fast parallel builds
+make bake-build
+
+# Start services
+docker compose up -d
+```
+
+> **🚀 Performance Boost**: Docker Bake enables parallel builds and advanced caching, reducing build times from ~3-5 minutes to ~1-2 minutes!
+>
+> See [Docker Bake Documentation](docs/DOCKER_BAKE.md) for advanced usage and configuration.
 
 ## Complete Project Structure
 

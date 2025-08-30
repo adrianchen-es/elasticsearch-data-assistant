@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Elasticsearch to Python type mapping
 ES_TO_PYTHON_TYPES = {
     'text': 'str',
-    'keyword': 'str', 
+    'keyword': 'str',
     'long': 'int',
     'integer': 'int',
     'short': 'int',
@@ -357,7 +357,7 @@ def format_mapping_summary(es_types: Dict[str, str], python_types: Dict[str, str
     """
     if not es_types:
         return "No field properties found in mapping."
-    
+
     field_count = len(es_types)
 
     # Sort fields for consistent display
